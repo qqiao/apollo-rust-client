@@ -4,6 +4,9 @@ use config::Config;
 pub mod cache;
 pub mod config;
 
+#[derive(Debug, thiserror::Error)]
+pub enum Error {}
+
 pub struct Client {}
 
 impl Client {
