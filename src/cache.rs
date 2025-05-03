@@ -42,6 +42,10 @@ impl Cache {
         }
     }
 
+    pub(crate) fn refresh(&self) -> Result<(), Error> {
+        todo!()
+    }
+
     /// Get a configuration from the cache.
     ///
     /// # Arguments
