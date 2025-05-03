@@ -16,7 +16,7 @@ impl Cache {
     /// # Returns
     ///
     /// The configuration for the given key.
-    pub fn get_config<D: DeserializeOwned>(&self, key: &str) -> Result<D, Error> {
+    pub fn get_config<D: DeserializeOwned>(&self, _key: &str) -> Result<D, Error> {
         todo!()
     }
 }

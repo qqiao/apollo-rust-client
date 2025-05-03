@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use cache::Cache;
 use config::Config;
 
@@ -10,7 +12,30 @@ pub enum Error {}
 
 /// Apollo client.
 pub struct Client {
-    config: Config,
+    _config: Config,
+}
+
+/// Different types of environments.
+pub enum Env {
+    /// Development environment.
+    Dev,
+    /// Feature Acceptance Testing environment.
+    Fat,
+    /// User Acceptance Testing environment.
+    Uat,
+    /// Production environment.
+    Pro,
+}
+
+impl Display for Env {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Dev => write!(f, "DEV"),
+            Self::Fat => write!(f, "FAT"),
+            Self::Uat => write!(f, "UAT"),
+            Self::Pro => write!(f, "PRO"),
+        }
+    }
 }
 
 impl Client {
@@ -24,7 +49,7 @@ impl Client {
     ///
     /// A new Apollo client.
     pub fn new(config: Config) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     /// Get a cache for a given namespace.
@@ -36,7 +61,7 @@ impl Client {
     /// # Returns
     ///
     /// A cache for the given namespace.
-    pub fn namespace(&self, name_space: &str) -> &Cache {
+    pub fn namespace(&self, _name_space: &str) -> &Cache {
         todo!()
     }
 }
