@@ -1,10 +1,18 @@
 //! Cache for the Apollo client.
 
 use crate::client_config::ClientConfig;
+use base64::display::Base64Display;
+use hmac::{Hmac, Mac};
 use log::{debug, trace};
 use serde_json::Value;
-use std::{fs::File, path::PathBuf, str::FromStr};
-
+use sha1::Sha1;
+use std::{
+    fs::File,
+    path::PathBuf,
+    str::FromStr,
+    time::{SystemTime, UNIX_EPOCH},
+};
+use url::{ParseError, Url};
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Io error: {0}")]
@@ -15,6 +23,8 @@ pub enum Error {
     KeyNotFound(String),
     #[error("Reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
+    #[error("Url parse error: {0}")]
+    UrlParse(#[from] url::ParseError),
 }
 
 /// A cache for a given namespace.
@@ -56,12 +66,22 @@ impl Cache {
             self.namespace
         );
         trace!("Url {} for namespace {}", url, self.namespace);
-        let response = reqwest::get(url).await?;
-        trace!(
-            "Response status code {} for namespace {}",
-            response.status(),
-            self.namespace
-        );
+
+        let mut client = reqwest::Client::new().get(&url);
+        if self.client_config.secret.is_some() {
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis();
+            let signature = sign(timestamp, &url, self.client_config.secret.as_ref().unwrap())?;
+            client = client.header("timestamp", timestamp.to_string());
+            client = client.header(
+                "Authorization",
+                format!("Apollo {}:{}", &self.client_config.app_id, signature),
+            );
+        }
+
+        let response = client.send().await?;
 
         let body = response.text().await?;
 
@@ -138,5 +158,58 @@ impl Cache {
         let value = self.get_value(key).await.ok()?;
 
         value.as_str().and_then(|s| s.parse::<T>().ok())
+    }
+}
+
+pub(crate) fn sign(timestamp: u128, url: &str, secret: &str) -> Result<String, Error> {
+    let u = match Url::parse(url) {
+        Ok(u) => u,
+        Err(e) => match e {
+            ParseError::RelativeUrlWithoutBase => {
+                let base_url = Url::parse("http://localhost:8080").unwrap();
+                base_url.join(url).unwrap()
+            }
+            _ => {
+                return Err(Error::UrlParse(e));
+            }
+        },
+    };
+    let mut path_and_query = String::from(u.path());
+    if let Some(query) = u.query() {
+        path_and_query.push_str(&format!("?{}", query));
+    }
+    let input = format!("{}\n{}", timestamp, path_and_query);
+    trace!("Input {}", input);
+
+    type HmacSha1 = Hmac<Sha1>;
+    let mut mac = HmacSha1::new_from_slice(secret.as_bytes()).unwrap();
+    mac.update(input.as_bytes());
+    let result: [u8; 20] = mac.finalize().into_bytes().into();
+
+    // Convert the result to a string using base64
+    let code = Base64Display::new(&result, &base64::engine::general_purpose::STANDARD);
+    Ok(code.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::setup;
+
+    #[test]
+    fn test_sign_with_path() {
+        let url = "/configs/100004458/default/application?ip=10.0.0.1";
+        let secret = "df23df3f59884980844ff3dada30fa97";
+        let signature = sign(1576478257344, url, secret).unwrap();
+        assert_eq!(signature, "EoKyziXvKqzHgwx+ijDJwgVTDgE=");
+    }
+
+    #[test]
+    fn test_sign_url() {
+        setup();
+        let url = "http://localhost:8080/configs/100004458/default/application?ip=10.0.0.1";
+        let secret = "df23df3f59884980844ff3dada30fa97";
+        let signature = sign(1576478257344, url, secret).unwrap();
+        assert_eq!(signature, "EoKyziXvKqzHgwx+ijDJwgVTDgE=");
     }
 }
