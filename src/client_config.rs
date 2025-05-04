@@ -20,7 +20,7 @@ pub struct ClientConfig {
     pub cluster: String,
 
     /// The directory to store the cache files.
-    pub cache_dir: PathBuf,
+    pub cache_dir: Option<PathBuf>,
 
     /// The Apollo config server URL to connect to.
     pub config_server: String,
@@ -46,12 +46,7 @@ impl ClientConfig {
         let cluster = std::env::var("IDC").unwrap_or("default".to_string());
         let config_server = std::env::var("APOLLO_CONFIG_SERVICE").map_err(Error::EnvVar)?;
         let label = std::env::var("APOLLO_LABEL").map_err(Error::EnvVar).ok();
-        let cache_dir = match std::env::var("APOLLO_CACHE_DIR") {
-            Ok(dir) => PathBuf::from(dir),
-            Err(_) => PathBuf::from("/opt/data")
-                .join(&app_id)
-                .join("config-cache"),
-        };
+        let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok().map(PathBuf::from);
         Ok(Self {
             app_id,
             secret,
@@ -59,6 +54,14 @@ impl ClientConfig {
             config_server,
             cache_dir,
             label,
+        })
+    }
+
+    pub(crate) fn get_cache_dir(&self) -> PathBuf {
+        self.cache_dir.clone().unwrap_or_else(|| {
+            PathBuf::from("/opt/data")
+                .join(&self.app_id)
+                .join("config-cache")
         })
     }
 }

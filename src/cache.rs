@@ -1,8 +1,9 @@
 //! Cache for the Apollo client.
 
 use crate::client_config::ClientConfig;
+use log::{debug, trace};
 use serde_json::Value;
-use std::{fs::File, path::PathBuf};
+use std::{fs::File, path::PathBuf, str::FromStr};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -12,11 +13,14 @@ pub enum Error {
     Serde(#[from] serde_json::Error),
     #[error("Key not found: {0}")]
     KeyNotFound(String),
+    #[error("Reqwest error: {0}")]
+    Reqwest(#[from] reqwest::Error),
 }
 
 /// A cache for a given namespace.
 pub struct Cache {
     client_config: ClientConfig,
+    namespace: String,
     file_path: PathBuf,
 }
 
@@ -33,17 +37,43 @@ impl Cache {
     /// A new cache for the given namespace.
     pub(crate) fn new(client_config: ClientConfig, namespace: &str) -> Self {
         let file_path = client_config
-            .cache_dir
-            .clone()
+            .get_cache_dir()
             .join(format!("{}.cache.json", namespace));
         Self {
             client_config,
+            namespace: namespace.to_string(),
             file_path,
         }
     }
 
-    pub(crate) fn refresh(&self) -> Result<(), Error> {
-        todo!()
+    pub(crate) async fn refresh(&self) -> Result<(), Error> {
+        trace!("Refreshing cache for namespace {}", self.namespace);
+        let url = format!(
+            "{}/configfiles/json/{}/{}/{}",
+            self.client_config.config_server,
+            self.client_config.app_id,
+            self.client_config.cluster,
+            self.namespace
+        );
+        trace!("Url {} for namespace {}", url, self.namespace);
+        let response = reqwest::get(url).await?;
+        trace!(
+            "Response status code {} for namespace {}",
+            response.status(),
+            self.namespace
+        );
+
+        let body = response.text().await?;
+
+        trace!("Response body {} for namespace {}", body, self.namespace);
+        // Create parent directories if they don't exist
+        if let Some(parent) = self.file_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        // Write the response body to the cache file
+        std::fs::write(&self.file_path, body)?;
+        Ok(())
     }
 
     /// Get a configuration from the cache.
@@ -55,10 +85,41 @@ impl Cache {
     /// # Returns
     ///
     /// The configuration for the given key.
-    fn get_value(&self, key: &str) -> Result<Value, Error> {
+    async fn get_value(&self, key: &str) -> Result<Value, Error> {
+        debug!("Getting value for key {}", key);
         let file_path = self.file_path.clone();
-        let file = File::open(file_path)?;
+        // Check if the cache file exists
+        if !file_path.exists() {
+            trace!(
+                "Cache file {} doesn't exist, fetching from server",
+                file_path.display()
+            );
+            // File doesn't exist, try to refresh the cache
+            match self.refresh().await {
+                Ok(_) => {
+                    // Refresh successful, continue with reading the file
+                    log::debug!(
+                        "Cache file created after refresh for namespace {}",
+                        self.namespace
+                    );
+                }
+                Err(err) => {
+                    // Refresh failed, propagate the error
+                    log::error!(
+                        "Failed to refresh cache for namespace {}: {:?}",
+                        self.namespace,
+                        err
+                    );
+                    return Err(err);
+                }
+            }
+        }
+        let file = File::open(file_path.clone())?;
+        trace!("Cache file {} opened", file_path.clone().display());
+
         let config: Value = serde_json::from_reader(file)?;
+        trace!("Config {:?}", config);
+
         let value = config.get(key).ok_or(Error::KeyNotFound(key.to_string()))?;
         Ok(value.clone())
     }
@@ -72,64 +133,10 @@ impl Cache {
     /// # Returns
     ///
     /// The property for the given key as a string.
-    pub fn get_property(&self, key: &str) -> Option<String> {
-        let value = self.get_value(key).ok()?;
-        value.as_str().map(|s| s.to_string())
-    }
+    pub async fn get_property<T: FromStr>(&self, key: &str) -> Option<T> {
+        debug!("Getting property for key {}", key);
+        let value = self.get_value(key).await.ok()?;
 
-    /// Get a property from the cache as a float.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to get the property for.
-    ///
-    /// # Returns
-    ///
-    /// The property for the given key as a float.
-    pub fn get_float(&self, key: &str) -> Option<f64> {
-        let value = self.get_value(key).ok()?;
-        value.as_f64()
-    }
-
-    /// Get a property from the cache as an integer.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to get the property for.
-    ///
-    /// # Returns
-    ///
-    /// The property for the given key as an integer.
-    pub fn get_int(&self, key: &str) -> Option<i64> {
-        let value = self.get_value(key).ok()?;
-        value.as_i64()
-    }
-
-    /// Get a property from the cache as a boolean.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to get the property for.
-    ///
-    /// # Returns
-    ///
-    /// The property for the given key as a boolean.
-    pub fn get_bool(&self, key: &str) -> Option<bool> {
-        let value = self.get_value(key).ok()?;
-        value.as_bool()
-    }
-
-    /// Get a property from the cache as an array.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to get the property for.
-    ///
-    /// # Returns
-    ///
-    /// The property for the given key as an array of values.
-    pub fn get_array(&self, key: &str) -> Option<Vec<Value>> {
-        let value = self.get_value(key).ok()?;
-        value.as_array().cloned()
+        value.as_str().and_then(|s| s.parse::<T>().ok())
     }
 }
