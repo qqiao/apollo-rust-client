@@ -126,13 +126,24 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    fn get_config() -> ClientConfig {
+    fn get_config_no_secret() -> ClientConfig {
         ClientConfig {
             app_id: String::from("101010101"),
             cluster: String::from("default"),
             config_server: String::from("http://81.68.181.139:8080"),
             label: None,
             secret: None,
+            cache_dir: Some(PathBuf::from("/tmp/apollo")),
+        }
+    }
+
+    fn get_config_with_secret() -> ClientConfig {
+        ClientConfig {
+            app_id: String::from("101010102"),
+            cluster: String::from("default"),
+            config_server: String::from("http://81.68.181.139:8080"),
+            label: None,
+            secret: Some(String::from("53bf47631db540ac9700f0020d2192c8")),
             cache_dir: Some(PathBuf::from("/tmp/apollo")),
         }
     }
@@ -144,7 +155,7 @@ mod tests {
     #[tokio::test]
     async fn test_missing_value() {
         setup();
-        let config = get_config();
+        let config = get_config_no_secret();
         let client = Client::new(config);
         let cache = client.namespace("application");
         assert_eq!(cache.get_property::<String>("missingValue").await, None);
@@ -153,8 +164,20 @@ mod tests {
     #[tokio::test]
     async fn test_string_value() {
         setup();
-        let config = get_config();
+        let config = get_config_no_secret();
 
+        let client = Client::new(config);
+        let cache = client.namespace("application");
+        assert_eq!(
+            cache.get_property::<String>("stringValue").await,
+            Some("string value".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_string_value_with_secret() {
+        setup();
+        let config = get_config_with_secret();
         let client = Client::new(config);
         let cache = client.namespace("application");
         assert_eq!(
@@ -166,7 +189,16 @@ mod tests {
     #[tokio::test]
     async fn test_int_value() {
         setup();
-        let config = get_config();
+        let config = get_config_no_secret();
+        let client = Client::new(config);
+        let cache = client.namespace("application");
+        assert_eq!(cache.get_property::<i32>("intValue").await, Some(42));
+    }
+
+    #[tokio::test]
+    async fn test_int_value_with_secret() {
+        setup();
+        let config = get_config_with_secret();
         let client = Client::new(config);
         let cache = client.namespace("application");
         assert_eq!(cache.get_property::<i32>("intValue").await, Some(42));
@@ -175,7 +207,16 @@ mod tests {
     #[tokio::test]
     async fn test_float_value() {
         setup();
-        let config = get_config();
+        let config = get_config_no_secret();
+        let client = Client::new(config);
+        let cache = client.namespace("application");
+        assert_eq!(cache.get_property::<f64>("floatValue").await, Some(4.20));
+    }
+
+    #[tokio::test]
+    async fn test_float_value_with_secret() {
+        setup();
+        let config = get_config_with_secret();
         let client = Client::new(config);
         let cache = client.namespace("application");
         assert_eq!(cache.get_property::<f64>("floatValue").await, Some(4.20));
@@ -184,7 +225,16 @@ mod tests {
     #[tokio::test]
     async fn test_bool_value() {
         setup();
-        let config = get_config();
+        let config = get_config_no_secret();
+        let client = Client::new(config);
+        let cache = client.namespace("application");
+        assert_eq!(cache.get_property::<bool>("boolValue").await, Some(false));
+    }
+
+    #[tokio::test]
+    async fn test_bool_value_with_secret() {
+        setup();
+        let config = get_config_with_secret();
         let client = Client::new(config);
         let cache = client.namespace("application");
         assert_eq!(cache.get_property::<bool>("boolValue").await, Some(false));
