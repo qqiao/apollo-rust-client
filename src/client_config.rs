@@ -31,6 +31,10 @@ pub struct ClientConfig {
     /// The label of the Apollo client. This is used to identify the client in
     /// the Apollo server in the case of a grayscale release.
     pub label: Option<String>,
+
+    /// The IP address of the Apollo client. This is used to identify the client
+    /// in the Apollo server in the case of a grayscale release.
+    pub ip: Option<String>,
 }
 
 impl ClientConfig {
@@ -55,14 +59,15 @@ impl ClientConfig {
             config_server,
             cache_dir,
             label,
+            ip: None,
         })
     }
 
     pub(crate) fn get_cache_dir(&self) -> PathBuf {
-        self.cache_dir.clone().unwrap_or_else(|| {
-            PathBuf::from("/opt/data")
-                .join(&self.app_id)
-                .join("config-cache")
-        })
+        let base = self
+            .cache_dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("/opt/data"));
+        base.join(&self.app_id).join("config-cache")
     }
 }

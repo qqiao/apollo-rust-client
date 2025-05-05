@@ -12,6 +12,7 @@ use std::{
     str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
+use tokio::sync::RwLock;
 use url::{ParseError, Url};
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -25,6 +26,10 @@ pub enum Error {
     Reqwest(#[from] reqwest::Error),
     #[error("Url parse error: {0}")]
     UrlParse(#[from] url::ParseError),
+    #[error("Already loading")]
+    AlreadyLoading,
+    #[error("Already checking cache")]
+    AlreadyCheckingCache,
 }
 
 /// A cache for a given namespace.
@@ -32,6 +37,8 @@ pub struct Cache {
     client_config: ClientConfig,
     namespace: String,
     file_path: PathBuf,
+    loading: RwLock<bool>,
+    checking_cache: RwLock<bool>,
 }
 
 impl Cache {
@@ -46,17 +53,33 @@ impl Cache {
     ///
     /// A new cache for the given namespace.
     pub(crate) fn new(client_config: ClientConfig, namespace: &str) -> Self {
+        let mut file_name = namespace.to_string();
+        if let Some(ip) = &client_config.ip {
+            file_name.push_str(&format!("_{}", ip));
+        }
+        if let Some(label) = &client_config.label {
+            file_name.push_str(&format!("_{}", label));
+        }
+
         let file_path = client_config
             .get_cache_dir()
-            .join(format!("{}.cache.json", namespace));
+            .join(format!("{}.cache.json", file_name));
         Self {
             client_config,
             namespace: namespace.to_string(),
             file_path,
+            loading: RwLock::new(false),
+            checking_cache: RwLock::new(false),
         }
     }
 
     pub(crate) async fn refresh(&self) -> Result<(), Error> {
+        let mut loading = self.loading.write().await;
+        if *loading {
+            return Err(Error::AlreadyLoading);
+        }
+        *loading = true;
+
         trace!("Refreshing cache for namespace {}", self.namespace);
         let url = format!(
             "{}/configfiles/json/{}/{}/{}",
@@ -65,15 +88,34 @@ impl Cache {
             self.client_config.cluster,
             self.namespace
         );
+
+        let mut url = match Url::parse(&url) {
+            Ok(u) => u,
+            Err(e) => {
+                *loading = false;
+                return Err(Error::UrlParse(e));
+            }
+        };
+        if let Some(ip) = &self.client_config.ip {
+            url.query_pairs_mut().append_pair("ip", ip);
+        }
+        if let Some(label) = &self.client_config.label {
+            url.query_pairs_mut().append_pair("label", label);
+        }
+
         trace!("Url {} for namespace {}", url, self.namespace);
 
-        let mut client = reqwest::Client::new().get(&url);
+        let mut client = reqwest::Client::new().get(url.as_str());
         if self.client_config.secret.is_some() {
             let timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_millis();
-            let signature = sign(timestamp, &url, self.client_config.secret.as_ref().unwrap())?;
+            let signature = sign(
+                timestamp,
+                url.as_str(),
+                self.client_config.secret.as_ref().unwrap(),
+            )?;
             client = client.header("timestamp", timestamp.to_string());
             client = client.header(
                 "Authorization",
@@ -81,18 +123,45 @@ impl Cache {
             );
         }
 
-        let response = client.send().await?;
+        let response = match client.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                *loading = false;
+                return Err(Error::Reqwest(e));
+            }
+        };
 
-        let body = response.text().await?;
+        let body = match response.text().await {
+            Ok(b) => b,
+            Err(e) => {
+                *loading = false;
+                return Err(Error::Reqwest(e));
+            }
+        };
 
         trace!("Response body {} for namespace {}", body, self.namespace);
         // Create parent directories if they don't exist
         if let Some(parent) = self.file_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            match std::fs::create_dir_all(parent) {
+                Ok(_) => (),
+                Err(e) => {
+                    *loading = false;
+                    return Err(Error::Io(e));
+                }
+            }
         }
 
         // Write the response body to the cache file
-        std::fs::write(&self.file_path, body)?;
+        match std::fs::write(&self.file_path, body) {
+            Ok(_) => (),
+            Err(e) => {
+                *loading = false;
+                return Err(Error::Io(e));
+            }
+        }
+
+        *loading = false;
+
         Ok(())
     }
 
@@ -109,6 +178,11 @@ impl Cache {
         debug!("Getting value for key {}", key);
         let file_path = self.file_path.clone();
         // Check if the cache file exists
+        let mut checking_cache = self.checking_cache.write().await;
+        if *checking_cache {
+            return Err(Error::AlreadyCheckingCache);
+        }
+        *checking_cache = true;
         if !file_path.exists() {
             trace!(
                 "Cache file {} doesn't exist, fetching from server",
@@ -134,6 +208,7 @@ impl Cache {
                 }
             }
         }
+        *checking_cache = false;
         let file = File::open(file_path.clone())?;
         trace!("Cache file {} opened", file_path.clone().display());
 
