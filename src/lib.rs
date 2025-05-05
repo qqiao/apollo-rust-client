@@ -129,37 +129,53 @@ mod tests {
 
     lazy_static! {
         static ref CLIENT_NO_SECRET: Client = {
-            let config = get_config_no_secret();
+            let config = ClientConfig {
+                app_id: String::from("101010101"),
+                cluster: String::from("default"),
+                config_server: String::from("http://81.68.181.139:8080"),
+                label: None,
+                secret: None,
+                cache_dir: Some(PathBuf::from("/tmp/apollo")),
+                ip: None,
+            };
             Client::new(config)
         };
         static ref CLIENT_WITH_SECRET: Client = {
-            let config = get_config_with_secret();
+            let config = ClientConfig {
+                app_id: String::from("101010102"),
+                cluster: String::from("default"),
+                config_server: String::from("http://81.68.181.139:8080"),
+                label: None,
+                secret: Some(String::from("53bf47631db540ac9700f0020d2192c8")),
+                cache_dir: Some(PathBuf::from("/tmp/apollo")),
+                ip: None,
+            };
             Client::new(config)
         };
-    }
-
-    fn get_config_no_secret() -> ClientConfig {
-        ClientConfig {
-            app_id: String::from("101010101"),
-            cluster: String::from("default"),
-            config_server: String::from("http://81.68.181.139:8080"),
-            label: None,
-            secret: None,
-            cache_dir: Some(PathBuf::from("/tmp/apollo")),
-            ip: None,
-        }
-    }
-
-    fn get_config_with_secret() -> ClientConfig {
-        ClientConfig {
-            app_id: String::from("101010102"),
-            cluster: String::from("default"),
-            config_server: String::from("http://81.68.181.139:8080"),
-            label: None,
-            secret: Some(String::from("53bf47631db540ac9700f0020d2192c8")),
-            cache_dir: Some(PathBuf::from("/tmp/apollo")),
-            ip: None,
-        }
+        static ref CLIENT_WITH_GRAYSCALE_IP: Client = {
+            let config = ClientConfig {
+                app_id: String::from("101010101"),
+                cluster: String::from("default"),
+                config_server: String::from("http://81.68.181.139:8080"),
+                label: None,
+                secret: None,
+                cache_dir: Some(PathBuf::from("/tmp/apollo")),
+                ip: Some(String::from("1.2.3.4")),
+            };
+            Client::new(config)
+        };
+        static ref CLIENT_WITH_GRAYSCALE_LABEL: Client = {
+            let config = ClientConfig {
+                app_id: String::from("101010101"),
+                cluster: String::from("default"),
+                config_server: String::from("http://81.68.181.139:8080"),
+                label: Some(String::from("GrayScale")),
+                secret: None,
+                cache_dir: Some(PathBuf::from("/tmp/apollo")),
+                ip: None,
+            };
+            Client::new(config)
+        };
     }
 
     pub(crate) fn setup() {
@@ -233,5 +249,35 @@ mod tests {
         setup();
         let cache = CLIENT_WITH_SECRET.namespace("application");
         assert_eq!(cache.get_property::<bool>("boolValue").await, Some(false));
+    }
+
+    #[tokio::test]
+    async fn test_bool_value_with_grayscale_ip() {
+        setup();
+        let cache = CLIENT_WITH_GRAYSCALE_IP.namespace("application");
+        assert_eq!(
+            cache.get_property::<bool>("grayScaleValue").await,
+            Some(true)
+        );
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(
+            cache.get_property::<bool>("grayScaleValue").await,
+            Some(false)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_bool_value_with_grayscale_label() {
+        setup();
+        let cache = CLIENT_WITH_GRAYSCALE_LABEL.namespace("application");
+        assert_eq!(
+            cache.get_property::<bool>("grayScaleValue").await,
+            Some(true)
+        );
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(
+            cache.get_property::<bool>("grayScaleValue").await,
+            Some(false)
+        );
     }
 }
