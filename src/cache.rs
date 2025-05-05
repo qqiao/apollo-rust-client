@@ -89,7 +89,13 @@ impl Cache {
             self.namespace
         );
 
-        let mut url = Url::parse(&url)?;
+        let mut url = match Url::parse(&url) {
+            Ok(u) => u,
+            Err(e) => {
+                *loading = false;
+                return Err(Error::UrlParse(e));
+            }
+        };
         if let Some(ip) = &self.client_config.ip {
             url.query_pairs_mut().append_pair("ip", ip);
         }
@@ -117,18 +123,42 @@ impl Cache {
             );
         }
 
-        let response = client.send().await?;
+        let response = match client.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                *loading = false;
+                return Err(Error::Reqwest(e));
+            }
+        };
 
-        let body = response.text().await?;
+        let body = match response.text().await {
+            Ok(b) => b,
+            Err(e) => {
+                *loading = false;
+                return Err(Error::Reqwest(e));
+            }
+        };
 
         trace!("Response body {} for namespace {}", body, self.namespace);
         // Create parent directories if they don't exist
         if let Some(parent) = self.file_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            match std::fs::create_dir_all(parent) {
+                Ok(_) => (),
+                Err(e) => {
+                    *loading = false;
+                    return Err(Error::Io(e));
+                }
+            }
         }
 
         // Write the response body to the cache file
-        std::fs::write(&self.file_path, body)?;
+        match std::fs::write(&self.file_path, body) {
+            Ok(_) => (),
+            Err(e) => {
+                *loading = false;
+                return Err(Error::Io(e));
+            }
+        }
 
         *loading = false;
 
