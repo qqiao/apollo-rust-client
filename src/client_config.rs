@@ -31,6 +31,10 @@ pub struct ClientConfig {
     /// The label of the Apollo client. This is used to identify the client in
     /// the Apollo server in the case of a grayscale release.
     pub label: Option<String>,
+
+    /// The IP address of the Apollo client. This is used to identify the client
+    /// in the Apollo server in the case of a grayscale release.
+    pub ip: Option<String>,
 }
 
 impl ClientConfig {
@@ -55,6 +59,7 @@ impl ClientConfig {
             config_server,
             cache_dir,
             label,
+            ip: None,
         })
     }
 

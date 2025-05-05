@@ -124,7 +124,19 @@ impl Drop for Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lazy_static::lazy_static;
     use std::path::PathBuf;
+
+    lazy_static! {
+        static ref CLIENT_NO_SECRET: Client = {
+            let config = get_config_no_secret();
+            Client::new(config)
+        };
+        static ref CLIENT_WITH_SECRET: Client = {
+            let config = get_config_with_secret();
+            Client::new(config)
+        };
+    }
 
     fn get_config_no_secret() -> ClientConfig {
         ClientConfig {
@@ -134,6 +146,7 @@ mod tests {
             label: None,
             secret: None,
             cache_dir: Some(PathBuf::from("/tmp/apollo")),
+            ip: None,
         }
     }
 
@@ -145,6 +158,7 @@ mod tests {
             label: None,
             secret: Some(String::from("53bf47631db540ac9700f0020d2192c8")),
             cache_dir: Some(PathBuf::from("/tmp/apollo")),
+            ip: None,
         }
     }
 
@@ -155,19 +169,14 @@ mod tests {
     #[tokio::test]
     async fn test_missing_value() {
         setup();
-        let config = get_config_no_secret();
-        let client = Client::new(config);
-        let cache = client.namespace("application");
+        let cache = CLIENT_NO_SECRET.namespace("application");
         assert_eq!(cache.get_property::<String>("missingValue").await, None);
     }
 
     #[tokio::test]
     async fn test_string_value() {
         setup();
-        let config = get_config_no_secret();
-
-        let client = Client::new(config);
-        let cache = client.namespace("application");
+        let cache = CLIENT_NO_SECRET.namespace("application");
         assert_eq!(
             cache.get_property::<String>("stringValue").await,
             Some("string value".to_string())
@@ -177,9 +186,7 @@ mod tests {
     #[tokio::test]
     async fn test_string_value_with_secret() {
         setup();
-        let config = get_config_with_secret();
-        let client = Client::new(config);
-        let cache = client.namespace("application");
+        let cache = CLIENT_WITH_SECRET.namespace("application");
         assert_eq!(
             cache.get_property::<String>("stringValue").await,
             Some("string value".to_string())
@@ -189,54 +196,42 @@ mod tests {
     #[tokio::test]
     async fn test_int_value() {
         setup();
-        let config = get_config_no_secret();
-        let client = Client::new(config);
-        let cache = client.namespace("application");
+        let cache = CLIENT_NO_SECRET.namespace("application");
         assert_eq!(cache.get_property::<i32>("intValue").await, Some(42));
     }
 
     #[tokio::test]
     async fn test_int_value_with_secret() {
         setup();
-        let config = get_config_with_secret();
-        let client = Client::new(config);
-        let cache = client.namespace("application");
+        let cache = CLIENT_WITH_SECRET.namespace("application");
         assert_eq!(cache.get_property::<i32>("intValue").await, Some(42));
     }
 
     #[tokio::test]
     async fn test_float_value() {
         setup();
-        let config = get_config_no_secret();
-        let client = Client::new(config);
-        let cache = client.namespace("application");
+        let cache = CLIENT_NO_SECRET.namespace("application");
         assert_eq!(cache.get_property::<f64>("floatValue").await, Some(4.20));
     }
 
     #[tokio::test]
     async fn test_float_value_with_secret() {
         setup();
-        let config = get_config_with_secret();
-        let client = Client::new(config);
-        let cache = client.namespace("application");
+        let cache = CLIENT_WITH_SECRET.namespace("application");
         assert_eq!(cache.get_property::<f64>("floatValue").await, Some(4.20));
     }
 
     #[tokio::test]
     async fn test_bool_value() {
         setup();
-        let config = get_config_no_secret();
-        let client = Client::new(config);
-        let cache = client.namespace("application");
+        let cache = CLIENT_NO_SECRET.namespace("application");
         assert_eq!(cache.get_property::<bool>("boolValue").await, Some(false));
     }
 
     #[tokio::test]
     async fn test_bool_value_with_secret() {
         setup();
-        let config = get_config_with_secret();
-        let client = Client::new(config);
-        let cache = client.namespace("application");
+        let cache = CLIENT_WITH_SECRET.namespace("application");
         assert_eq!(cache.get_property::<bool>("boolValue").await, Some(false));
     }
 }
