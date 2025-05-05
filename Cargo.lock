@@ -81,6 +81,7 @@ name = "apollo-rust-client"
 version = "0.2.0"
 dependencies = [
  "base64",
+ "cfg-if",
  "env_logger",
  "futures",
  "hmac",

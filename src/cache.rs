@@ -2,6 +2,7 @@
 
 use crate::client_config::ClientConfig;
 use base64::display::Base64Display;
+use cfg_if::cfg_if;
 use hmac::{Hmac, Mac};
 use log::{debug, trace};
 use serde_json::Value;
@@ -221,21 +222,37 @@ impl Cache {
         let value = config.get(key).ok_or(Error::KeyNotFound(key.to_string()))?;
         Ok(value.clone())
     }
+}
 
-    /// Get a property from the cache as a string.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to get the property for.
-    ///
-    /// # Returns
-    ///
-    /// The property for the given key as a string.
-    pub async fn get_property<T: FromStr>(&self, key: &str) -> Option<T> {
-        debug!("Getting property for key {}", key);
-        let value = self.get_value(key).await.ok()?;
+cfg_if! {
+    if #[cfg(target_arch = "wasm32")] {
+        #[wasm_bindgen]
+        impl Cache {
+            pub async fn get_string(&self, key: &str) -> Option<String>{
+                debug!("Getting property for key {}", key);
+                let value = self.get_value(key).await.ok()?;
 
-        value.as_str().and_then(|s| s.parse::<T>().ok())
+                value.as_str().map(String::from)
+            }
+        }
+    } else {
+        impl Cache {
+            /// Get a property from the cache.
+            ///
+            /// # Arguments
+            ///
+            /// * `key` - The key to get the property for.
+            ///
+            /// # Returns
+            ///
+            /// The property for the given key as a string.
+            pub async fn get_property<T: FromStr>(&self, key: &str) -> Option<T> {
+                debug!("Getting property for key {}", key);
+                let value = self.get_value(key).await.ok()?;
+
+                value.as_str().and_then(|s| s.parse::<T>().ok())
+            }
+        }
     }
 }
 

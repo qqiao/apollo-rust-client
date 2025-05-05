@@ -8,6 +8,7 @@ use std::{
     thread::{self, JoinHandle},
     time::Duration,
 };
+use wasm_bindgen::prelude::wasm_bindgen;
 
 pub mod cache;
 pub mod client_config;
@@ -20,6 +21,7 @@ pub enum Error {
 }
 
 /// Apollo client.
+#[wasm_bindgen]
 pub struct Client {
     client_config: ClientConfig,
     namespaces: Arc<RwLock<HashMap<String, Arc<Cache>>>>,
@@ -28,24 +30,6 @@ pub struct Client {
 }
 
 impl Client {
-    /// Create a new Apollo client.
-    ///
-    /// # Arguments
-    ///
-    /// * `client_config` - The configuration for the Apollo client.
-    ///
-    /// # Returns
-    ///
-    /// A new Apollo client.
-    pub fn new(client_config: ClientConfig) -> Self {
-        Self {
-            client_config,
-            namespaces: Arc::new(RwLock::new(HashMap::new())),
-            handle: None,
-            running: Arc::new(RwLock::new(false)),
-        }
-    }
-
     /// Get a cache for a given namespace.
     ///
     /// # Arguments
@@ -111,6 +95,28 @@ impl Client {
         *running = false;
         if let Some(handle) = self.handle.take() {
             handle.join().unwrap();
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl Client {
+    /// Create a new Apollo client.
+    ///
+    /// # Arguments
+    ///
+    /// * `client_config` - The configuration for the Apollo client.
+    ///
+    /// # Returns
+    ///
+    /// A new Apollo client.
+    #[wasm_bindgen(constructor)]
+    pub fn new(client_config: ClientConfig) -> Self {
+        Self {
+            client_config,
+            namespaces: Arc::new(RwLock::new(HashMap::new())),
+            handle: None,
+            running: Arc::new(RwLock::new(false)),
         }
     }
 }
