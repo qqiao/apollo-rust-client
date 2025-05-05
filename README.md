@@ -36,6 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config_server: "http://your-apollo-server:8080"
         cache_dir: None,
         label: None,
+        ip: None,
     };
     let client = Client::new(client_config);
 
@@ -57,8 +58,9 @@ The client supports the following configuration options:
 - `cluster`: The cluster name (default: "`default`")
 - `secret`: The optional secret for the given `app_id`
 - `config_server`: The address of the configuration server
-- `ip`: The IP address of your application
 - `cache_dir`: Directory to store local cache (default: "`/opt/data/${app_id}/config-cache`")
+- `label`: The label of the current instance. Used to identify the current instance for a grayscale release.
+- `ip`: The IP address of your application. Used to identify the current instance for a grayscale release.
 
 ## Error Handling
 
@@ -75,4 +77,5 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License Version 2.0 - see the
+[LICENSE](LICENSE) file for details.
