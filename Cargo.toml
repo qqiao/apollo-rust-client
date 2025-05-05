@@ -2,6 +2,9 @@
 name = "apollo-rust-client"
 version = "0.1.0"
 edition = "2024"
+license = "Apache-2.0"
+description = "A Rust client for Apollo configuration center"
+authors = ["Qian Qiao <qian.qiao@pm.me>"]
 
 [dependencies]
 base64 = "0.22.1"
