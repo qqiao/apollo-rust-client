@@ -28,7 +28,8 @@ pub struct ClientConfig {
     /// Secret key for authentication with the Apollo server.
     pub secret: Option<String>,
 
-    /// The label of the Apollo client.
+    /// The label of the Apollo client. This is used to identify the client in
+    /// the Apollo server in the case of a grayscale release.
     pub label: Option<String>,
 }
 
