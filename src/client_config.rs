@@ -64,10 +64,10 @@ impl ClientConfig {
     }
 
     pub(crate) fn get_cache_dir(&self) -> PathBuf {
-        self.cache_dir.clone().unwrap_or_else(|| {
-            PathBuf::from("/opt/data")
-                .join(&self.app_id)
-                .join("config-cache")
-        })
+        let base = self
+            .cache_dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("/opt/data"));
+        base.join(&self.app_id).join("config-cache")
     }
 }

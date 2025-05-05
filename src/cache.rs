@@ -10,7 +10,6 @@ use std::{
     fs::File,
     path::PathBuf,
     str::FromStr,
-    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::RwLock;
@@ -29,6 +28,8 @@ pub enum Error {
     UrlParse(#[from] url::ParseError),
     #[error("Already loading")]
     AlreadyLoading,
+    #[error("Already checking cache")]
+    AlreadyCheckingCache,
 }
 
 /// A cache for a given namespace.
@@ -36,7 +37,8 @@ pub struct Cache {
     client_config: ClientConfig,
     namespace: String,
     file_path: PathBuf,
-    loading: Arc<RwLock<bool>>,
+    loading: RwLock<bool>,
+    checking_cache: RwLock<bool>,
 }
 
 impl Cache {
@@ -66,7 +68,8 @@ impl Cache {
             client_config,
             namespace: namespace.to_string(),
             file_path,
-            loading: Arc::new(RwLock::new(false)),
+            loading: RwLock::new(false),
+            checking_cache: RwLock::new(false),
         }
     }
 
@@ -145,6 +148,11 @@ impl Cache {
         debug!("Getting value for key {}", key);
         let file_path = self.file_path.clone();
         // Check if the cache file exists
+        let mut checking_cache = self.checking_cache.write().await;
+        if *checking_cache {
+            return Err(Error::AlreadyCheckingCache);
+        }
+        *checking_cache = true;
         if !file_path.exists() {
             trace!(
                 "Cache file {} doesn't exist, fetching from server",
@@ -170,6 +178,7 @@ impl Cache {
                 }
             }
         }
+        *checking_cache = false;
         let file = File::open(file_path.clone())?;
         trace!("Cache file {} opened", file_path.clone().display());
 
