@@ -10,7 +10,7 @@ use sha1::Sha1;
 use std::{
     fs::File,
     path::PathBuf,
-    str::FromStr,
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::RwLock;
@@ -36,13 +36,14 @@ pub enum Error {
 }
 
 /// A cache for a given namespace.
+#[derive(Clone)]
 #[wasm_bindgen]
 pub struct Cache {
     client_config: ClientConfig,
     namespace: String,
     file_path: PathBuf,
-    loading: RwLock<bool>,
-    checking_cache: RwLock<bool>,
+    loading: Arc<RwLock<bool>>,
+    checking_cache: Arc<RwLock<bool>>,
 }
 
 impl Cache {
@@ -72,8 +73,8 @@ impl Cache {
             client_config,
             namespace: namespace.to_string(),
             file_path,
-            loading: RwLock::new(false),
-            checking_cache: RwLock::new(false),
+            loading: Arc::new(RwLock::new(false)),
+            checking_cache: Arc::new(RwLock::new(false)),
         }
     }
 
@@ -246,7 +247,7 @@ cfg_if! {
             /// # Returns
             ///
             /// The property for the given key as a string.
-            pub async fn get_property<T: FromStr>(&self, key: &str) -> Option<T> {
+            pub async fn get_property<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
                 debug!("Getting property for key {}", key);
                 let value = self.get_value(key).await.ok()?;
 

@@ -30,24 +30,6 @@ pub struct Client {
 }
 
 impl Client {
-    /// Get a cache for a given namespace.
-    ///
-    /// # Arguments
-    ///
-    /// * `namespace` - The namespace to get the cache for.
-    ///
-    /// # Returns
-    ///
-    /// A cache for the given namespace.
-    pub fn namespace(&self, namespace: &str) -> Arc<Cache> {
-        let mut namespaces = self.namespaces.write().unwrap();
-        let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
-            trace!("Cache miss, creating cache for namespace {}", namespace);
-            Arc::new(Cache::new(self.client_config.clone(), namespace))
-        });
-        cache.clone()
-    }
-
     pub fn start(&mut self) -> Result<(), Error> {
         let mut running = self.running.write().unwrap();
         if *running {
@@ -95,6 +77,52 @@ impl Client {
         *running = false;
         if let Some(handle) = self.handle.take() {
             handle.join().unwrap();
+        }
+    }
+}
+
+cfg_if::cfg_if! {
+    if #[cfg(target_arch = "wasm32")] {
+        #[wasm_bindgen]
+        impl Client {
+            /// Get a cache for a given namespace.
+            ///
+            /// # Arguments
+            ///
+            /// * `namespace` - The namespace to get the cache for.
+            ///
+            /// # Returns
+            ///
+            /// A cache for the given namespace.
+            pub fn namespace(&self, namespace: &str) -> Cache {
+                let mut namespaces = self.namespaces.write().unwrap();
+                let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
+                    trace!("Cache miss, creating cache for namespace {}", namespace);
+                    Arc::new(Cache::new(self.client_config.clone(), namespace))
+                });
+                let cache = (*cache).clone();
+                (*cache).to_owned()
+            }
+        }
+    } else {
+        impl Client {
+            /// Get a cache for a given namespace.
+            ///
+            /// # Arguments
+            ///
+            /// * `namespace` - The namespace to get the cache for.
+            ///
+            /// # Returns
+            ///
+            /// A cache for the given namespace.
+            pub fn namespace(&self, namespace: &str) -> Arc<Cache> {
+                let mut namespaces = self.namespaces.write().unwrap();
+                let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
+                    trace!("Cache miss, creating cache for namespace {}", namespace);
+                    Arc::new(Cache::new(self.client_config.clone(), namespace))
+                });
+                cache.clone()
+            }
         }
     }
 }
