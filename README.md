@@ -16,7 +16,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.1.0"
+apollo-rust-client = "0.1.2"
 ```
 
 ## Usage
