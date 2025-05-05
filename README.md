@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         app_id: "app_id".to_string(),
         cluster: "default".to_string(),
         secret: Some("your_secret".to_string()),
-        config_server: "http://your-apollo-server:8080"
+        config_server: "http://your-apollo-server:8080",
         cache_dir: None,
         label: None,
         ip: None,
