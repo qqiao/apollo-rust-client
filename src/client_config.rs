@@ -1,7 +1,7 @@
 //! Configuration for the Apollo client.
 
 use std::path::PathBuf;
-
+use wasm_bindgen::prelude::*;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Environment variable is not set: {0}")]
@@ -12,6 +12,7 @@ pub enum Error {
 ///
 /// This struct holds the necessary information to connect to an Apollo Configuration center.
 #[derive(Clone, Debug)]
+#[wasm_bindgen(getter_with_clone)]
 pub struct ClientConfig {
     /// The unique identifier for your application.
     pub app_id: String,
@@ -20,7 +21,7 @@ pub struct ClientConfig {
     pub cluster: String,
 
     /// The directory to store the cache files.
-    pub cache_dir: Option<PathBuf>,
+    pub cache_dir: Option<String>,
 
     /// The Apollo config server URL to connect to.
     pub config_server: String,
@@ -51,7 +52,7 @@ impl ClientConfig {
         let cluster = std::env::var("IDC").unwrap_or("default".to_string());
         let config_server = std::env::var("APOLLO_CONFIG_SERVICE").map_err(Error::EnvVar)?;
         let label = std::env::var("APOLLO_LABEL").map_err(Error::EnvVar).ok();
-        let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok().map(PathBuf::from);
+        let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok();
         Ok(Self {
             app_id,
             secret,
@@ -64,10 +65,12 @@ impl ClientConfig {
     }
 
     pub(crate) fn get_cache_dir(&self) -> PathBuf {
-        let base = self
-            .cache_dir
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("/opt/data"));
+        let base = PathBuf::from(
+            &self
+                .cache_dir
+                .clone()
+                .unwrap_or_else(|| String::from("/opt/data")),
+        );
         base.join(&self.app_id).join("config-cache")
     }
 }

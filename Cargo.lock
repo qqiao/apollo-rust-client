@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "apollo-rust-client"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "base64",
  "env_logger",
@@ -92,6 +92,8 @@ dependencies = [
  "thiserror",
  "tokio",
  "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]

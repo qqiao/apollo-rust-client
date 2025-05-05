@@ -14,6 +14,8 @@ use std::{
 };
 use tokio::sync::RwLock;
 use url::{ParseError, Url};
+use wasm_bindgen::prelude::*;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Io error: {0}")]
@@ -33,6 +35,7 @@ pub enum Error {
 }
 
 /// A cache for a given namespace.
+#[wasm_bindgen]
 pub struct Cache {
     client_config: ClientConfig,
     namespace: String,

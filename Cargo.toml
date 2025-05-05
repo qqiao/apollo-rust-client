@@ -1,11 +1,14 @@
 [package]
 name = "apollo-rust-client"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "A Rust client for Apollo configuration center"
 authors = ["Qian Qiao <qian.qiao@pm.me>"]
 repository = "https://github.com/qqiao/apollo-rust-client"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 base64 = "0.22.1"
@@ -18,6 +21,8 @@ sha1 = "0.10.6"
 thiserror = "2.0.12"
 tokio = { version = "1.44.2", features = ["sync"] }
 url = "2.5.4"
+wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = "0.4.50"
 
 [dev-dependencies]
 env_logger = "0.11.8"
