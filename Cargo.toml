@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 base64 = "0.22.1"
 cfg-if = "1.0.0"
+chrono = "0.4.41"
 futures = "0.3.31"
 hmac = "0.12.1"
 log = "0.4.27"

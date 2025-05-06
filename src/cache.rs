@@ -3,16 +3,12 @@
 use crate::client_config::ClientConfig;
 use base64::display::Base64Display;
 use cfg_if::cfg_if;
+use chrono::Utc;
 use hmac::{Hmac, Mac};
 use log::{debug, trace};
 use serde_json::Value;
 use sha1::Sha1;
-use std::{
-    fs::File,
-    path::PathBuf,
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{fs::File, path::PathBuf, sync::Arc};
 use tokio::sync::RwLock;
 use url::{ParseError, Url};
 use wasm_bindgen::prelude::*;
@@ -112,10 +108,7 @@ impl Cache {
 
         let mut client = reqwest::Client::new().get(url.as_str());
         if self.client_config.secret.is_some() {
-            let timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis();
+            let timestamp = Utc::now().timestamp_millis();
             let signature = sign(
                 timestamp,
                 url.as_str(),
@@ -257,7 +250,7 @@ cfg_if! {
     }
 }
 
-pub(crate) fn sign(timestamp: u128, url: &str, secret: &str) -> Result<String, Error> {
+pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Error> {
     let u = match Url::parse(url) {
         Ok(u) => u,
         Err(e) => match e {
