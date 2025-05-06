@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use wasm_bindgen::prelude::*;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Environment variable is not set: {0}")]
