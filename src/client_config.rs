@@ -79,5 +79,26 @@ cfg_if! {
                 base.join(&self.app_id).join("config-cache")
             }
         }
+    } else {
+        #[wasm_bindgen]
+        impl ClientConfig {
+            /// Create a new configuration from environment variables.
+            ///
+            /// # Returns
+            ///
+            /// A new configuration instance.
+            #[wasm_bindgen(constructor)]
+            pub fn new(app_id: String, config_server: String, cluster: String) -> Self {
+                Self {
+                    app_id,
+                    config_server,
+                    cluster,
+                    cache_dir: None,
+                    secret: None,
+                    label: None,
+                    ip: None,
+                }
+            }
+        }
     }
 }

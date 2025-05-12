@@ -19,9 +19,18 @@ Add the following to your `Cargo.toml`:
 apollo-rust-client = "0.2.0"
 ```
 
+Alternatively, you can use the following command to use the WebAssembly
+version.
+
+```
+npm install @qqiao/apollo-wasm-client
+```
+
 ## Usage
 
 ### Basic Example
+
+You can use the rust version as follows:
 
 ```rust
 use apollo_rust_client::Client;
@@ -50,6 +59,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+Or the JavaScript version:
+
+```JavaScript
+import { Client, ClientConfig } from '@qqiao/apollo-wasm-client';
+
+
+const clientConfig = new ClientConfig("app_id",  "http://your-apollo-server:8080", "default");
+
+// Set other configuration settings
+clientConfig.secret = "your_secret";
+
+const client = new Client(clientConfig);
+
+const namespace = client.namespace("application");
+
+console.log(namespace.get_int(meaningOfLife));
+```
+
 ## Configuration
 
 The client supports the following configuration options:
@@ -61,15 +88,6 @@ The client supports the following configuration options:
 - `cache_dir`: Directory to store local cache (default: "`/opt/data/${app_id}/config-cache`")
 - `label`: The label of the current instance. Used to identify the current instance for a grayscale release.
 - `ip`: The IP address of your application. Used to identify the current instance for a grayscale release.
-
-## Error Handling
-
-The client provides detailed error information through the `ApolloError` type, which includes:
-
-- Network errors
-- Configuration parsing errors
-- Authentication errors
-- Invalid response errors
 
 ## Contributing
 
