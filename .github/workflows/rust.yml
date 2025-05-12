@@ -15,7 +15,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --verbose && wasm-pack build --target nodejs
       - name: Run tests
         run: scripts/test.sh
