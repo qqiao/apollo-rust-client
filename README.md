@@ -95,6 +95,9 @@ The client supports the following configuration options:
 
 ## TODO
 
+- `Cargo.toml` update for better conditional compilation. Although everything
+  works just fine currently, due to the fact that all dependencies are listed
+  flat, automation and IDEs are slowed down significantly.
 - Added other namespace format supports, for example YAML, JSON etc.
 
 ## Contributing
