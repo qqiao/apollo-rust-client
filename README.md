@@ -64,14 +64,12 @@ Or the JavaScript version:
 ```JavaScript
 import { Client, ClientConfig } from '@qqiao/apollo-wasm-client';
 
-
 const clientConfig = new ClientConfig("app_id",  "http://your-apollo-server:8080", "default");
 
 // Set other configuration settings
 clientConfig.secret = "your_secret";
 
 const client = new Client(clientConfig);
-
 const namespace = client.namespace("application");
 
 console.log(namespace.get_int(meaningOfLife));
