@@ -249,18 +249,75 @@ impl Cache {
     }
 }
 
-cfg_if! {
-    if #[cfg(target_arch = "wasm32")] {
-        #[wasm_bindgen]
-        impl Cache {
-            pub async fn get_string(&self, key: &str) -> Option<String>{
-                debug!("Getting property for key {}", key);
-                let value = self.get_value(key).await.ok()?;
+#[wasm_bindgen]
+impl Cache {
+    /// Get a property from the cache as a string.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to get the property for.
+    ///
+    /// # Returns
+    ///
+    /// The property for the given key as a string.
+    pub async fn get_string(&self, key: &str) -> Option<String> {
+        debug!("Getting property for key {}", key);
+        let value = self.get_value(key).await.ok()?;
 
-                value.as_str().map(String::from)
-            }
-        }
-    } else {
+        value.as_str().map(String::from)
+    }
+
+    /// Get a property from the cache as an integer.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to get the property for.
+    ///
+    /// # Returns
+    ///
+    /// The property for the given key as an integer.
+    pub async fn get_int(&self, key: &str) -> Option<i64> {
+        debug!("Getting property for key {}", key);
+        let value = self.get_value(key).await.ok()?;
+
+        value.as_str().and_then(|s| s.parse::<i64>().ok())
+    }
+
+    /// Get a property from the cache as a float.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to get the property for.
+    ///
+    /// # Returns
+    ///
+    /// The property for the given key as a float.
+    pub async fn get_float(&self, key: &str) -> Option<f64> {
+        debug!("Getting property for key {}", key);
+        let value = self.get_value(key).await.ok()?;
+
+        value.as_str().and_then(|s| s.parse::<f64>().ok())
+    }
+
+    /// Get a property from the cache as a boolean.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to get the property for.
+    ///
+    /// # Returns
+    ///
+    /// The property for the given key as a boolean.
+    pub async fn get_bool(&self, key: &str) -> Option<bool> {
+        debug!("Getting property for key {}", key);
+        let value = self.get_value(key).await.ok()?;
+
+        value.as_str().and_then(|s| s.parse::<bool>().ok())
+    }
+}
+
+cfg_if! {
+    if #[cfg(not(target_arch = "wasm32"))] {
         impl Cache {
             /// Get a property from the cache.
             ///
