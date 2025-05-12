@@ -75,6 +75,12 @@ const client = new Client(clientConfig);
 const namespace = client.namespace("application");
 
 console.log(namespace.get_int(meaningOfLife));
+
+// Please make absolutely sure that you call the `free` method on WASM objects
+// to prevent any memory leaks:
+namespace.free();
+client.free();
+clientConfig.free();
 ```
 
 ## Configuration
@@ -88,6 +94,10 @@ The client supports the following configuration options:
 - `cache_dir`: Directory to store local cache (default: "`/opt/data/${app_id}/config-cache`")
 - `label`: The label of the current instance. Used to identify the current instance for a grayscale release.
 - `ip`: The IP address of your application. Used to identify the current instance for a grayscale release.
+
+## TODO
+
+- Added other namespace format supports, for example YAML, JSON etc.
 
 ## Contributing
 
