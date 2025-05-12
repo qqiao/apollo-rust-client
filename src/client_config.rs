@@ -1,6 +1,7 @@
 //! Configuration for the Apollo client.
 
-use std::path::PathBuf;
+use cfg_if::cfg_if;
+use wasm_bindgen::prelude::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -12,6 +13,7 @@ pub enum Error {
 ///
 /// This struct holds the necessary information to connect to an Apollo Configuration center.
 #[derive(Clone, Debug)]
+#[wasm_bindgen(getter_with_clone)]
 pub struct ClientConfig {
     /// The unique identifier for your application.
     pub app_id: String,
@@ -20,7 +22,7 @@ pub struct ClientConfig {
     pub cluster: String,
 
     /// The directory to store the cache files.
-    pub cache_dir: Option<PathBuf>,
+    pub cache_dir: Option<String>,
 
     /// The Apollo config server URL to connect to.
     pub config_server: String,
@@ -51,7 +53,7 @@ impl ClientConfig {
         let cluster = std::env::var("IDC").unwrap_or("default".to_string());
         let config_server = std::env::var("APOLLO_CONFIG_SERVICE").map_err(Error::EnvVar)?;
         let label = std::env::var("APOLLO_LABEL").map_err(Error::EnvVar).ok();
-        let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok().map(PathBuf::from);
+        let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok();
         Ok(Self {
             app_id,
             secret,
@@ -62,12 +64,41 @@ impl ClientConfig {
             ip: None,
         })
     }
+}
 
-    pub(crate) fn get_cache_dir(&self) -> PathBuf {
-        let base = self
-            .cache_dir
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("/opt/data"));
-        base.join(&self.app_id).join("config-cache")
+cfg_if! {
+    if #[cfg(not(target_arch = "wasm32"))] {
+        impl ClientConfig {
+            pub(crate) fn get_cache_dir(&self) -> std::path::PathBuf {
+                let base = std::path::PathBuf::from(
+                    &self
+                        .cache_dir
+                        .clone()
+                        .unwrap_or_else(|| String::from("/opt/data")),
+                );
+                base.join(&self.app_id).join("config-cache")
+            }
+        }
+    } else {
+        #[wasm_bindgen]
+        impl ClientConfig {
+            /// Create a new configuration from environment variables.
+            ///
+            /// # Returns
+            ///
+            /// A new configuration instance.
+            #[wasm_bindgen(constructor)]
+            pub fn new(app_id: String, config_server: String, cluster: String) -> Self {
+                Self {
+                    app_id,
+                    config_server,
+                    cluster,
+                    cache_dir: None,
+                    secret: None,
+                    label: None,
+                    ip: None,
+                }
+            }
+        }
     }
 }

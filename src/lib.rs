@@ -8,6 +8,7 @@ use std::{
     thread::{self, JoinHandle},
     time::Duration,
 };
+use wasm_bindgen::prelude::wasm_bindgen;
 
 pub mod cache;
 pub mod client_config;
@@ -20,6 +21,7 @@ pub enum Error {
 }
 
 /// Apollo client.
+#[wasm_bindgen]
 pub struct Client {
     client_config: ClientConfig,
     namespaces: Arc<RwLock<HashMap<String, Arc<Cache>>>>,
@@ -28,42 +30,6 @@ pub struct Client {
 }
 
 impl Client {
-    /// Create a new Apollo client.
-    ///
-    /// # Arguments
-    ///
-    /// * `client_config` - The configuration for the Apollo client.
-    ///
-    /// # Returns
-    ///
-    /// A new Apollo client.
-    pub fn new(client_config: ClientConfig) -> Self {
-        Self {
-            client_config,
-            namespaces: Arc::new(RwLock::new(HashMap::new())),
-            handle: None,
-            running: Arc::new(RwLock::new(false)),
-        }
-    }
-
-    /// Get a cache for a given namespace.
-    ///
-    /// # Arguments
-    ///
-    /// * `namespace` - The namespace to get the cache for.
-    ///
-    /// # Returns
-    ///
-    /// A cache for the given namespace.
-    pub fn namespace(&self, namespace: &str) -> Arc<Cache> {
-        let mut namespaces = self.namespaces.write().unwrap();
-        let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
-            trace!("Cache miss, creating cache for namespace {}", namespace);
-            Arc::new(Cache::new(self.client_config.clone(), namespace))
-        });
-        cache.clone()
-    }
-
     pub fn start(&mut self) -> Result<(), Error> {
         let mut running = self.running.write().unwrap();
         if *running {
@@ -115,6 +81,74 @@ impl Client {
     }
 }
 
+cfg_if::cfg_if! {
+    if #[cfg(target_arch = "wasm32")] {
+        #[wasm_bindgen]
+        impl Client {
+            /// Get a cache for a given namespace.
+            ///
+            /// # Arguments
+            ///
+            /// * `namespace` - The namespace to get the cache for.
+            ///
+            /// # Returns
+            ///
+            /// A cache for the given namespace.
+            pub fn namespace(&self, namespace: &str) -> Cache {
+                let mut namespaces = self.namespaces.write().unwrap();
+                let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
+                    trace!("Cache miss, creating cache for namespace {}", namespace);
+                    Arc::new(Cache::new(self.client_config.clone(), namespace))
+                });
+                let cache = (*cache).clone();
+                (*cache).to_owned()
+            }
+        }
+    } else {
+        impl Client {
+            /// Get a cache for a given namespace.
+            ///
+            /// # Arguments
+            ///
+            /// * `namespace` - The namespace to get the cache for.
+            ///
+            /// # Returns
+            ///
+            /// A cache for the given namespace.
+            pub fn namespace(&self, namespace: &str) -> Arc<Cache> {
+                let mut namespaces = self.namespaces.write().unwrap();
+                let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
+                    trace!("Cache miss, creating cache for namespace {}", namespace);
+                    Arc::new(Cache::new(self.client_config.clone(), namespace))
+                });
+                cache.clone()
+            }
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl Client {
+    /// Create a new Apollo client.
+    ///
+    /// # Arguments
+    ///
+    /// * `client_config` - The configuration for the Apollo client.
+    ///
+    /// # Returns
+    ///
+    /// A new Apollo client.
+    #[wasm_bindgen(constructor)]
+    pub fn new(client_config: ClientConfig) -> Self {
+        Self {
+            client_config,
+            namespaces: Arc::new(RwLock::new(HashMap::new())),
+            handle: None,
+            running: Arc::new(RwLock::new(false)),
+        }
+    }
+}
+
 impl Drop for Client {
     fn drop(&mut self) {
         self.stop();
@@ -125,7 +159,7 @@ impl Drop for Client {
 mod tests {
     use super::*;
     use lazy_static::lazy_static;
-    use std::path::PathBuf;
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     lazy_static! {
         static ref CLIENT_NO_SECRET: Client = {
@@ -135,7 +169,7 @@ mod tests {
                 config_server: String::from("http://81.68.181.139:8080"),
                 label: None,
                 secret: None,
-                cache_dir: Some(PathBuf::from("/tmp/apollo")),
+                cache_dir: Some(String::from("/tmp/apollo")),
                 ip: None,
             };
             Client::new(config)
@@ -147,7 +181,7 @@ mod tests {
                 config_server: String::from("http://81.68.181.139:8080"),
                 label: None,
                 secret: Some(String::from("53bf47631db540ac9700f0020d2192c8")),
-                cache_dir: Some(PathBuf::from("/tmp/apollo")),
+                cache_dir: Some(String::from("/tmp/apollo")),
                 ip: None,
             };
             Client::new(config)
@@ -159,7 +193,7 @@ mod tests {
                 config_server: String::from("http://81.68.181.139:8080"),
                 label: None,
                 secret: None,
-                cache_dir: Some(PathBuf::from("/tmp/apollo")),
+                cache_dir: Some(String::from("/tmp/apollo")),
                 ip: Some(String::from("1.2.3.4")),
             };
             Client::new(config)
@@ -171,7 +205,7 @@ mod tests {
                 config_server: String::from("http://81.68.181.139:8080"),
                 label: Some(String::from("GrayScale")),
                 secret: None,
-                cache_dir: Some(PathBuf::from("/tmp/apollo")),
+                cache_dir: Some(String::from("/tmp/apollo")),
                 ip: None,
             };
             Client::new(config)
@@ -179,11 +213,26 @@ mod tests {
     }
 
     pub(crate) fn setup() {
-        let _ = env_logger::builder().is_test(true).try_init();
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                let _ = wasm_logger::init(wasm_logger::Config::default());
+                console_error_panic_hook::set_once();
+            } else {
+                let _ = env_logger::builder().is_test(true).try_init();
+            }
+        }
     }
 
     #[tokio::test]
     async fn test_missing_value() {
+        setup();
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(cache.get_property::<String>("missingValue").await, None);
+    }
+
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_missing_value_wasm() {
         setup();
         let cache = CLIENT_NO_SECRET.namespace("application");
         assert_eq!(cache.get_property::<String>("missingValue").await, None);
@@ -194,7 +243,18 @@ mod tests {
         setup();
         let cache = CLIENT_NO_SECRET.namespace("application");
         assert_eq!(
-            cache.get_property::<String>("stringValue").await,
+            cache.get_string("stringValue").await,
+            Some("string value".to_string())
+        );
+    }
+
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_string_value_wasm() {
+        setup();
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(
+            cache.get_string("stringValue").await,
             Some("string value".to_string())
         );
     }
@@ -202,9 +262,21 @@ mod tests {
     #[tokio::test]
     async fn test_string_value_with_secret() {
         setup();
+        console_error_panic_hook::set_once();
         let cache = CLIENT_WITH_SECRET.namespace("application");
         assert_eq!(
             cache.get_property::<String>("stringValue").await,
+            Some("string value".to_string())
+        );
+    }
+
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_string_value_with_secret_wasm() {
+        setup();
+        let cache = CLIENT_WITH_SECRET.namespace("application");
+        assert_eq!(
+            cache.get_string("stringValue").await,
             Some("string value".to_string())
         );
     }
@@ -216,11 +288,27 @@ mod tests {
         assert_eq!(cache.get_property::<i32>("intValue").await, Some(42));
     }
 
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_int_value_wasm() {
+        setup();
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(cache.get_int("intValue").await, Some(42));
+    }
+
     #[tokio::test]
     async fn test_int_value_with_secret() {
         setup();
         let cache = CLIENT_WITH_SECRET.namespace("application");
         assert_eq!(cache.get_property::<i32>("intValue").await, Some(42));
+    }
+
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_int_value_with_secret_wasm() {
+        setup();
+        let cache = CLIENT_WITH_SECRET.namespace("application");
+        assert_eq!(cache.get_int("intValue").await, Some(42));
     }
 
     #[tokio::test]
@@ -230,11 +318,27 @@ mod tests {
         assert_eq!(cache.get_property::<f64>("floatValue").await, Some(4.20));
     }
 
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_float_value_wasm() {
+        setup();
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(cache.get_float("floatValue").await, Some(4.20));
+    }
+
     #[tokio::test]
     async fn test_float_value_with_secret() {
         setup();
         let cache = CLIENT_WITH_SECRET.namespace("application");
         assert_eq!(cache.get_property::<f64>("floatValue").await, Some(4.20));
+    }
+
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_float_value_with_secret_wasm() {
+        setup();
+        let cache = CLIENT_WITH_SECRET.namespace("application");
+        assert_eq!(cache.get_float("floatValue").await, Some(4.20));
     }
 
     #[tokio::test]
@@ -244,11 +348,27 @@ mod tests {
         assert_eq!(cache.get_property::<bool>("boolValue").await, Some(false));
     }
 
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_bool_value_wasm() {
+        setup();
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(cache.get_bool("boolValue").await, Some(false));
+    }
+
     #[tokio::test]
     async fn test_bool_value_with_secret() {
         setup();
         let cache = CLIENT_WITH_SECRET.namespace("application");
         assert_eq!(cache.get_property::<bool>("boolValue").await, Some(false));
+    }
+
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_bool_value_with_secret_wasm() {
+        setup();
+        let cache = CLIENT_WITH_SECRET.namespace("application");
+        assert_eq!(cache.get_bool("boolValue").await, Some(false));
     }
 
     #[tokio::test]
@@ -266,6 +386,17 @@ mod tests {
         );
     }
 
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_bool_value_with_grayscale_ip_wasm() {
+        setup();
+        let cache = CLIENT_WITH_GRAYSCALE_IP.namespace("application");
+        assert_eq!(cache.get_bool("grayScaleValue").await, Some(true));
+
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(cache.get_bool("grayScaleValue").await, Some(false));
+    }
+
     #[tokio::test]
     async fn test_bool_value_with_grayscale_label() {
         setup();
@@ -279,5 +410,16 @@ mod tests {
             cache.get_property::<bool>("grayScaleValue").await,
             Some(false)
         );
+    }
+
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_bool_value_with_grayscale_label_wasm() {
+        setup();
+        let cache = CLIENT_WITH_GRAYSCALE_LABEL.namespace("application");
+        assert_eq!(cache.get_bool("grayScaleValue").await, Some(true));
+
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(cache.get_bool("grayScaleValue").await, Some(false));
     }
 }

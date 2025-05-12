@@ -2,18 +2,17 @@
 
 use crate::client_config::ClientConfig;
 use base64::display::Base64Display;
+use cfg_if::cfg_if;
+use chrono::Utc;
 use hmac::{Hmac, Mac};
 use log::{debug, trace};
 use serde_json::Value;
 use sha1::Sha1;
-use std::{
-    fs::File,
-    path::PathBuf,
-    str::FromStr,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use url::{ParseError, Url};
+use wasm_bindgen::prelude::*;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Io error: {0}")]
@@ -33,12 +32,17 @@ pub enum Error {
 }
 
 /// A cache for a given namespace.
+#[derive(Clone)]
+#[wasm_bindgen]
 pub struct Cache {
     client_config: ClientConfig,
     namespace: String,
-    file_path: PathBuf,
-    loading: RwLock<bool>,
-    checking_cache: RwLock<bool>,
+    loading: Arc<RwLock<bool>>,
+    checking_cache: Arc<RwLock<bool>>,
+    memory_cache: Arc<RwLock<Option<Value>>>,
+
+    #[cfg(not(target_arch = "wasm32"))]
+    file_path: std::path::PathBuf,
 }
 
 impl Cache {
@@ -61,15 +65,121 @@ impl Cache {
             file_name.push_str(&format!("_{}", label));
         }
 
-        let file_path = client_config
-            .get_cache_dir()
-            .join(format!("{}.cache.json", file_name));
+        cfg_if! {
+            if #[cfg(not(target_arch = "wasm32"))] {
+                let file_path = client_config
+                    .get_cache_dir()
+                    .join(format!("{}.cache.json", file_name));
+            }
+        }
+
         Self {
             client_config,
             namespace: namespace.to_string(),
+
+            loading: Arc::new(RwLock::new(false)),
+            checking_cache: Arc::new(RwLock::new(false)),
+            memory_cache: Arc::new(RwLock::new(None)),
+
+            #[cfg(not(target_arch = "wasm32"))]
             file_path,
-            loading: RwLock::new(false),
-            checking_cache: RwLock::new(false),
+        }
+    }
+
+    /// Get a property from the cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to get the property for.
+    ///
+    /// # Returns
+    ///
+    /// The property for the given key as a string.
+    pub async fn get_property<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
+        debug!("Getting property for key {}", key);
+        let value = self.get_value(key).await.ok()?;
+
+        value.as_str().and_then(|s| s.parse::<T>().ok())
+    }
+
+    /// Get a configuration from the cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to get the configuration for.
+    ///
+    /// # Returns
+    ///
+    /// The configuration for the given key.
+    async fn get_value(&self, key: &str) -> Result<Value, Error> {
+        debug!("Getting value for key {}", key);
+
+        // Check if the cache file exists
+        let mut checking_cache = self.checking_cache.write().await;
+        if *checking_cache {
+            return Err(Error::AlreadyCheckingCache);
+        }
+        *checking_cache = true;
+
+        // First we check memory cache
+        let memory_cache = self.memory_cache.read().await;
+        if let Some(value) = memory_cache.as_ref() {
+            debug!("Memory cache found, using memory cache for key {}", key);
+            if let Some(v) = value.get(key) {
+                *checking_cache = false;
+                return Ok(v.clone());
+            }
+        }
+        drop(memory_cache);
+        debug!("No memory cache found");
+
+        cfg_if! {
+            if #[cfg(not(target_arch = "wasm32"))] {
+                let file_path = self.file_path.clone();
+                if file_path.exists() {
+                    trace!("Cache file {} exists, using file cache", file_path.display());
+                    let file = match std::fs::File::open(file_path) {
+                        Ok(file) => file,
+                        Err(e) => {
+                            *checking_cache = false;
+                            return Err(Error::Io(e));
+                        }
+                    };
+                    let config: Value = serde_json::from_reader(file)?;
+                    self.memory_cache.write().await.replace(config.clone());
+                } else {
+                    trace!("Cache file {} doesn't exist, refreshing cache", file_path.display());
+                    match self.refresh().await {
+                        Ok(_) => (),
+                        Err(e) => {
+                            *checking_cache = false;
+                            return Err(e);
+                        }
+                    }
+                }
+            } else {
+                match self.refresh().await {
+                    Ok(_) => (),
+                    Err(e) => {
+                        *checking_cache = false;
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        let memory_cache = self.memory_cache.read().await;
+        if let Some(value) = memory_cache.as_ref() {
+            if let Some(v) = value.get(key) {
+                *checking_cache = false;
+                Ok(v.clone())
+            } else {
+                *checking_cache = false;
+                Err(Error::KeyNotFound(key.to_string()))
+            }
+        } else {
+            *checking_cache = false;
+            Err(Error::KeyNotFound(key.to_string()))
         }
     }
 
@@ -107,10 +217,7 @@ impl Cache {
 
         let mut client = reqwest::Client::new().get(url.as_str());
         if self.client_config.secret.is_some() {
-            let timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis();
+            let timestamp = Utc::now().timestamp_millis();
             let signature = sign(
                 timestamp,
                 url.as_str(),
@@ -140,85 +247,51 @@ impl Cache {
         };
 
         trace!("Response body {} for namespace {}", body, self.namespace);
-        // Create parent directories if they don't exist
-        if let Some(parent) = self.file_path.parent() {
-            match std::fs::create_dir_all(parent) {
-                Ok(_) => (),
-                Err(e) => {
-                    *loading = false;
-                    return Err(Error::Io(e));
+        cfg_if! {
+            if #[cfg(not(target_arch = "wasm32"))] {
+                debug!("writing cache file {}", self.file_path.display());
+                 // Create parent directories if they don't exist
+                if let Some(parent) = self.file_path.parent() {
+                    match std::fs::create_dir_all(parent) {
+                        Ok(_) => (),
+                        Err(e) => {
+                            *loading = false;
+                            return Err(Error::Io(e));
+                        }
+                    }
+                }
+                match std::fs::write(&self.file_path, body.clone()) {
+                    Ok(_) => {
+                        trace!("Wrote cache file {} for namespace {}", self.file_path.display(), self.namespace);
+                    },
+                    Err(e) => {
+                        *loading = false;
+                        return Err(Error::Io(e));
+                    }
                 }
             }
         }
 
-        // Write the response body to the cache file
-        match std::fs::write(&self.file_path, body) {
-            Ok(_) => (),
+        let config: Value = match serde_json::from_str(&body) {
+            Ok(c) => c,
             Err(e) => {
                 *loading = false;
-                return Err(Error::Io(e));
+                debug!("error parsing config: {}", e);
+                return Err(Error::Serde(e));
             }
-        }
+        };
+        trace!("parsed config: {:?}", config);
+        self.memory_cache.write().await.replace(config);
 
+        trace!("Refreshed cache for namespace {}", self.namespace);
         *loading = false;
 
         Ok(())
     }
+}
 
-    /// Get a configuration from the cache.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to get the configuration for.
-    ///
-    /// # Returns
-    ///
-    /// The configuration for the given key.
-    async fn get_value(&self, key: &str) -> Result<Value, Error> {
-        debug!("Getting value for key {}", key);
-        let file_path = self.file_path.clone();
-        // Check if the cache file exists
-        let mut checking_cache = self.checking_cache.write().await;
-        if *checking_cache {
-            return Err(Error::AlreadyCheckingCache);
-        }
-        *checking_cache = true;
-        if !file_path.exists() {
-            trace!(
-                "Cache file {} doesn't exist, fetching from server",
-                file_path.display()
-            );
-            // File doesn't exist, try to refresh the cache
-            match self.refresh().await {
-                Ok(_) => {
-                    // Refresh successful, continue with reading the file
-                    log::debug!(
-                        "Cache file created after refresh for namespace {}",
-                        self.namespace
-                    );
-                }
-                Err(err) => {
-                    // Refresh failed, propagate the error
-                    log::error!(
-                        "Failed to refresh cache for namespace {}: {:?}",
-                        self.namespace,
-                        err
-                    );
-                    return Err(err);
-                }
-            }
-        }
-        *checking_cache = false;
-        let file = File::open(file_path.clone())?;
-        trace!("Cache file {} opened", file_path.clone().display());
-
-        let config: Value = serde_json::from_reader(file)?;
-        trace!("Config {:?}", config);
-
-        let value = config.get(key).ok_or(Error::KeyNotFound(key.to_string()))?;
-        Ok(value.clone())
-    }
-
+#[wasm_bindgen]
+impl Cache {
     /// Get a property from the cache as a string.
     ///
     /// # Arguments
@@ -228,15 +301,57 @@ impl Cache {
     /// # Returns
     ///
     /// The property for the given key as a string.
-    pub async fn get_property<T: FromStr>(&self, key: &str) -> Option<T> {
+    pub async fn get_string(&self, key: &str) -> Option<String> {
+        self.get_property::<String>(key).await
+    }
+
+    /// Get a property from the cache as an integer.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to get the property for.
+    ///
+    /// # Returns
+    ///
+    /// The property for the given key as an integer.
+    pub async fn get_int(&self, key: &str) -> Option<i64> {
+        self.get_property::<i64>(key).await
+    }
+
+    /// Get a property from the cache as a float.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to get the property for.
+    ///
+    /// # Returns
+    ///
+    /// The property for the given key as a float.
+    pub async fn get_float(&self, key: &str) -> Option<f64> {
         debug!("Getting property for key {}", key);
         let value = self.get_value(key).await.ok()?;
 
-        value.as_str().and_then(|s| s.parse::<T>().ok())
+        value.as_str().and_then(|s| s.parse::<f64>().ok())
+    }
+
+    /// Get a property from the cache as a boolean.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to get the property for.
+    ///
+    /// # Returns
+    ///
+    /// The property for the given key as a boolean.
+    pub async fn get_bool(&self, key: &str) -> Option<bool> {
+        debug!("Getting property for key {}", key);
+        let value = self.get_value(key).await.ok()?;
+
+        value.as_str().and_then(|s| s.parse::<bool>().ok())
     }
 }
 
-pub(crate) fn sign(timestamp: u128, url: &str, secret: &str) -> Result<String, Error> {
+pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Error> {
     let u = match Url::parse(url) {
         Ok(u) => u,
         Err(e) => match e {
@@ -254,7 +369,7 @@ pub(crate) fn sign(timestamp: u128, url: &str, secret: &str) -> Result<String, E
         path_and_query.push_str(&format!("?{}", query));
     }
     let input = format!("{}\n{}", timestamp, path_and_query);
-    trace!("Input {}", input);
+    trace!("input for signing: {}", input);
 
     type HmacSha1 = Hmac<Sha1>;
     let mut mac = HmacSha1::new_from_slice(secret.as_bytes()).unwrap();
