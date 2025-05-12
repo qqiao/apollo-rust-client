@@ -23,7 +23,7 @@ Alternatively, you can use the following command to use the WebAssembly
 version.
 
 ```
-npm install @qqiao/apollo-wasm-client
+npm install @qqiao/apollo-rust-client
 ```
 
 ## Usage
@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Or the JavaScript version:
 
 ```JavaScript
-import { Client, ClientConfig } from '@qqiao/apollo-wasm-client';
+import { Client, ClientConfig } from '@qqiao/apollo-rust-client';
 
 const clientConfig = new ClientConfig("app_id",  "http://your-apollo-server:8080", "default");
 
