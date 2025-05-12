@@ -159,6 +159,7 @@ impl Drop for Client {
 mod tests {
     use super::*;
     use lazy_static::lazy_static;
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     lazy_static! {
         static ref CLIENT_NO_SECRET: Client = {
@@ -212,7 +213,14 @@ mod tests {
     }
 
     pub(crate) fn setup() {
-        let _ = env_logger::builder().is_test(true).try_init();
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                let _ = wasm_logger::init(wasm_logger::Config::default());
+                console_error_panic_hook::set_once();
+            } else {
+                let _ = env_logger::builder().is_test(true).try_init();
+            }
+        }
     }
 
     #[tokio::test]
@@ -232,9 +240,21 @@ mod tests {
         );
     }
 
+    #[wasm_bindgen_test]
+    async fn test_string_value_wasm() {
+        setup();
+        console_error_panic_hook::set_once();
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(
+            cache.get_string("stringValue").await,
+            Some("string value".to_string())
+        );
+    }
+
     #[tokio::test]
     async fn test_string_value_with_secret() {
         setup();
+        console_error_panic_hook::set_once();
         let cache = CLIENT_WITH_SECRET.namespace("application");
         assert_eq!(
             cache.get_property::<String>("stringValue").await,

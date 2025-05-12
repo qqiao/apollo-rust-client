@@ -1,6 +1,6 @@
 //! Configuration for the Apollo client.
 
-use std::path::PathBuf;
+use cfg_if::cfg_if;
 use wasm_bindgen::prelude::*;
 
 #[derive(Debug, thiserror::Error)]
@@ -64,14 +64,20 @@ impl ClientConfig {
             ip: None,
         })
     }
+}
 
-    pub(crate) fn get_cache_dir(&self) -> PathBuf {
-        let base = PathBuf::from(
-            &self
-                .cache_dir
-                .clone()
-                .unwrap_or_else(|| String::from("/opt/data")),
-        );
-        base.join(&self.app_id).join("config-cache")
+cfg_if! {
+    if #[cfg(not(target_arch = "wasm32"))] {
+        impl ClientConfig {
+            pub(crate) fn get_cache_dir(&self) -> std::path::PathBuf {
+                let base = std::path::PathBuf::from(
+                    &self
+                        .cache_dir
+                        .clone()
+                        .unwrap_or_else(|| String::from("/opt/data")),
+                );
+                base.join(&self.app_id).join("config-cache")
+            }
+        }
     }
 }

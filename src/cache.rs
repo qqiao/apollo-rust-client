@@ -37,13 +37,12 @@ pub enum Error {
 pub struct Cache {
     client_config: ClientConfig,
     namespace: String,
-
-    #[wasm_bindgen(skip)]
-    file_path: std::path::PathBuf,
-
     loading: Arc<RwLock<bool>>,
     checking_cache: Arc<RwLock<bool>>,
     memory_cache: Arc<RwLock<Option<Value>>>,
+
+    #[cfg(not(target_arch = "wasm32"))]
+    file_path: std::path::PathBuf,
 }
 
 impl Cache {
@@ -66,17 +65,41 @@ impl Cache {
             file_name.push_str(&format!("_{}", label));
         }
 
-        let file_path = client_config
-            .get_cache_dir()
-            .join(format!("{}.cache.json", file_name));
+        cfg_if! {
+            if #[cfg(not(target_arch = "wasm32"))] {
+                let file_path = client_config
+                    .get_cache_dir()
+                    .join(format!("{}.cache.json", file_name));
+            }
+        }
+
         Self {
             client_config,
             namespace: namespace.to_string(),
-            file_path,
+
             loading: Arc::new(RwLock::new(false)),
             checking_cache: Arc::new(RwLock::new(false)),
             memory_cache: Arc::new(RwLock::new(None)),
+
+            #[cfg(not(target_arch = "wasm32"))]
+            file_path,
         }
+    }
+
+    /// Get a property from the cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to get the property for.
+    ///
+    /// # Returns
+    ///
+    /// The property for the given key as a string.
+    pub async fn get_property<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
+        debug!("Getting property for key {}", key);
+        let value = self.get_value(key).await.ok()?;
+
+        value.as_str().and_then(|s| s.parse::<T>().ok())
     }
 
     /// Get a configuration from the cache.
@@ -108,7 +131,7 @@ impl Cache {
             }
         }
         drop(memory_cache);
-        trace!("No memory cache found");
+        debug!("No memory cache found");
 
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
@@ -126,10 +149,22 @@ impl Cache {
                     self.memory_cache.write().await.replace(config.clone());
                 } else {
                     trace!("Cache file {} doesn't exist, refreshing cache", file_path.display());
-                    self.refresh().await?;
+                    match self.refresh().await {
+                        Ok(_) => (),
+                        Err(e) => {
+                            *checking_cache = false;
+                            return Err(e);
+                        }
+                    }
                 }
             } else {
-                self.refresh().await?;
+                match self.refresh().await {
+                    Ok(_) => (),
+                    Err(e) => {
+                        *checking_cache = false;
+                        return Err(e);
+                    }
+                }
             }
         }
 
@@ -212,19 +247,19 @@ impl Cache {
         };
 
         trace!("Response body {} for namespace {}", body, self.namespace);
-        // Create parent directories if they don't exist
-        if let Some(parent) = self.file_path.parent() {
-            match std::fs::create_dir_all(parent) {
-                Ok(_) => (),
-                Err(e) => {
-                    *loading = false;
-                    return Err(Error::Io(e));
-                }
-            }
-        }
-
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
+                debug!("writing cache file {}", self.file_path.display());
+                 // Create parent directories if they don't exist
+                if let Some(parent) = self.file_path.parent() {
+                    match std::fs::create_dir_all(parent) {
+                        Ok(_) => (),
+                        Err(e) => {
+                            *loading = false;
+                            return Err(Error::Io(e));
+                        }
+                    }
+                }
                 match std::fs::write(&self.file_path, body.clone()) {
                     Ok(_) => {
                         trace!("Wrote cache file {} for namespace {}", self.file_path.display(), self.namespace);
@@ -237,10 +272,16 @@ impl Cache {
             }
         }
 
-        self.memory_cache
-            .write()
-            .await
-            .replace(serde_json::from_str(&body)?);
+        let config: Value = match serde_json::from_str(&body) {
+            Ok(c) => c,
+            Err(e) => {
+                *loading = false;
+                debug!("error parsing config: {}", e);
+                return Err(Error::Serde(e));
+            }
+        };
+        trace!("parsed config: {:?}", config);
+        self.memory_cache.write().await.replace(config);
 
         trace!("Refreshed cache for namespace {}", self.namespace);
         *loading = false;
@@ -313,28 +354,6 @@ impl Cache {
         let value = self.get_value(key).await.ok()?;
 
         value.as_str().and_then(|s| s.parse::<bool>().ok())
-    }
-}
-
-cfg_if! {
-    if #[cfg(not(target_arch = "wasm32"))] {
-        impl Cache {
-            /// Get a property from the cache.
-            ///
-            /// # Arguments
-            ///
-            /// * `key` - The key to get the property for.
-            ///
-            /// # Returns
-            ///
-            /// The property for the given key as a string.
-            pub async fn get_property<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
-                debug!("Getting property for key {}", key);
-                let value = self.get_value(key).await.ok()?;
-
-                value.as_str().and_then(|s| s.parse::<T>().ok())
-            }
-        }
     }
 }
 
