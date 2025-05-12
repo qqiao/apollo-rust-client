@@ -8,7 +8,7 @@ use hmac::{Hmac, Mac};
 use log::{debug, trace};
 use serde_json::Value;
 use sha1::Sha1;
-use std::{fs::File, path::PathBuf, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use url::{ParseError, Url};
 use wasm_bindgen::prelude::*;
@@ -37,7 +37,10 @@ pub enum Error {
 pub struct Cache {
     client_config: ClientConfig,
     namespace: String,
-    file_path: PathBuf,
+
+    #[wasm_bindgen(skip)]
+    file_path: std::path::PathBuf,
+
     loading: Arc<RwLock<bool>>,
     checking_cache: Arc<RwLock<bool>>,
     memory_cache: Arc<RwLock<Option<Value>>>,
@@ -100,66 +103,149 @@ impl Cache {
         if let Some(value) = memory_cache.as_ref() {
             debug!("Memory cache found, using memory cache for key {}", key);
             if let Some(v) = value.get(key) {
+                *checking_cache = false;
                 return Ok(v.clone());
             }
         }
+        drop(memory_cache);
         trace!("No memory cache found");
 
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
-                trace!("Checking file cache");
                 let file_path = self.file_path.clone();
-
-                if !file_path.exists() {
-                    trace!(
-                        "Cache file {} doesn't exist, fetching from server",
-                        file_path.display()
-                    );
-                    // File doesn't exist, try to refresh the cache
-                    match self.refresh().await {
-                        Ok(_) => {
-                            // Refresh successful, continue with reading the file
-                            log::debug!(
-                                "Cache file created after refresh for namespace {}",
-                                self.namespace
-                            );
+                if file_path.exists() {
+                    trace!("Cache file {} exists, using file cache", file_path.display());
+                    let file = match std::fs::File::open(file_path) {
+                        Ok(file) => file,
+                        Err(e) => {
+                            *checking_cache = false;
+                            return Err(Error::Io(e));
                         }
-                        Err(err) => {
-                            // Refresh failed, propagate the error
-                            log::error!(
-                                "Failed to refresh cache for namespace {}: {:?}",
-                                self.namespace,
-                                err
-                            );
-                            return Err(err);
-                        }
-                    }
+                    };
+                    let config: Value = serde_json::from_reader(file)?;
+                    self.memory_cache.write().await.replace(config.clone());
+                } else {
+                    trace!("Cache file {} doesn't exist, refreshing cache", file_path.display());
+                    self.refresh().await?;
                 }
-
-                let file = match File::open(file_path.clone()){
-                    Ok(file)=> file,
-                    Err(e)=> {
-                        *checking_cache = false;
-                        return Err(Error::Io(e));
-                    }
-                };
-                trace!("Cache file {} opened", file_path.clone().display());
-
-                let config: Value = serde_json::from_reader(file)?;
-                trace!("Config {:?}", config);
-
-                let value = match config.get(key) {
-                    Some(v) => v,
-                    None => {
-                        *checking_cache = false;
-                        return Err(Error::KeyNotFound(key.to_string()));
-                    }
-                };
-                *checking_cache = false;
-
-                Ok(value.clone())
+            } else {
+                self.refresh().await?;
             }
         }
+
+        let memory_cache = self.memory_cache.read().await;
+        if let Some(value) = memory_cache.as_ref() {
+            if let Some(v) = value.get(key) {
+                *checking_cache = false;
+                Ok(v.clone())
+            } else {
+                *checking_cache = false;
+                Err(Error::KeyNotFound(key.to_string()))
+            }
+        } else {
+            *checking_cache = false;
+            Err(Error::KeyNotFound(key.to_string()))
+        }
+    }
+
+    pub(crate) async fn refresh(&self) -> Result<(), Error> {
+        let mut loading = self.loading.write().await;
+        if *loading {
+            return Err(Error::AlreadyLoading);
+        }
+        *loading = true;
+
+        trace!("Refreshing cache for namespace {}", self.namespace);
+        let url = format!(
+            "{}/configfiles/json/{}/{}/{}",
+            self.client_config.config_server,
+            self.client_config.app_id,
+            self.client_config.cluster,
+            self.namespace
+        );
+
+        let mut url = match Url::parse(&url) {
+            Ok(u) => u,
+            Err(e) => {
+                *loading = false;
+                return Err(Error::UrlParse(e));
+            }
+        };
+        if let Some(ip) = &self.client_config.ip {
+            url.query_pairs_mut().append_pair("ip", ip);
+        }
+        if let Some(label) = &self.client_config.label {
+            url.query_pairs_mut().append_pair("label", label);
+        }
+
+        trace!("Url {} for namespace {}", url, self.namespace);
+
+        let mut client = reqwest::Client::new().get(url.as_str());
+        if self.client_config.secret.is_some() {
+            let timestamp = Utc::now().timestamp_millis();
+            let signature = sign(
+                timestamp,
+                url.as_str(),
+                self.client_config.secret.as_ref().unwrap(),
+            )?;
+            client = client.header("timestamp", timestamp.to_string());
+            client = client.header(
+                "Authorization",
+                format!("Apollo {}:{}", &self.client_config.app_id, signature),
+            );
+        }
+
+        let response = match client.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                *loading = false;
+                return Err(Error::Reqwest(e));
+            }
+        };
+
+        let body = match response.text().await {
+            Ok(b) => b,
+            Err(e) => {
+                *loading = false;
+                return Err(Error::Reqwest(e));
+            }
+        };
+
+        trace!("Response body {} for namespace {}", body, self.namespace);
+        // Create parent directories if they don't exist
+        if let Some(parent) = self.file_path.parent() {
+            match std::fs::create_dir_all(parent) {
+                Ok(_) => (),
+                Err(e) => {
+                    *loading = false;
+                    return Err(Error::Io(e));
+                }
+            }
+        }
+
+        cfg_if! {
+            if #[cfg(not(target_arch = "wasm32"))] {
+                match std::fs::write(&self.file_path, body.clone()) {
+                    Ok(_) => {
+                        trace!("Wrote cache file {} for namespace {}", self.file_path.display(), self.namespace);
+                    },
+                    Err(e) => {
+                        *loading = false;
+                        return Err(Error::Io(e));
+                    }
+                }
+            }
+        }
+
+        self.memory_cache
+            .write()
+            .await
+            .replace(serde_json::from_str(&body)?);
+
+        trace!("Refreshed cache for namespace {}", self.namespace);
+        *loading = false;
+
+        Ok(())
     }
 }
 
@@ -172,10 +258,6 @@ cfg_if! {
                 let value = self.get_value(key).await.ok()?;
 
                 value.as_str().map(String::from)
-            }
-
-            pub(crate) async fn refresh(&self) -> Result<(), Error> {
-                todo!()
             }
         }
     } else {
@@ -194,95 +276,6 @@ cfg_if! {
                 let value = self.get_value(key).await.ok()?;
 
                 value.as_str().and_then(|s| s.parse::<T>().ok())
-            }
-
-            pub(crate) async fn refresh(&self) -> Result<(), Error> {
-                let mut loading = self.loading.write().await;
-                if *loading {
-                    return Err(Error::AlreadyLoading);
-                }
-                *loading = true;
-
-                trace!("Refreshing cache for namespace {}", self.namespace);
-                let url = format!(
-                    "{}/configfiles/json/{}/{}/{}",
-                    self.client_config.config_server,
-                    self.client_config.app_id,
-                    self.client_config.cluster,
-                    self.namespace
-                );
-
-                let mut url = match Url::parse(&url) {
-                    Ok(u) => u,
-                    Err(e) => {
-                        *loading = false;
-                        return Err(Error::UrlParse(e));
-                    }
-                };
-                if let Some(ip) = &self.client_config.ip {
-                    url.query_pairs_mut().append_pair("ip", ip);
-                }
-                if let Some(label) = &self.client_config.label {
-                    url.query_pairs_mut().append_pair("label", label);
-                }
-
-                trace!("Url {} for namespace {}", url, self.namespace);
-
-                let mut client = reqwest::Client::new().get(url.as_str());
-                if self.client_config.secret.is_some() {
-                    let timestamp = Utc::now().timestamp_millis();
-                    let signature = sign(
-                        timestamp,
-                        url.as_str(),
-                        self.client_config.secret.as_ref().unwrap(),
-                    )?;
-                    client = client.header("timestamp", timestamp.to_string());
-                    client = client.header(
-                        "Authorization",
-                        format!("Apollo {}:{}", &self.client_config.app_id, signature),
-                    );
-                }
-
-                let response = match client.send().await {
-                    Ok(r) => r,
-                    Err(e) => {
-                        *loading = false;
-                        return Err(Error::Reqwest(e));
-                    }
-                };
-
-                let body = match response.text().await {
-                    Ok(b) => b,
-                    Err(e) => {
-                        *loading = false;
-                        return Err(Error::Reqwest(e));
-                    }
-                };
-
-                trace!("Response body {} for namespace {}", body, self.namespace);
-                // Create parent directories if they don't exist
-                if let Some(parent) = self.file_path.parent() {
-                    match std::fs::create_dir_all(parent) {
-                        Ok(_) => (),
-                        Err(e) => {
-                            *loading = false;
-                            return Err(Error::Io(e));
-                        }
-                    }
-                }
-
-                // Write the response body to the cache file
-                match std::fs::write(&self.file_path, body) {
-                    Ok(_) => (),
-                    Err(e) => {
-                        *loading = false;
-                        return Err(Error::Io(e));
-                    }
-                }
-
-                *loading = false;
-
-                Ok(())
             }
         }
     }
