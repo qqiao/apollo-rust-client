@@ -302,10 +302,7 @@ impl Cache {
     ///
     /// The property for the given key as a string.
     pub async fn get_string(&self, key: &str) -> Option<String> {
-        debug!("Getting property for key {}", key);
-        let value = self.get_value(key).await.ok()?;
-
-        value.as_str().map(String::from)
+        self.get_property::<String>(key).await
     }
 
     /// Get a property from the cache as an integer.
@@ -318,10 +315,7 @@ impl Cache {
     ///
     /// The property for the given key as an integer.
     pub async fn get_int(&self, key: &str) -> Option<i64> {
-        debug!("Getting property for key {}", key);
-        let value = self.get_value(key).await.ok()?;
-
-        value.as_str().and_then(|s| s.parse::<i64>().ok())
+        self.get_property::<i64>(key).await
     }
 
     /// Get a property from the cache as a float.

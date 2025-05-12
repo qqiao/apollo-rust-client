@@ -230,20 +230,28 @@ mod tests {
         assert_eq!(cache.get_property::<String>("missingValue").await, None);
     }
 
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_missing_value_wasm() {
+        setup();
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(cache.get_property::<String>("missingValue").await, None);
+    }
+
     #[tokio::test]
     async fn test_string_value() {
         setup();
         let cache = CLIENT_NO_SECRET.namespace("application");
         assert_eq!(
-            cache.get_property::<String>("stringValue").await,
+            cache.get_string("stringValue").await,
             Some("string value".to_string())
         );
     }
 
     #[wasm_bindgen_test]
+    #[allow(dead_code)]
     async fn test_string_value_wasm() {
         setup();
-        console_error_panic_hook::set_once();
         let cache = CLIENT_NO_SECRET.namespace("application");
         assert_eq!(
             cache.get_string("stringValue").await,
@@ -262,11 +270,30 @@ mod tests {
         );
     }
 
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_string_value_with_secret_wasm() {
+        setup();
+        let cache = CLIENT_WITH_SECRET.namespace("application");
+        assert_eq!(
+            cache.get_string("stringValue").await,
+            Some("string value".to_string())
+        );
+    }
+
     #[tokio::test]
     async fn test_int_value() {
         setup();
         let cache = CLIENT_NO_SECRET.namespace("application");
         assert_eq!(cache.get_property::<i32>("intValue").await, Some(42));
+    }
+
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_int_value_wasm() {
+        setup();
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(cache.get_int("intValue").await, Some(42));
     }
 
     #[tokio::test]
@@ -276,11 +303,27 @@ mod tests {
         assert_eq!(cache.get_property::<i32>("intValue").await, Some(42));
     }
 
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_int_value_with_secret_wasm() {
+        setup();
+        let cache = CLIENT_WITH_SECRET.namespace("application");
+        assert_eq!(cache.get_int("intValue").await, Some(42));
+    }
+
     #[tokio::test]
     async fn test_float_value() {
         setup();
         let cache = CLIENT_NO_SECRET.namespace("application");
         assert_eq!(cache.get_property::<f64>("floatValue").await, Some(4.20));
+    }
+
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_float_value_wasm() {
+        setup();
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(cache.get_float("floatValue").await, Some(4.20));
     }
 
     #[tokio::test]
@@ -290,6 +333,14 @@ mod tests {
         assert_eq!(cache.get_property::<f64>("floatValue").await, Some(4.20));
     }
 
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_float_value_with_secret_wasm() {
+        setup();
+        let cache = CLIENT_WITH_SECRET.namespace("application");
+        assert_eq!(cache.get_float("floatValue").await, Some(4.20));
+    }
+
     #[tokio::test]
     async fn test_bool_value() {
         setup();
@@ -297,11 +348,27 @@ mod tests {
         assert_eq!(cache.get_property::<bool>("boolValue").await, Some(false));
     }
 
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_bool_value_wasm() {
+        setup();
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(cache.get_bool("boolValue").await, Some(false));
+    }
+
     #[tokio::test]
     async fn test_bool_value_with_secret() {
         setup();
         let cache = CLIENT_WITH_SECRET.namespace("application");
         assert_eq!(cache.get_property::<bool>("boolValue").await, Some(false));
+    }
+
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_bool_value_with_secret_wasm() {
+        setup();
+        let cache = CLIENT_WITH_SECRET.namespace("application");
+        assert_eq!(cache.get_bool("boolValue").await, Some(false));
     }
 
     #[tokio::test]
@@ -319,6 +386,17 @@ mod tests {
         );
     }
 
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_bool_value_with_grayscale_ip_wasm() {
+        setup();
+        let cache = CLIENT_WITH_GRAYSCALE_IP.namespace("application");
+        assert_eq!(cache.get_bool("grayScaleValue").await, Some(true));
+
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(cache.get_bool("grayScaleValue").await, Some(false));
+    }
+
     #[tokio::test]
     async fn test_bool_value_with_grayscale_label() {
         setup();
@@ -332,5 +410,16 @@ mod tests {
             cache.get_property::<bool>("grayScaleValue").await,
             Some(false)
         );
+    }
+
+    #[wasm_bindgen_test]
+    #[allow(dead_code)]
+    async fn test_bool_value_with_grayscale_label_wasm() {
+        setup();
+        let cache = CLIENT_WITH_GRAYSCALE_LABEL.namespace("application");
+        assert_eq!(cache.get_bool("grayScaleValue").await, Some(true));
+
+        let cache = CLIENT_NO_SECRET.namespace("application");
+        assert_eq!(cache.get_bool("grayScaleValue").await, Some(false));
     }
 }
