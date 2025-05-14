@@ -16,7 +16,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.2.0"
+apollo-rust-client = "0.3.0"
 ```
 
 Alternatively, you can use the following command to use the WebAssembly
@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new(client_config);
 
     // Get configuration
-    let cache = client.namespace("application");
+    let cache = client.namespace("application").await;
 
     let configuration = cache.get_property::<i64>("meaningOfLife").await?
     println!("Configuration: {:?}", configuration);
@@ -70,9 +70,9 @@ const clientConfig = new ClientConfig("app_id",  "http://your-apollo-server:8080
 clientConfig.secret = "your_secret";
 
 const client = new Client(clientConfig);
-const namespace = client.namespace("application");
+const namespace = await client.namespace("application");
 
-console.log(namespace.get_int(meaningOfLife));
+console.log(await namespace.get_int(meaningOfLife));
 
 // Please make absolutely sure that you call the `free` method on WASM objects
 // to prevent any memory leaks:

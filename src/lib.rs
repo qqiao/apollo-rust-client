@@ -1,14 +1,17 @@
+use async_std::sync::RwLock;
 use cache::Cache;
 use client_config::ClientConfig;
-use futures::executor::block_on;
 use log::trace;
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-    thread::{self, JoinHandle},
-    time::Duration,
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use wasm_bindgen::prelude::wasm_bindgen;
+
+cfg_if::cfg_if! {
+    if #[cfg(target_arch = "wasm32")] {
+        use wasm_bindgen_futures::spawn_local as spawn;
+    } else {
+        use async_std::task::spawn as spawn;
+    }
+}
 
 pub mod cache;
 pub mod client_config;
@@ -25,13 +28,13 @@ pub enum Error {
 pub struct Client {
     client_config: ClientConfig,
     namespaces: Arc<RwLock<HashMap<String, Arc<Cache>>>>,
-    handle: Option<JoinHandle<()>>,
+    handle: Option<async_std::task::JoinHandle<()>>,
     running: Arc<RwLock<bool>>,
 }
 
 impl Client {
-    pub fn start(&mut self) -> Result<(), Error> {
-        let mut running = self.running.write().unwrap();
+    pub async fn start(&mut self) -> Result<(), Error> {
+        let mut running = self.running.write().await;
         if *running {
             return Err(Error::AlreadyRunning);
         }
@@ -40,18 +43,19 @@ impl Client {
 
         let running = self.running.clone();
         let namespaces = self.namespaces.clone();
+
         // Spawn a background thread to refresh caches
-        let handle = thread::spawn(move || {
+        let _handle = spawn(async move {
             loop {
-                let running = running.read().unwrap();
+                let running = running.read().await;
                 if !*running {
                     break;
                 }
 
-                let namespaces = namespaces.read().unwrap();
+                let namespaces = namespaces.read().await;
                 // Refresh each namespace's cache
                 for (namespace, cache) in namespaces.iter() {
-                    if let Err(err) = block_on(cache.refresh()) {
+                    if let Err(err) = cache.refresh().await {
                         log::error!(
                             "Failed to refresh cache for namespace {}: {:?}",
                             namespace,
@@ -63,20 +67,31 @@ impl Client {
                 }
 
                 // Sleep for 30 seconds before the next refresh
-                thread::sleep(Duration::from_secs(30));
+                async_std::task::sleep(Duration::from_secs(30)).await;
             }
         });
 
-        self.handle = Some(handle);
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                self.handle = None;
+            } else {
+                self.handle = Some(_handle);
+            }
+        }
 
         Ok(())
     }
 
-    pub fn stop(&mut self) {
-        let mut running = self.running.write().unwrap();
+    pub async fn stop(&mut self) {
+        let mut running = self.running.write().await;
         *running = false;
-        if let Some(handle) = self.handle.take() {
-            handle.join().unwrap();
+
+        cfg_if::cfg_if! {
+            if #[cfg(not(target_arch = "wasm32"))] {
+                if let Some(handle) = self.handle.take() {
+                    handle.cancel().await;
+                }
+            }
         }
     }
 }
@@ -94,8 +109,8 @@ cfg_if::cfg_if! {
             /// # Returns
             ///
             /// A cache for the given namespace.
-            pub fn namespace(&self, namespace: &str) -> Cache {
-                let mut namespaces = self.namespaces.write().unwrap();
+            pub async fn namespace(&self, namespace: &str) -> Cache {
+                let mut namespaces = self.namespaces.write().await;
                 let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
                     trace!("Cache miss, creating cache for namespace {}", namespace);
                     Arc::new(Cache::new(self.client_config.clone(), namespace))
@@ -115,8 +130,8 @@ cfg_if::cfg_if! {
             /// # Returns
             ///
             /// A cache for the given namespace.
-            pub fn namespace(&self, namespace: &str) -> Arc<Cache> {
-                let mut namespaces = self.namespaces.write().unwrap();
+            pub async fn namespace(&self, namespace: &str) -> Arc<Cache> {
+                let mut namespaces = self.namespaces.write().await;
                 let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
                     trace!("Cache miss, creating cache for namespace {}", namespace);
                     Arc::new(Cache::new(self.client_config.clone(), namespace))
@@ -146,12 +161,6 @@ impl Client {
             handle: None,
             running: Arc::new(RwLock::new(false)),
         }
-    }
-}
-
-impl Drop for Client {
-    fn drop(&mut self) {
-        self.stop();
     }
 }
 
@@ -227,7 +236,10 @@ mod tests {
     async fn test_missing_value() {
         setup();
         let cache = CLIENT_NO_SECRET.namespace("application");
-        assert_eq!(cache.get_property::<String>("missingValue").await, None);
+        assert_eq!(
+            cache.await.get_property::<String>("missingValue").await,
+            None
+        );
     }
 
     #[wasm_bindgen_test]
@@ -235,7 +247,10 @@ mod tests {
     async fn test_missing_value_wasm() {
         setup();
         let cache = CLIENT_NO_SECRET.namespace("application");
-        assert_eq!(cache.get_property::<String>("missingValue").await, None);
+        assert_eq!(
+            cache.await.get_property::<String>("missingValue").await,
+            None
+        );
     }
 
     #[tokio::test]
@@ -243,7 +258,7 @@ mod tests {
         setup();
         let cache = CLIENT_NO_SECRET.namespace("application");
         assert_eq!(
-            cache.get_string("stringValue").await,
+            cache.await.get_property::<String>("stringValue").await,
             Some("string value".to_string())
         );
     }
@@ -254,7 +269,7 @@ mod tests {
         setup();
         let cache = CLIENT_NO_SECRET.namespace("application");
         assert_eq!(
-            cache.get_string("stringValue").await,
+            cache.await.get_property::<String>("stringValue").await,
             Some("string value".to_string())
         );
     }
@@ -265,7 +280,7 @@ mod tests {
         console_error_panic_hook::set_once();
         let cache = CLIENT_WITH_SECRET.namespace("application");
         assert_eq!(
-            cache.get_property::<String>("stringValue").await,
+            cache.await.get_property::<String>("stringValue").await,
             Some("string value".to_string())
         );
     }
@@ -276,7 +291,7 @@ mod tests {
         setup();
         let cache = CLIENT_WITH_SECRET.namespace("application");
         assert_eq!(
-            cache.get_string("stringValue").await,
+            cache.await.get_property::<String>("stringValue").await,
             Some("string value".to_string())
         );
     }
@@ -285,7 +300,7 @@ mod tests {
     async fn test_int_value() {
         setup();
         let cache = CLIENT_NO_SECRET.namespace("application");
-        assert_eq!(cache.get_property::<i32>("intValue").await, Some(42));
+        assert_eq!(cache.await.get_property::<i32>("intValue").await, Some(42));
     }
 
     #[wasm_bindgen_test]
@@ -293,14 +308,14 @@ mod tests {
     async fn test_int_value_wasm() {
         setup();
         let cache = CLIENT_NO_SECRET.namespace("application");
-        assert_eq!(cache.get_int("intValue").await, Some(42));
+        assert_eq!(cache.await.get_property::<i32>("intValue").await, Some(42));
     }
 
     #[tokio::test]
     async fn test_int_value_with_secret() {
         setup();
         let cache = CLIENT_WITH_SECRET.namespace("application");
-        assert_eq!(cache.get_property::<i32>("intValue").await, Some(42));
+        assert_eq!(cache.await.get_property::<i32>("intValue").await, Some(42));
     }
 
     #[wasm_bindgen_test]
@@ -308,14 +323,17 @@ mod tests {
     async fn test_int_value_with_secret_wasm() {
         setup();
         let cache = CLIENT_WITH_SECRET.namespace("application");
-        assert_eq!(cache.get_int("intValue").await, Some(42));
+        assert_eq!(cache.await.get_property::<i32>("intValue").await, Some(42));
     }
 
     #[tokio::test]
     async fn test_float_value() {
         setup();
         let cache = CLIENT_NO_SECRET.namespace("application");
-        assert_eq!(cache.get_property::<f64>("floatValue").await, Some(4.20));
+        assert_eq!(
+            cache.await.get_property::<f64>("floatValue").await,
+            Some(4.20)
+        );
     }
 
     #[wasm_bindgen_test]
@@ -323,14 +341,20 @@ mod tests {
     async fn test_float_value_wasm() {
         setup();
         let cache = CLIENT_NO_SECRET.namespace("application");
-        assert_eq!(cache.get_float("floatValue").await, Some(4.20));
+        assert_eq!(
+            cache.await.get_property::<f64>("floatValue").await,
+            Some(4.20)
+        );
     }
 
     #[tokio::test]
     async fn test_float_value_with_secret() {
         setup();
         let cache = CLIENT_WITH_SECRET.namespace("application");
-        assert_eq!(cache.get_property::<f64>("floatValue").await, Some(4.20));
+        assert_eq!(
+            cache.await.get_property::<f64>("floatValue").await,
+            Some(4.20)
+        );
     }
 
     #[wasm_bindgen_test]
@@ -338,14 +362,20 @@ mod tests {
     async fn test_float_value_with_secret_wasm() {
         setup();
         let cache = CLIENT_WITH_SECRET.namespace("application");
-        assert_eq!(cache.get_float("floatValue").await, Some(4.20));
+        assert_eq!(
+            cache.await.get_property::<f64>("floatValue").await,
+            Some(4.20)
+        );
     }
 
     #[tokio::test]
     async fn test_bool_value() {
         setup();
         let cache = CLIENT_NO_SECRET.namespace("application");
-        assert_eq!(cache.get_property::<bool>("boolValue").await, Some(false));
+        assert_eq!(
+            cache.await.get_property::<bool>("boolValue").await,
+            Some(false)
+        );
     }
 
     #[wasm_bindgen_test]
@@ -353,14 +383,20 @@ mod tests {
     async fn test_bool_value_wasm() {
         setup();
         let cache = CLIENT_NO_SECRET.namespace("application");
-        assert_eq!(cache.get_bool("boolValue").await, Some(false));
+        assert_eq!(
+            cache.await.get_property::<bool>("boolValue").await,
+            Some(false)
+        );
     }
 
     #[tokio::test]
     async fn test_bool_value_with_secret() {
         setup();
         let cache = CLIENT_WITH_SECRET.namespace("application");
-        assert_eq!(cache.get_property::<bool>("boolValue").await, Some(false));
+        assert_eq!(
+            cache.await.get_property::<bool>("boolValue").await,
+            Some(false)
+        );
     }
 
     #[wasm_bindgen_test]
@@ -368,7 +404,10 @@ mod tests {
     async fn test_bool_value_with_secret_wasm() {
         setup();
         let cache = CLIENT_WITH_SECRET.namespace("application");
-        assert_eq!(cache.get_bool("boolValue").await, Some(false));
+        assert_eq!(
+            cache.await.get_property::<bool>("boolValue").await,
+            Some(false)
+        );
     }
 
     #[tokio::test]
@@ -376,12 +415,12 @@ mod tests {
         setup();
         let cache = CLIENT_WITH_GRAYSCALE_IP.namespace("application");
         assert_eq!(
-            cache.get_property::<bool>("grayScaleValue").await,
+            cache.await.get_property::<bool>("grayScaleValue").await,
             Some(true)
         );
         let cache = CLIENT_NO_SECRET.namespace("application");
         assert_eq!(
-            cache.get_property::<bool>("grayScaleValue").await,
+            cache.await.get_property::<bool>("grayScaleValue").await,
             Some(false)
         );
     }
@@ -391,21 +430,27 @@ mod tests {
     async fn test_bool_value_with_grayscale_ip_wasm() {
         setup();
         let cache = CLIENT_WITH_GRAYSCALE_IP.namespace("application");
-        assert_eq!(cache.get_bool("grayScaleValue").await, Some(true));
+        assert_eq!(
+            cache.await.get_property::<bool>("grayScaleValue").await,
+            Some(true)
+        );
 
         let cache = CLIENT_NO_SECRET.namespace("application");
-        assert_eq!(cache.get_bool("grayScaleValue").await, Some(false));
+        assert_eq!(
+            cache.await.get_property::<bool>("grayScaleValue").await,
+            Some(false)
+        );
     }
 
     #[tokio::test]
     async fn test_bool_value_with_grayscale_label() {
         setup();
-        let cache = CLIENT_WITH_GRAYSCALE_LABEL.namespace("application");
+        let cache = CLIENT_WITH_GRAYSCALE_LABEL.namespace("application").await;
         assert_eq!(
             cache.get_property::<bool>("grayScaleValue").await,
             Some(true)
         );
-        let cache = CLIENT_NO_SECRET.namespace("application");
+        let cache = CLIENT_NO_SECRET.namespace("application").await;
         assert_eq!(
             cache.get_property::<bool>("grayScaleValue").await,
             Some(false)
@@ -416,10 +461,16 @@ mod tests {
     #[allow(dead_code)]
     async fn test_bool_value_with_grayscale_label_wasm() {
         setup();
-        let cache = CLIENT_WITH_GRAYSCALE_LABEL.namespace("application");
-        assert_eq!(cache.get_bool("grayScaleValue").await, Some(true));
+        let cache = CLIENT_WITH_GRAYSCALE_LABEL.namespace("application").await;
+        assert_eq!(
+            cache.get_property::<bool>("grayScaleValue").await,
+            Some(true)
+        );
 
-        let cache = CLIENT_NO_SECRET.namespace("application");
-        assert_eq!(cache.get_bool("grayScaleValue").await, Some(false));
+        let cache = CLIENT_NO_SECRET.namespace("application").await;
+        assert_eq!(
+            cache.get_property::<bool>("grayScaleValue").await,
+            Some(false)
+        );
     }
 }
