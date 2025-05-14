@@ -1,6 +1,7 @@
 //! Cache for the Apollo client.
 
 use crate::client_config::ClientConfig;
+use async_std::sync::RwLock;
 use base64::display::Base64Display;
 use cfg_if::cfg_if;
 use chrono::Utc;
@@ -9,7 +10,6 @@ use log::{debug, trace};
 use serde_json::Value;
 use sha1::Sha1;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use url::{ParseError, Url};
 use wasm_bindgen::prelude::*;
 
