@@ -5,8 +5,8 @@ use wasm_bindgen::prelude::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Environment variable is not set: {0}")]
-    EnvVar(#[from] std::env::VarError),
+    #[error("Environment variable is not set: {1}")]
+    EnvVar(std::env::VarError, String),
 }
 
 /// Configuration for the Apollo client.
@@ -53,13 +53,17 @@ impl ClientConfig {
     ///
     /// A new configuration instance.
     pub fn from_env() -> Result<Self, Error> {
-        let app_id = std::env::var("APP_ID").map_err(Error::EnvVar)?;
+        let app_id =
+            std::env::var("APP_ID").map_err(|e| (Error::EnvVar(e, "APP_ID".to_string())))?;
         let secret = std::env::var("APOLLO_ACCESS_KEY_SECRET")
-            .map_err(Error::EnvVar)
+            .map_err(|e| (Error::EnvVar(e, "APOLLO_ACCESS_KEY_SECRET".to_string())))
             .ok();
         let cluster = std::env::var("IDC").unwrap_or("default".to_string());
-        let config_server = std::env::var("APOLLO_CONFIG_SERVICE").map_err(Error::EnvVar)?;
-        let label = std::env::var("APOLLO_LABEL").map_err(Error::EnvVar).ok();
+        let config_server = std::env::var("APOLLO_CONFIG_SERVICE")
+            .map_err(|e| (Error::EnvVar(e, "APOLLO_CONFIG_SERVICE".to_string())))?;
+        let label = std::env::var("APOLLO_LABEL")
+            .map_err(|e| (Error::EnvVar(e, "APOLLO_LABEL".to_string())))
+            .ok();
         let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok();
         Ok(Self {
             app_id,

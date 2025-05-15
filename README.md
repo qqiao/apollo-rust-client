@@ -16,7 +16,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.3.1"
+apollo-rust-client = "0.3.2"
 ```
 
 Alternatively, you can use the following command to use the WebAssembly
