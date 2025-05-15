@@ -39,6 +39,13 @@ pub struct ClientConfig {
     pub ip: Option<String>,
 }
 
+impl From<Error> for JsValue {
+    fn from(error: Error) -> Self {
+        JsValue::from_str(&error.to_string())
+    }
+}
+
+#[wasm_bindgen]
 impl ClientConfig {
     /// Create a new configuration from environment variables.
     ///
