@@ -168,7 +168,6 @@ impl Client {
 mod tests {
     use super::*;
     use lazy_static::lazy_static;
-    use wasm_bindgen_test::wasm_bindgen_test;
 
     lazy_static! {
         static ref CLIENT_NO_SECRET: Client = {
@@ -282,7 +281,6 @@ mod tests {
     #[tokio::test]
     async fn test_string_value_with_secret() {
         setup();
-        console_error_panic_hook::set_once();
         let cache = CLIENT_WITH_SECRET.namespace("application");
         assert_eq!(
             cache.await.get_property::<String>("stringValue").await,
@@ -295,6 +293,8 @@ mod tests {
     #[allow(dead_code)]
     async fn test_string_value_with_secret_wasm() {
         setup();
+        console_error_panic_hook::set_once();
+
         let cache = CLIENT_WITH_SECRET.namespace("application");
         assert_eq!(
             cache.await.get_property::<String>("stringValue").await,
