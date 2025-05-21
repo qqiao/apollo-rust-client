@@ -111,6 +111,29 @@ impl Cache {
     /// # Returns
     ///
     /// The configuration for the given key.
+    ///
+    /// This method attempts to retrieve a configuration value associated with the given `key`.
+    /// The process involves several steps:
+    ///
+    /// 1.  **In-Memory Cache Check**: It first checks an in-memory cache (`self.memory_cache`).
+    ///     If the value is found, it's returned immediately. `self.memory_cache` is protected by an `RwLock`
+    ///     to allow concurrent reads and exclusive writes.
+    ///
+    /// 2.  **File-Based Cache Check (non-wasm32 targets only)**: If the value is not in the memory cache
+    ///     and the target architecture is not wasm32, it attempts to load the cache from a local file.
+    ///     The file path is determined by the `client_config` and namespace. If the file exists, its
+    ///     contents are parsed, and the in-memory cache is updated.
+    ///
+    /// 3.  **Refresh Operation**: If the value is not found in either the in-memory cache or the
+    ///     file-based cache (or if on wasm32 where file cache is not used), a `self.refresh()`
+    ///     operation is triggered to fetch the latest configuration from the Apollo server.
+    ///     The in-memory cache (and file cache on non-wasm32) will be updated by the `refresh` method.
+    ///
+    /// To prevent multiple concurrent attempts to initialize or check the cache from the file system
+    /// or via refresh, this method uses an `RwLock` named `self.checking_cache`.
+    /// If another task is already performing this check/initialization, the current task will return
+    /// `Err(Error::AlreadyCheckingCache)`. This indicates that a cache lookup or population is
+    /// already in progress, and the caller should typically retry shortly.
     async fn get_value(&self, key: &str) -> Result<Value, Error> {
         debug!("Getting value for key {}", key);
 
@@ -183,6 +206,31 @@ impl Cache {
         }
     }
 
+    /// Refreshes the cache by fetching the latest configuration from the Apollo server.
+    ///
+    /// This method performs the following steps to update the cache for the current namespace:
+    ///
+    /// 1.  **Construct URL**: It constructs the request URL for the Apollo configuration service
+    ///     based on `client_config` (server address, app ID, cluster) and the current namespace.
+    /// 2.  **Add Query Parameters**: If `client_config.ip` or `client_config.label` are set,
+    ///     they are added as query parameters (`ip` and `label` respectively) to the request URL.
+    ///     This is often used for grayscale release rules.
+    /// 3.  **Authentication Headers (if secret is present)**:
+    ///     *   If `client_config.secret` is provided, it generates a signature using the `sign` function.
+    ///     *   The current `timestamp` (in milliseconds) and an `Authorization` header
+    ///         (e.g., `Apollo <app_id>:<signature>`) are added to the HTTP request.
+    /// 4.  **Send HTTP GET Request**: It sends an HTTP GET request to the constructed URL.
+    /// 5.  **Update Caches**:
+    ///     *   On a successful response, the response body (JSON configuration) is parsed.
+    ///     *   For non-wasm32 targets, the fetched configuration is written to a local file cache
+    ///         (path determined by `client_config.cache_dir` and namespace details).
+    ///     *   The in-memory cache (`self.memory_cache`) is updated with the new configuration.
+    ///
+    /// To prevent multiple concurrent refresh operations for the same cache instance, this method
+    /// uses an `RwLock` named `self.loading`. If another task is already refreshing this cache,
+    /// the current task will return `Err(Error::AlreadyLoading)`. This indicates that a refresh
+    /// is already in progress, and the caller should typically wait for the ongoing refresh to
+    /// complete rather than initiating a new one.
     pub(crate) async fn refresh(&self) -> Result<(), Error> {
         let mut loading = self.loading.write().await;
         if *loading {
@@ -351,6 +399,23 @@ impl Cache {
     }
 }
 
+/// Generates a signature for Apollo API authentication using HMAC-SHA1.
+///
+/// This function takes a timestamp, the request URL (or its path and query), and an Apollo secret key
+/// to create a Base64 encoded signature. This signature is typically used in the `Authorization`
+/// header when making requests to the Apollo configuration service.
+///
+/// # Arguments
+///
+/// * `timestamp` - The current timestamp in milliseconds since the Unix epoch. This is used as part of the message to be signed.
+/// * `url` - The URL being requested. This can be a full URL or just the path and query string.
+/// * `secret` - The Apollo secret key used for generating the HMAC-SHA1 signature.
+///
+/// # Returns
+///
+/// A `Result` which is:
+/// * `Ok(String)`: A Base64 encoded string representing the signature.
+/// * `Err(Error)`: An error if URL parsing fails.
 pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Error> {
     let u = match Url::parse(url) {
         Ok(u) => u,
