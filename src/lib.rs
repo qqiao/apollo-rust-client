@@ -232,6 +232,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_missing_value() {
         setup();
@@ -242,6 +243,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_missing_value_wasm() {
@@ -253,6 +255,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_string_value() {
         setup();
@@ -263,6 +266,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_string_value_wasm() {
@@ -274,6 +278,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_string_value_with_secret() {
         setup();
@@ -285,6 +290,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_string_value_with_secret_wasm() {
@@ -296,6 +302,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_int_value() {
         setup();
@@ -303,6 +310,7 @@ mod tests {
         assert_eq!(cache.await.get_property::<i32>("intValue").await, Some(42));
     }
 
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_int_value_wasm() {
@@ -311,6 +319,7 @@ mod tests {
         assert_eq!(cache.await.get_property::<i32>("intValue").await, Some(42));
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_int_value_with_secret() {
         setup();
@@ -318,6 +327,7 @@ mod tests {
         assert_eq!(cache.await.get_property::<i32>("intValue").await, Some(42));
     }
 
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_int_value_with_secret_wasm() {
@@ -326,6 +336,7 @@ mod tests {
         assert_eq!(cache.await.get_property::<i32>("intValue").await, Some(42));
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_float_value() {
         setup();
@@ -336,6 +347,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_float_value_wasm() {
@@ -347,6 +359,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_float_value_with_secret() {
         setup();
@@ -357,6 +370,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_float_value_with_secret_wasm() {
@@ -368,6 +382,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_bool_value() {
         setup();
@@ -378,6 +393,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_bool_value_wasm() {
@@ -389,6 +405,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_bool_value_with_secret() {
         setup();
@@ -399,6 +416,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_bool_value_with_secret_wasm() {
@@ -410,6 +428,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_bool_value_with_grayscale_ip() {
         setup();
@@ -425,6 +444,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_bool_value_with_grayscale_ip_wasm() {
@@ -442,6 +462,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_bool_value_with_grayscale_label() {
         setup();
@@ -457,6 +478,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_bool_value_with_grayscale_label_wasm() {
