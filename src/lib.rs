@@ -1,3 +1,8 @@
+//! The `apollo-client` crate provides a client for interacting with an Apollo configuration service.
+//! This client is responsible for managing configurations for different namespaces, caching them locally,
+//! and keeping them refreshed periodically. It also supports different behavior for wasm32 and non-wasm32 targets,
+//! allowing it to be used in various environments.
+
 use async_std::sync::RwLock;
 use cache::Cache;
 use client_config::ClientConfig;
@@ -26,13 +31,38 @@ pub enum Error {
 /// Apollo client.
 #[wasm_bindgen]
 pub struct Client {
+    /// Holds the configuration for the Apollo client, including server address, app ID, etc.
     client_config: ClientConfig,
+    /// Stores the caches for different namespaces.
+    /// Each namespace has its own `Cache` instance, wrapped in `Arc` for shared ownership
+    /// and `RwLock` for thread-safe read/write access to the map of namespaces.
     namespaces: Arc<RwLock<HashMap<String, Arc<Cache>>>>,
+    /// Holds the handle for the background refresh task.
+    /// This is `Some` on non-wasm32 targets where a separate task is spawned,
+    /// and `None` on wasm32 where `spawn_local` is used without a direct handle.
     handle: Option<async_std::task::JoinHandle<()>>,
+    /// Indicates whether the background refresh task is active.
+    /// Wrapped in `Arc<RwLock<...>>` for thread-safe shared access to its status.
     running: Arc<RwLock<bool>>,
 }
 
 impl Client {
+    /// Starts a background task that periodically refreshes all registered namespace caches.
+    ///
+    /// This method spawns an asynchronous task using `async_std::task::spawn` on native targets
+    /// or `wasm_bindgen_futures::spawn_local` on wasm32 targets. The task loops indefinitely
+    /// (until `stop` is called or the client is dropped) and performs the following actions
+    /// in each iteration:
+    ///
+    /// 1. Iterates through all namespaces currently managed by the client.
+    /// 2. Calls the `refresh` method on each namespace's `Cache` instance.
+    /// 3. Logs any errors encountered during the refresh process.
+    /// 4. Sleeps for a predefined interval (currently 30 seconds) before the next refresh cycle.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the background task was successfully started.
+    /// * `Err(Error::AlreadyRunning)` if the background task is already active.
     pub async fn start(&mut self) -> Result<(), Error> {
         let mut running = self.running.write().await;
         if *running {
@@ -82,6 +112,15 @@ impl Client {
         Ok(())
     }
 
+    /// Stops the background cache refresh task.
+    ///
+    /// This method sets the `running` flag to `false`, signaling the background task
+    /// to terminate its refresh loop.
+    ///
+    /// On non-wasm32 targets, it also attempts to explicitly cancel the spawned task
+    /// by calling `cancel()` on its `JoinHandle` if it exists. This helps to ensure
+    /// that the task is properly cleaned up. On wasm32 targets, there is no direct
+    /// handle to cancel, so setting the `running` flag is the primary mechanism for stopping.
     pub async fn stop(&mut self) {
         let mut running = self.running.write().await;
         *running = false;

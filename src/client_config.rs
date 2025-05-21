@@ -80,6 +80,26 @@ impl ClientConfig {
 cfg_if! {
     if #[cfg(not(target_arch = "wasm32"))] {
         impl ClientConfig {
+            /// Returns the path to the cache directory for the Apollo client.
+            ///
+            /// This method constructs a `std::path::PathBuf` representing the directory
+            /// where Apollo configuration cache files will be stored. The logic is as follows:
+            ///
+            /// 1.  It uses the `cache_dir` field from the `ClientConfig` instance if it's set.
+            /// 2.  If `cache_dir` is `None`, it defaults to `/opt/data`.
+            /// 3.  It then appends the `app_id` (from `ClientConfig`) as a subdirectory.
+            /// 4.  Finally, it appends `config-cache` as another subdirectory.
+            ///
+            /// # Examples
+            ///
+            /// - If `cache_dir` is `Some("/my/custom/path".to_string())` and `app_id` is `"my_app"`,
+            ///   the result will be `/my/custom/path/my_app/config-cache`.
+            /// - If `cache_dir` is `None` and `app_id` is `"another_app"`,
+            ///   the result will be `/opt/data/another_app/config-cache`.
+            ///
+            /// # Returns
+            ///
+            /// A `std::path::PathBuf` for the cache directory.
             pub(crate) fn get_cache_dir(&self) -> std::path::PathBuf {
                 let base = std::path::PathBuf::from(
                     &self
@@ -93,11 +113,28 @@ cfg_if! {
     } else {
         #[wasm_bindgen]
         impl ClientConfig {
-            /// Create a new configuration from environment variables.
+            /// Creates a new `ClientConfig` instance specifically for wasm32 targets.
+            ///
+            /// This constructor takes essential configuration parameters (`app_id`, `config_server`, `cluster`)
+            /// directly as arguments. Other configuration fields are initialized to `None` or their
+            /// default values:
+            /// - `cache_dir`: `None` (file system caching is not typically used in wasm32).
+            /// - `secret`: `None`.
+            /// - `label`: `None`.
+            /// - `ip`: `None`.
+            ///
+            /// This is in contrast to the `from_env` method, which attempts to read all
+            /// configuration values from environment variables.
+            ///
+            /// # Arguments
+            ///
+            /// * `app_id` - The unique identifier for your application.
+            /// * `config_server` - The Apollo config server URL.
+            /// * `cluster` - The cluster name (e.g., "default").
             ///
             /// # Returns
             ///
-            /// A new configuration instance.
+            /// A new `ClientConfig` instance.
             #[wasm_bindgen(constructor)]
             pub fn new(app_id: String, config_server: String, cluster: String) -> Self {
                 Self {
