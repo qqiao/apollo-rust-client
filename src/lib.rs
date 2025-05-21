@@ -243,7 +243,7 @@ mod tests {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test]
+    #[wasm_bindgen_test::wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_missing_value_wasm() {
         setup();
@@ -266,7 +266,7 @@ mod tests {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test]
+    #[wasm_bindgen_test::wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_string_value_wasm() {
         setup();
@@ -289,7 +289,7 @@ mod tests {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test]
+    #[wasm_bindgen_test::wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_string_value_with_secret_wasm() {
         setup();
@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test]
+    #[wasm_bindgen_test::wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_int_value_wasm() {
         setup();
@@ -328,7 +328,7 @@ mod tests {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test]
+    #[wasm_bindgen_test::wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_int_value_with_secret_wasm() {
         setup();
@@ -348,7 +348,7 @@ mod tests {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test]
+    #[wasm_bindgen_test::wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_float_value_wasm() {
         setup();
@@ -371,7 +371,7 @@ mod tests {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test]
+    #[wasm_bindgen_test::wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_float_value_with_secret_wasm() {
         setup();
@@ -394,7 +394,7 @@ mod tests {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test]
+    #[wasm_bindgen_test::wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_bool_value_wasm() {
         setup();
@@ -417,7 +417,7 @@ mod tests {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test]
+    #[wasm_bindgen_test::wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_bool_value_with_secret_wasm() {
         setup();
@@ -445,7 +445,7 @@ mod tests {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test]
+    #[wasm_bindgen_test::wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_bool_value_with_grayscale_ip_wasm() {
         setup();
@@ -479,7 +479,7 @@ mod tests {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test]
+    #[wasm_bindgen_test::wasm_bindgen_test]
     #[allow(dead_code)]
     async fn test_bool_value_with_grayscale_label_wasm() {
         setup();
