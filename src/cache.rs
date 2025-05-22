@@ -102,11 +102,92 @@ impl Cache {
     /// # Returns
     ///
     /// The property for the given key as a string.
-    pub async fn get_property<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
-        debug!("Getting property for key {}", key);
-        let value = self.get_value(key).await.ok()?;
+    pub async fn get_property<T: serde::de::DeserializeOwned + std::str::FromStr>(&self, key: &str) -> Option<T> {
+        debug!("Getting property for key {} with type {}", key, std::any::type_name::<T>());
+        let json_value = self.get_value(key).await.ok()?;
 
-        value.as_str().and_then(|s| s.parse::<T>().ok())
+        // Attempt direct deserialization from Value if T is DeserializeOwned
+        if let Ok(typed_val) = serde_json::from_value(json_value.clone()) {
+            return Some(typed_val);
+        }
+
+        // Fallback: if T also implements FromStr, try parsing from string representation
+        // This is particularly for cases where numbers/booleans might be stored as strings in JSON.
+        if let Some(s) = json_value.as_str() {
+            if let Ok(parsed_val) = s.parse::<T>() {
+                return Some(parsed_val);
+            }
+        }
+        
+        // If direct deserialization and string parsing fail, try specific type checks for common primitive types
+        // This part is tricky because T is generic. The from_value above should handle most cases.
+        // The original code only had `value.as_str().and_then(|s| s.parse::<T>().ok())`
+        // Adding DeserializeOwned to T covers direct JSON types like bool, numbers if they are actual JSON bool/numbers.
+        // The problem arises if T is bool but JSON is "true" (string) -> handled by FromStr.
+        // Or if T is String but JSON is true (bool) -> from_value would fail, as_str would be None.
+
+        // Let's stick to the improved logic: try from_value first, then as_str().parse().
+        // The original `value.as_str().and_then(|s| s.parse::<T>().ok())` is effectively the fallback.
+        // The issue was that `DeserializeOwned` was not used for `T`.
+        
+        // The issue might be that `T` is, for example, `bool`, and json_value is `Value::String("false")`.
+        // `serde_json::from_value::<bool>(Value::String("false"))` would fail.
+        // `Value::String("false").as_str().unwrap().parse::<bool>()` would succeed.
+        // If json_value is `Value::Bool(false)`, `serde_json::from_value::<bool>(Value::Bool(false))` succeeds.
+
+        // Let's refine:
+        // 1. Try direct T deserialization (covers T=String from JSON String, T=bool from JSON Bool, T=i64 from JSON Number)
+        if let Ok(val) = serde_json::from_value(json_value.clone()) {
+            return Some(val);
+        }
+
+        // 2. If T implements FromStr, try parsing from string version of JSON value
+        //    Covers T=bool from JSON String "true", T=i64 from JSON String "123"
+        //    Also covers T=String from JSON String (redundant with above but ok)
+        if let Some(s) = json_value.as_str() {
+            if let Ok(val) = s.parse::<T>() {
+                return Some(val);
+            }
+        }
+        
+        // 3. Specific for bool: if JSON is bool, and T is bool (covered by 1), but if T is String?
+        //    This is getting too complex. The combination of DeserializeOwned and FromStr for T
+        //    should be powerful enough. The key is that the CALLER specifies T.
+        //    If tests expect bool, T is bool. If they expect String, T is String.
+
+        // The original code was just: value.as_str().and_then(|s| s.parse::<T>().ok())
+        // The new CacheLike has T: DeserializeOwned + FromStr.
+        // So, let's combine these.
+        // `serde_json::from_value` should be the primary way if T is `DeserializeOwned`.
+        // `s.parse` should be the fallback if T is `FromStr` and value is a string.
+
+        // Revised logic based on T's capabilities:
+        // We need to make sure DeserializeOwned is actually on T in CacheLike.
+        // Current CacheLike: T: DeserializeOwned + Send + Unpin + 'static + std::str::FromStr
+        // Current Cache::get_property: T: std::str::FromStr (this is what's called by CacheLike impl)
+
+        // We need to change Cache::get_property to match the bounds of CacheLike's get_property_wrapper
+        // or ensure the call path makes sense.
+        // The CacheLike impl for Cache calls `self.get_property`. So `Cache::get_property` needs the broader bounds.
+        // No, `CacheLike::get_property_wrapper` calls `Cache::get_property`.
+        // The `Cache::get_property` signature needs to be compatible.
+        // The error was that actual_test_get_property didn't have FromStr for T. That's fixed.
+
+        // The problem is that `Cache::get_property` only tries `as_str().parse()`.
+        // It should try `from_value` first.
+
+        if let Ok(v) = serde_json::from_value(json_value.clone()) {
+            return Some(v);
+        }
+        // Fallback for when T is FromStr but not directly Deserializable from the json_value's current form
+        // e.g. T=bool, json_value = Value::String("true")
+        if let Some(s) = json_value.as_str() {
+            if let Ok(v) = s.parse::<T>() {
+                return Some(v);
+            }
+        }
+
+        None
     }
 
     /// Get a configuration from the cache.
@@ -159,7 +240,7 @@ impl Cache {
         if let Some(value) = memory_cache_guard.as_ref() {
             debug!("Memory cache found, using memory cache for key {}", key);
             if let Some(v) = value.get(key) {
-                self.checking_cache.write().await.replace(false);
+                *self.checking_cache.write().await = false;
                 return Ok(v.clone());
             }
         }
@@ -174,24 +255,24 @@ impl Cache {
                     let file = match std::fs::File::open(file_path) {
                         Ok(file) => file,
                         Err(e) => {
-                            self.checking_cache.write().await.replace(false);
+                            *self.checking_cache.write().await = false;
                             return Err(Error::Io(e));
                         }
                     };
                     let config_from_file: Value = match serde_json::from_reader(file) {
                         Ok(c) => c,
                         Err(e) => {
-                            self.checking_cache.write().await.replace(false);
+                            *self.checking_cache.write().await = false;
                             return Err(Error::Serde(e));
                         }
                     };
-                    self.memory_cache.write().await.replace(config_from_file.clone()); // Update memory with file content
+                    *self.memory_cache.write().await = Some(config_from_file.clone()); // Update memory with file content
                      // Check key in newly loaded config
                     if let Some(v) = config_from_file.get(key) {
-                        self.checking_cache.write().await.replace(false);
+                        *self.checking_cache.write().await = false;
                         return Ok(v.clone());
                     } else {
-                         self.checking_cache.write().await.replace(false);
+                         *self.checking_cache.write().await = false;
                         return Err(Error::KeyNotFound(key.to_string()));
                     }
                 } else {
@@ -199,7 +280,7 @@ impl Cache {
                     match self.refresh().await { // refresh will update memory_cache
                         Ok(_) => (), // memory_cache is updated within refresh
                         Err(e) => {
-                            self.checking_cache.write().await.replace(false);
+                            *self.checking_cache.write().await = false;
                             return Err(e);
                         }
                     }
@@ -208,7 +289,7 @@ impl Cache {
                 match self.refresh().await {
                     Ok(_) => (), // memory_cache is updated within refresh
                     Err(e) => {
-                        self.checking_cache.write().await.replace(false);
+                        *self.checking_cache.write().await = false;
                         return Err(e);
                     }
                 }
@@ -219,16 +300,16 @@ impl Cache {
         let memory_cache_guard_after_load = self.memory_cache.read().await; // Tokio RwLock
         if let Some(value) = memory_cache_guard_after_load.as_ref() {
             if let Some(v) = value.get(key) {
-                self.checking_cache.write().await.replace(false);
+                *self.checking_cache.write().await = false;
                 Ok(v.clone())
             } else {
-                self.checking_cache.write().await.replace(false);
+                *self.checking_cache.write().await = false;
                 Err(Error::KeyNotFound(key.to_string()))
             }
         } else {
             // This case should ideally not be reached if refresh populates the cache.
             // If refresh fails and there's no old cache, this is the path.
-            self.checking_cache.write().await.replace(false);
+            *self.checking_cache.write().await = false;
             Err(Error::KeyNotFound(key.to_string())) 
         }
     }
@@ -297,7 +378,7 @@ impl Cache {
         let response = match client_builder.send().await {
             Ok(r) => r,
             Err(e) => {
-                self.loading.write().await.replace(false); // Reset flag
+                *self.loading.write().await = false; // Reset flag
                 return Err(Error::Reqwest(e));
             }
         };
@@ -305,7 +386,7 @@ impl Cache {
         let body = match response.text().await {
             Ok(b) => b,
             Err(e) => {
-                self.loading.write().await.replace(false); // Reset flag
+                *self.loading.write().await = false; // Reset flag
                 return Err(Error::Reqwest(e));
             }
         };
@@ -315,7 +396,7 @@ impl Cache {
         let new_config: Value = match serde_json::from_str(&body) {
             Ok(c) => c,
             Err(e) => {
-                self.loading.write().await.replace(false); // Reset flag
+                *self.loading.write().await = false; // Reset flag
                 debug!("error parsing config: {}", e);
                 return Err(Error::Serde(e));
             }
@@ -359,7 +440,7 @@ impl Cache {
                     match std::fs::create_dir_all(parent) {
                         Ok(_) => (),
                         Err(e) => {
-                            self.loading.write().await.replace(false); // Reset flag
+                            *self.loading.write().await = false; // Reset flag
                             return Err(Error::Io(e));
                         }
                     }
@@ -369,17 +450,17 @@ impl Cache {
                         trace!("Wrote cache file {} for namespace {}", self.file_path.display(), self.namespace);
                     },
                     Err(e) => {
-                        self.loading.write().await.replace(false); // Reset flag
+                        *self.loading.write().await = false; // Reset flag
                         return Err(Error::Io(e));
                     }
                 }
             }
         }
         
-        self.memory_cache.write().await.replace(new_config);
+        *self.memory_cache.write().await = Some(new_config);
 
         trace!("Refreshed cache for namespace {}", self.namespace);
-        self.loading.write().await.replace(false); // Reset flag at the end of successful operation
+        *self.loading.write().await = false; // Reset flag at the end of successful operation
 
         Ok(())
     }
@@ -397,7 +478,21 @@ impl Cache {
     ///
     /// The property for the given key as a string.
     pub async fn get_string(&self, key: &str) -> Option<String> {
-        self.get_property::<String>(key).await
+        // Specifically for string, we might want to accept numbers/bools and convert if needed,
+        // or be strict. Current get_property will handle JSON String("actual string") correctly.
+        // If JSON is Number(123) and T is String, from_value might give "123".
+        debug!("Getting property for key {} as String", key);
+        let json_value = self.get_value(key).await.ok()?;
+
+        if json_value.is_string() {
+            json_value.as_str().map(String::from)
+        } else {
+            // If you want to convert numbers/bools to strings:
+            // Some(json_value.to_string().trim_matches('"').to_string())
+            // For now, let's be strict: only JSON strings become Rust Strings here.
+            // The generic get_property might be more flexible based on T's DeserializeOwned.
+            None 
+        }
     }
 
     /// Get a property from the cache as an integer.
@@ -410,7 +505,15 @@ impl Cache {
     ///
     /// The property for the given key as an integer.
     pub async fn get_int(&self, key: &str) -> Option<i64> {
-        self.get_property::<i64>(key).await
+        debug!("Getting property for key {} as i64", key);
+        let json_value = self.get_value(key).await.ok()?;
+        if json_value.is_i64() {
+            json_value.as_i64()
+        } else if json_value.is_string() {
+            json_value.as_str().and_then(|s| s.parse::<i64>().ok())
+        } else {
+            None
+        }
     }
 
     /// Get a property from the cache as a float.
@@ -423,10 +526,15 @@ impl Cache {
     ///
     /// The property for the given key as a float.
     pub async fn get_float(&self, key: &str) -> Option<f64> {
-        debug!("Getting property for key {}", key);
-        let value = self.get_value(key).await.ok()?;
-
-        value.as_str().and_then(|s| s.parse::<f64>().ok())
+        debug!("Getting property for key {} as f64", key);
+        let json_value = self.get_value(key).await.ok()?;
+        if json_value.is_f64() {
+            json_value.as_f64()
+        } else if json_value.is_string() {
+            json_value.as_str().and_then(|s| s.parse::<f64>().ok())
+        } else {
+            None
+        }
     }
 
     /// Get a property from the cache as a boolean.
@@ -439,10 +547,15 @@ impl Cache {
     ///
     /// The property for the given key as a boolean.
     pub async fn get_bool(&self, key: &str) -> Option<bool> {
-        debug!("Getting property for key {}", key);
-        let value = self.get_value(key).await.ok()?;
-
-        value.as_str().and_then(|s| s.parse::<bool>().ok())
+        debug!("Getting property for key {} as bool", key);
+        let json_value = self.get_value(key).await.ok()?;
+        if json_value.is_boolean() {
+            json_value.as_bool()
+        } else if json_value.is_string() {
+            json_value.as_str().and_then(|s| s.parse::<bool>().ok())
+        } else {
+            None
+        }
     }
 }
 

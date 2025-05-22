@@ -18,7 +18,7 @@ pub trait Observer: Send + Sync {
 }
 
 /// Manages registration of observers and notification of events.
-#[derive(Default, Debug)]
+#[derive(Default)] // Removed Debug to avoid issues with dyn Observer
 pub struct EventManager {
     observers: RwLock<HashMap<String, Vec<Arc<dyn Observer>>>>,
 }
