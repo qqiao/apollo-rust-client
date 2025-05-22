@@ -1,7 +1,8 @@
 //! Cache for the Apollo client.
 
 use crate::client_config::ClientConfig;
-use async_std::sync::RwLock;
+use crate::event::{ConfigurationChangeEvent, EventManager}; // Added imports
+use tokio::sync::RwLock; // Changed from async_std::sync::RwLock
 use base64::display::Base64Display;
 use cfg_if::cfg_if;
 use chrono::Utc;
@@ -9,7 +10,7 @@ use hmac::{Hmac, Mac};
 use log::{debug, trace};
 use serde_json::Value;
 use sha1::Sha1;
-use std::sync::Arc;
+use std::sync::Arc; // Ensure Arc is imported
 use url::{ParseError, Url};
 use wasm_bindgen::prelude::*;
 
@@ -38,8 +39,9 @@ pub struct Cache {
     client_config: ClientConfig,
     namespace: String,
     loading: Arc<RwLock<bool>>,
-    checking_cache: Arc<RwLock<bool>>,
-    memory_cache: Arc<RwLock<Option<Value>>>,
+    checking_cache: Arc<RwLock<bool>>, // Ensure this is tokio::sync::RwLock
+    memory_cache: Arc<RwLock<Option<Value>>>, // Ensure this is tokio::sync::RwLock
+    event_manager: Arc<EventManager>, // New field
 
     #[cfg(not(target_arch = "wasm32"))]
     file_path: std::path::PathBuf,
@@ -52,11 +54,16 @@ impl Cache {
     ///
     /// * `client_config` - The configuration for the Apollo client.
     /// * `namespace` - The namespace to get the cache for.
+    /// * `event_manager` - The event manager for observer notifications.
     ///
     /// # Returns
     ///
     /// A new cache for the given namespace.
-    pub(crate) fn new(client_config: ClientConfig, namespace: &str) -> Self {
+    pub(crate) fn new(
+        client_config: ClientConfig,
+        namespace: &str,
+        event_manager: Arc<EventManager>, // New parameter
+    ) -> Self {
         let mut file_name = namespace.to_string();
         if let Some(ip) = &client_config.ip {
             file_name.push_str(&format!("_{}", ip));
@@ -78,9 +85,9 @@ impl Cache {
             namespace: namespace.to_string(),
 
             loading: Arc::new(RwLock::new(false)),
-            checking_cache: Arc::new(RwLock::new(false)),
-            memory_cache: Arc::new(RwLock::new(None)),
-
+            checking_cache: Arc::new(RwLock::new(false)), // Tokio RwLock
+            memory_cache: Arc::new(RwLock::new(None)),    // Tokio RwLock
+            event_manager, // Store the passed event_manager
             #[cfg(not(target_arch = "wasm32"))]
             file_path,
         }
@@ -138,22 +145,25 @@ impl Cache {
         debug!("Getting value for key {}", key);
 
         // Check if the cache file exists
-        let mut checking_cache = self.checking_cache.write().await;
-        if *checking_cache {
-            return Err(Error::AlreadyCheckingCache);
-        }
-        *checking_cache = true;
+        // Use a block to ensure the write lock is released immediately after setting checking_cache.
+        {
+            let mut checking_cache_guard = self.checking_cache.write().await; // Tokio RwLock
+            if *checking_cache_guard {
+                return Err(Error::AlreadyCheckingCache);
+            }
+            *checking_cache_guard = true;
+        } // checking_cache_guard is dropped here
 
         // First we check memory cache
-        let memory_cache = self.memory_cache.read().await;
-        if let Some(value) = memory_cache.as_ref() {
+        let memory_cache_guard = self.memory_cache.read().await; // Tokio RwLock
+        if let Some(value) = memory_cache_guard.as_ref() {
             debug!("Memory cache found, using memory cache for key {}", key);
             if let Some(v) = value.get(key) {
-                *checking_cache = false;
+                self.checking_cache.write().await.replace(false);
                 return Ok(v.clone());
             }
         }
-        drop(memory_cache);
+        drop(memory_cache_guard); // Release read lock
         debug!("No memory cache found");
 
         cfg_if! {
@@ -164,82 +174,79 @@ impl Cache {
                     let file = match std::fs::File::open(file_path) {
                         Ok(file) => file,
                         Err(e) => {
-                            *checking_cache = false;
+                            self.checking_cache.write().await.replace(false);
                             return Err(Error::Io(e));
                         }
                     };
-                    let config: Value = serde_json::from_reader(file)?;
-                    self.memory_cache.write().await.replace(config.clone());
+                    let config_from_file: Value = match serde_json::from_reader(file) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            self.checking_cache.write().await.replace(false);
+                            return Err(Error::Serde(e));
+                        }
+                    };
+                    self.memory_cache.write().await.replace(config_from_file.clone()); // Update memory with file content
+                     // Check key in newly loaded config
+                    if let Some(v) = config_from_file.get(key) {
+                        self.checking_cache.write().await.replace(false);
+                        return Ok(v.clone());
+                    } else {
+                         self.checking_cache.write().await.replace(false);
+                        return Err(Error::KeyNotFound(key.to_string()));
+                    }
                 } else {
                     trace!("Cache file {} doesn't exist, refreshing cache", file_path.display());
-                    match self.refresh().await {
-                        Ok(_) => (),
+                    match self.refresh().await { // refresh will update memory_cache
+                        Ok(_) => (), // memory_cache is updated within refresh
                         Err(e) => {
-                            *checking_cache = false;
+                            self.checking_cache.write().await.replace(false);
                             return Err(e);
                         }
                     }
                 }
-            } else {
+            } else { // WASM target, no file cache, just refresh if not in memory
                 match self.refresh().await {
-                    Ok(_) => (),
+                    Ok(_) => (), // memory_cache is updated within refresh
                     Err(e) => {
-                        *checking_cache = false;
+                        self.checking_cache.write().await.replace(false);
                         return Err(e);
                     }
                 }
             }
         }
 
-        let memory_cache = self.memory_cache.read().await;
-        if let Some(value) = memory_cache.as_ref() {
+        // Re-check memory cache after potential refresh or file load
+        let memory_cache_guard_after_load = self.memory_cache.read().await; // Tokio RwLock
+        if let Some(value) = memory_cache_guard_after_load.as_ref() {
             if let Some(v) = value.get(key) {
-                *checking_cache = false;
+                self.checking_cache.write().await.replace(false);
                 Ok(v.clone())
             } else {
-                *checking_cache = false;
+                self.checking_cache.write().await.replace(false);
                 Err(Error::KeyNotFound(key.to_string()))
             }
         } else {
-            *checking_cache = false;
-            Err(Error::KeyNotFound(key.to_string()))
+            // This case should ideally not be reached if refresh populates the cache.
+            // If refresh fails and there's no old cache, this is the path.
+            self.checking_cache.write().await.replace(false);
+            Err(Error::KeyNotFound(key.to_string())) 
         }
     }
 
-    /// Refreshes the cache by fetching the latest configuration from the Apollo server.
-    ///
-    /// This method performs the following steps to update the cache for the current namespace:
-    ///
-    /// 1.  **Construct URL**: It constructs the request URL for the Apollo configuration service
-    ///     based on `client_config` (server address, app ID, cluster) and the current namespace.
-    /// 2.  **Add Query Parameters**: If `client_config.ip` or `client_config.label` are set,
-    ///     they are added as query parameters (`ip` and `label` respectively) to the request URL.
-    ///     This is often used for grayscale release rules.
-    /// 3.  **Authentication Headers (if secret is present)**:
-    ///     *   If `client_config.secret` is provided, it generates a signature using the `sign` function.
-    ///     *   The current `timestamp` (in milliseconds) and an `Authorization` header
-    ///         (e.g., `Apollo <app_id>:<signature>`) are added to the HTTP request.
-    /// 4.  **Send HTTP GET Request**: It sends an HTTP GET request to the constructed URL.
-    /// 5.  **Update Caches**:
-    ///     *   On a successful response, the response body (JSON configuration) is parsed.
-    ///     *   For non-wasm32 targets, the fetched configuration is written to a local file cache
-    ///         (path determined by `client_config.cache_dir` and namespace details).
-    ///     *   The in-memory cache (`self.memory_cache`) is updated with the new configuration.
-    ///
-    /// To prevent multiple concurrent refresh operations for the same cache instance, this method
-    /// uses an `RwLock` named `self.loading`. If another task is already refreshing this cache,
-    /// the current task will return `Err(Error::AlreadyLoading)`. This indicates that a refresh
-    /// is already in progress, and the caller should typically wait for the ongoing refresh to
-    /// complete rather than initiating a new one.
     pub(crate) async fn refresh(&self) -> Result<(), Error> {
-        let mut loading = self.loading.write().await;
-        if *loading {
+        let mut loading_guard = self.loading.write().await;
+        if *loading_guard {
             return Err(Error::AlreadyLoading);
         }
-        *loading = true;
+        *loading_guard = true;
+        // Drop the guard early after setting the flag, as the HTTP request can take time.
+        // However, we need to ensure it's set back to false at the end.
+        // A common pattern is to use a RAII guard that resets the flag on drop,
+        // or manage it carefully as done here.
 
         trace!("Refreshing cache for namespace {}", self.namespace);
-        let url = format!(
+        
+        let url_string = format!(
             "{}/configfiles/json/{}/{}/{}",
             self.client_config.config_server,
             self.client_config.app_id,
@@ -247,41 +254,50 @@ impl Cache {
             self.namespace
         );
 
-        let mut url = match Url::parse(&url) {
+        let mut url_parsed = match Url::parse(&url_string) {
             Ok(u) => u,
             Err(e) => {
-                *loading = false;
+                *loading_guard = false; // Reset flag before error return
                 return Err(Error::UrlParse(e));
             }
         };
         if let Some(ip) = &self.client_config.ip {
-            url.query_pairs_mut().append_pair("ip", ip);
+            url_parsed.query_pairs_mut().append_pair("ip", ip);
         }
         if let Some(label) = &self.client_config.label {
-            url.query_pairs_mut().append_pair("label", label);
+            url_parsed.query_pairs_mut().append_pair("label", label);
         }
 
-        trace!("Url {} for namespace {}", url, self.namespace);
+        trace!("Url {} for namespace {}", url_parsed, self.namespace);
 
-        let mut client = reqwest::Client::new().get(url.as_str());
+        let mut client_builder = reqwest::Client::new().get(url_parsed.as_str());
         if self.client_config.secret.is_some() {
             let timestamp = Utc::now().timestamp_millis();
-            let signature = sign(
+            let signature = match sign(
                 timestamp,
-                url.as_str(),
+                url_parsed.as_str(),
                 self.client_config.secret.as_ref().unwrap(),
-            )?;
-            client = client.header("timestamp", timestamp.to_string());
-            client = client.header(
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    *loading_guard = false; // Reset flag
+                    return Err(e);
+                }
+            };
+            client_builder = client_builder.header("timestamp", timestamp.to_string());
+            client_builder = client_builder.header(
                 "Authorization",
                 format!("Apollo {}:{}", &self.client_config.app_id, signature),
             );
         }
+        
+        // Release the loading guard before making the await call for HTTP request
+        drop(loading_guard);
 
-        let response = match client.send().await {
+        let response = match client_builder.send().await {
             Ok(r) => r,
             Err(e) => {
-                *loading = false;
+                self.loading.write().await.replace(false); // Reset flag
                 return Err(Error::Reqwest(e));
             }
         };
@@ -289,50 +305,81 @@ impl Cache {
         let body = match response.text().await {
             Ok(b) => b,
             Err(e) => {
-                *loading = false;
+                self.loading.write().await.replace(false); // Reset flag
                 return Err(Error::Reqwest(e));
             }
         };
-
+        
         trace!("Response body {} for namespace {}", body, self.namespace);
+
+        let new_config: Value = match serde_json::from_str(&body) {
+            Ok(c) => c,
+            Err(e) => {
+                self.loading.write().await.replace(false); // Reset flag
+                debug!("error parsing config: {}", e);
+                return Err(Error::Serde(e));
+            }
+        };
+        trace!("parsed new_config: {:?}", new_config);
+
+        // --- Start of new logic for change detection and event notification ---
+        let old_config_option: Option<Value>;
+        { 
+            let memory_cache_guard = self.memory_cache.read().await;
+            old_config_option = memory_cache_guard.clone();
+        } 
+
+        let changed = match &old_config_option {
+            Some(old_c) => *old_c != new_config,
+            None => true, 
+        };
+
+        if changed {
+            debug!("Configuration changed for namespace {}. Notifying observers.", self.namespace);
+            let event = ConfigurationChangeEvent {
+                namespace_name: self.namespace.clone(),
+                old_configuration: old_config_option.clone(), 
+                new_configuration: new_config.clone(),      
+            };
+            
+            let em = self.event_manager.clone();
+            // Notifying observers is async, but we don't want to block refresh completion.
+            // EventManager itself handles spawning tasks for observers.
+            em.notify_observers(event).await; // `event` is cloned inside notify_observers if needed per observer.
+
+        } else {
+            trace!("No configuration change detected for namespace {}.", self.namespace);
+        }
+        // --- End of new logic ---
+
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
                 debug!("writing cache file {}", self.file_path.display());
-                 // Create parent directories if they don't exist
                 if let Some(parent) = self.file_path.parent() {
                     match std::fs::create_dir_all(parent) {
                         Ok(_) => (),
                         Err(e) => {
-                            *loading = false;
+                            self.loading.write().await.replace(false); // Reset flag
                             return Err(Error::Io(e));
                         }
                     }
                 }
-                match std::fs::write(&self.file_path, body.clone()) {
+                match std::fs::write(&self.file_path, &body) { // Write original body
                     Ok(_) => {
                         trace!("Wrote cache file {} for namespace {}", self.file_path.display(), self.namespace);
                     },
                     Err(e) => {
-                        *loading = false;
+                        self.loading.write().await.replace(false); // Reset flag
                         return Err(Error::Io(e));
                     }
                 }
             }
         }
-
-        let config: Value = match serde_json::from_str(&body) {
-            Ok(c) => c,
-            Err(e) => {
-                *loading = false;
-                debug!("error parsing config: {}", e);
-                return Err(Error::Serde(e));
-            }
-        };
-        trace!("parsed config: {:?}", config);
-        self.memory_cache.write().await.replace(config);
+        
+        self.memory_cache.write().await.replace(new_config);
 
         trace!("Refreshed cache for namespace {}", self.namespace);
-        *loading = false;
+        self.loading.write().await.replace(false); // Reset flag at the end of successful operation
 
         Ok(())
     }
