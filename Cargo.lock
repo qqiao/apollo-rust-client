@@ -103,6 +103,7 @@ dependencies = [
  "env_logger",
  "futures",
  "hmac",
+ "js-sys",
  "lazy_static",
  "log",
  "reqwest",

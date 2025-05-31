@@ -15,19 +15,32 @@ use wasm_bindgen::prelude::*;
 
 cfg_if::cfg_if! {
     if #[cfg(target_arch = "wasm32")] {
-        use js_sys::{Function as JsFunction, Array as JsArray};
+        use js_sys::{Function as JsFunction};
         use wasm_bindgen::JsValue;
         use serde_wasm_bindgen::to_value as to_js_value;
     }
 }
 
 /// Type alias for event listeners that can be registered with the cache.
-///
+/// For WASM targets, listeners don't need to be Send + Sync since WASM is single-threaded.
 /// Listeners are functions that take a `Result<Value, Error>` as an argument.
 /// `Value` is the `serde_json::Value` representing the configuration.
 /// `Error` is the cache's error enum.
-/// Listeners need to be `Send` and `Sync` to be safely shared across threads.
-pub type EventListener = Arc<dyn Fn(Result<Value, Error>) + Send + Sync>;
+cfg_if::cfg_if! {
+    if #[cfg(target_arch = "wasm32")] {
+        /// Type alias for event listeners that can be registered with the cache.
+        /// For WASM targets, listeners don't need to be Send + Sync since WASM is single-threaded.
+        /// Listeners are functions that take a `Result<Value, Error>` as an argument.
+        pub type EventListener = Arc<dyn Fn(Result<Value, Error>)>;
+    } else {
+        /// Type alias for event listeners that can be registered with the cache.
+        /// For native targets, listeners need to be Send and Sync to be safely shared across threads.
+        /// Listeners are functions that take a `Result<Value, Error>` as an argument.
+        /// `Value` is the `serde_json::Value` representing the configuration.
+        /// `Error` is the cache's error enum.
+        pub type EventListener = Arc<dyn Fn(Result<Value, Error>) + Send + Sync>;
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -450,7 +463,8 @@ impl Cache {
 
             match result {
                 Ok(value) => {
-                    match to_js_value(&value) { // serde_json::Value to JsValue
+                    match to_js_value(&value) {
+                        // serde_json::Value to JsValue
                         Ok(js_val) => {
                             err_js_val = JsValue::NULL;
                             data_js_val = js_val;
@@ -599,9 +613,9 @@ mod tests {
     use std::sync::{Arc as StdArc, Mutex as StdMutex};
 
     #[cfg(all(test, target_arch = "wasm32"))]
-    use wasm_bindgen_test::*;
-    #[cfg(all(test, target_arch = "wasm32"))]
     use js_sys::{Function as JsFunction, Reflect}; // JsFunction for add_listener_wasm, Reflect for global access
+    #[cfg(all(test, target_arch = "wasm32"))]
+    use wasm_bindgen_test::*;
     #[cfg(all(test, target_arch = "wasm32"))]
     use web_sys::console; // Optional: for logging from JS side if needed directly, or if cache refresh panics
 
@@ -676,7 +690,10 @@ mod tests {
 
         // Check if config data was received
         let config_data_guard = received_config_data.lock().unwrap();
-        assert!(config_data_guard.is_some(), "Listener did not receive config data.");
+        assert!(
+            config_data_guard.is_some(),
+            "Listener did not receive config data."
+        );
 
         // Optionally, assert specific content if known.
         // Assert based on known data for app_id "101010101", namespace "application"
@@ -714,9 +731,9 @@ mod tests {
 
         // Setup Cache using the WASM constructor for ClientConfig
         let client_config = ClientConfig::new(
-            "101010101".to_string(), // app_id
+            "101010101".to_string(),                 // app_id
             "http://81.68.181.139:8080".to_string(), // config_server
-            "default".to_string(),   // cluster
+            "default".to_string(),                   // cluster
         );
         let cache = Cache::new(client_config, "application");
 
@@ -740,20 +757,34 @@ mod tests {
 
         let received_error_js = Reflect::get(&window, &"receivedError".into())
             .expect("Failed to get receivedError from window");
-        assert!(received_error_js.is_null(), "JavaScript listener received an unexpected error. Error: {:?}", received_error_js);
+        assert!(
+            received_error_js.is_null(),
+            "JavaScript listener received an unexpected error. Error: {:?}",
+            received_error_js
+        );
 
         let received_data_js = Reflect::get(&window, &"receivedData".into())
             .expect("Failed to get receivedData from window");
-        assert!(!received_data_js.is_null() && received_data_js.is_object(), "JavaScript listener did not receive data object or it was null.");
+        assert!(
+            !received_data_js.is_null() && received_data_js.is_object(),
+            "JavaScript listener did not receive data object or it was null."
+        );
 
         // Optionally, convert received_data_js back to serde_json::Value and check content
         match serde_wasm_bindgen::from_value(received_data_js.clone()) {
             Ok(value_data) => {
                 let received_value: Value = value_data;
-                assert_eq!(received_value.get("stringValue").and_then(Value::as_str), Some("string value"), "Received config data does not match expected content for stringValue.");
+                assert_eq!(
+                    received_value.get("stringValue").and_then(Value::as_str),
+                    Some("string value"),
+                    "Received config data does not match expected content for stringValue."
+                );
             }
             Err(e) => {
-                panic!("Failed to deserialize JS data to Value: {:?}. JS Data: {:?}", e, received_data_js);
+                panic!(
+                    "Failed to deserialize JS data to Value: {:?}. JS Data: {:?}",
+                    e, received_data_js
+                );
             }
         }
     }
