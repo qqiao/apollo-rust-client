@@ -556,7 +556,7 @@ mod tests {
             config_server: String::from("http://81.68.181.139:8080"),
             label: None,
             secret: None,
-            cache_dir: Some(String::from("/tmp/apollo")),
+            cache_dir: None,
             ip: None,
         };
         Client::new(config)
@@ -570,7 +570,7 @@ mod tests {
             config_server: String::from("http://81.68.181.139:8080"),
             label: None,
             secret: Some(String::from("53bf47631db540ac9700f0020d2192c8")),
-            cache_dir: Some(String::from("/tmp/apollo")),
+            cache_dir: None,
             ip: None,
         };
         Client::new(config)
@@ -584,7 +584,7 @@ mod tests {
             config_server: String::from("http://81.68.181.139:8080"),
             label: None,
             secret: None,
-            cache_dir: Some(String::from("/tmp/apollo")),
+            cache_dir: None,
             ip: Some(String::from("1.2.3.4")),
         };
         Client::new(config)
@@ -598,7 +598,7 @@ mod tests {
             config_server: String::from("http://81.68.181.139:8080"),
             label: Some(String::from("GrayScale")),
             secret: None,
-            cache_dir: Some(String::from("/tmp/apollo")),
+            cache_dir: None,
             ip: None,
         };
         Client::new(config)
