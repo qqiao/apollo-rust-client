@@ -17,7 +17,7 @@ jobs:
       - name: Install wasm-pack
         run: cargo install wasm-pack
       - name: Build
-        run: cargo build --verbose && wasm-pack build --target nodejs
+        run: scripts/build.sh
 
   test:
     runs-on: ubuntu-latest

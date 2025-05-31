@@ -21,11 +21,11 @@ cfg_if::cfg_if! {
     }
 }
 
-/// Type alias for event listeners that can be registered with the cache.
-/// For WASM targets, listeners don't need to be Send + Sync since WASM is single-threaded.
-/// Listeners are functions that take a `Result<Value, Error>` as an argument.
-/// `Value` is the `serde_json::Value` representing the configuration.
-/// `Error` is the cache's error enum.
+// Type alias for event listeners that can be registered with the cache.
+// For WASM targets, listeners don't need to be Send + Sync since WASM is single-threaded.
+// Listeners are functions that take a `Result<Value, Error>` as an argument.
+// `Value` is the `serde_json::Value` representing the configuration.
+// `Error` is the cache's error enum.
 cfg_if::cfg_if! {
     if #[cfg(target_arch = "wasm32")] {
         /// Type alias for event listeners that can be registered with the cache.
@@ -397,7 +397,7 @@ impl Cache {
     /// # Arguments
     ///
     /// * `listener` - The event listener to register. It must be an `Arc`-wrapped, thread-safe
-    ///                closure (`Send + Sync`).
+    ///   closure (`Send + Sync`).
     ///
     /// # Example
     ///
@@ -453,7 +453,7 @@ impl Cache {
     /// // ... later, when the cache refreshes, the callback will be invoked.
     /// ```
     #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen(js_name = addListener)]
+    #[wasm_bindgen(js_name = "add_listener")]
     pub async fn add_listener_wasm(&self, js_listener: JsFunction) {
         let js_listener_clone = js_listener.clone();
 
