@@ -34,7 +34,7 @@ cfg_if::cfg_if! {
         pub type EventListener = Arc<dyn Fn(Result<Value, Error>)>;
     } else {
         /// Type alias for event listeners that can be registered with the cache.
-        /// For native targets, listeners need to be Send and Sync to be safely shared across threads.
+        /// For native targets, listeners need to be `Send` and `Sync` to be safely shared across threads.
         /// Listeners are functions that take a `Result<Value, Error>` as an argument.
         /// `Value` is the `serde_json::Value` representing the configuration.
         /// `Error` is the cache's error enum.
