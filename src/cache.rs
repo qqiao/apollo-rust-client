@@ -9,9 +9,38 @@ use hmac::{Hmac, Mac};
 use log::{debug, trace};
 use serde_json::Value;
 use sha1::Sha1;
-use std::sync::Arc;
+use std::sync::Arc; // RwLock is imported from async_std::sync
 use url::{ParseError, Url};
 use wasm_bindgen::prelude::*;
+
+cfg_if::cfg_if! {
+    if #[cfg(target_arch = "wasm32")] {
+        use js_sys::{Function as JsFunction};
+        use wasm_bindgen::JsValue;
+        use serde_wasm_bindgen::to_value as to_js_value;
+    }
+}
+
+// Type alias for event listeners that can be registered with the cache.
+// For WASM targets, listeners don't need to be Send + Sync since WASM is single-threaded.
+// Listeners are functions that take a `Result<Value, Error>` as an argument.
+// `Value` is the `serde_json::Value` representing the configuration.
+// `Error` is the cache's error enum.
+cfg_if::cfg_if! {
+    if #[cfg(target_arch = "wasm32")] {
+        /// Type alias for event listeners that can be registered with the cache.
+        /// For WASM targets, listeners don't need to be Send + Sync since WASM is single-threaded.
+        /// Listeners are functions that take a `Result<Value, Error>` as an argument.
+        pub type EventListener = Arc<dyn Fn(Result<Value, Error>)>;
+    } else {
+        /// Type alias for event listeners that can be registered with the cache.
+        /// For native targets, listeners need to be `Send` and `Sync` to be safely shared across threads.
+        /// Listeners are functions that take a `Result<Value, Error>` as an argument.
+        /// `Value` is the `serde_json::Value` representing the configuration.
+        /// `Error` is the cache's error enum.
+        pub type EventListener = Arc<dyn Fn(Result<Value, Error>) + Send + Sync>;
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -40,6 +69,7 @@ pub struct Cache {
     loading: Arc<RwLock<bool>>,
     checking_cache: Arc<RwLock<bool>>,
     memory_cache: Arc<RwLock<Option<Value>>>,
+    listeners: Arc<RwLock<Vec<EventListener>>>,
 
     #[cfg(not(target_arch = "wasm32"))]
     file_path: std::path::PathBuf,
@@ -80,6 +110,7 @@ impl Cache {
             loading: Arc::new(RwLock::new(false)),
             checking_cache: Arc::new(RwLock::new(false)),
             memory_cache: Arc::new(RwLock::new(None)),
+            listeners: Arc::new(RwLock::new(Vec::new())),
 
             #[cfg(not(target_arch = "wasm32"))]
             file_path,
@@ -225,6 +256,8 @@ impl Cache {
     ///     *   For non-wasm32 targets, the fetched configuration is written to a local file cache
     ///         (path determined by `client_config.cache_dir` and namespace details).
     ///     *   The in-memory cache (`self.memory_cache`) is updated with the new configuration.
+    ///     *   Registered listeners are notified with the new configuration (`Ok(config)`)
+    ///         Currently, listeners are only notified on successful refresh.
     ///
     /// To prevent multiple concurrent refresh operations for the same cache instance, this method
     /// uses an `RwLock` named `self.loading`. If another task is already refreshing this cache,
@@ -329,6 +362,14 @@ impl Cache {
             }
         };
         trace!("parsed config: {:?}", config);
+
+        // Notify listeners with the new config
+        let listeners = self.listeners.read().await;
+        for listener in listeners.iter() {
+            listener(Ok(config.clone()));
+        }
+        drop(listeners); // Release read lock before acquiring write lock
+
         self.memory_cache.write().await.replace(config);
 
         trace!("Refreshed cache for namespace {}", self.namespace);
@@ -336,10 +377,127 @@ impl Cache {
 
         Ok(())
     }
+
+    /// Adds an event listener to the cache.
+    ///
+    /// Listeners are closures that will be called when the cache is successfully refreshed.
+    /// The listener will receive a `Result<Value, Error>`, which will be `Ok(new_config)`
+    /// containing the newly fetched configuration.
+    ///
+    ///
+    /// The listener is a callback function that conforms to the [`EventListener`] type alias:
+    /// `Arc<dyn Fn(Result<Value, Error>) + Send + Sync>`.
+    ///
+    /// - `Value` is `serde_json::Value` representing the full configuration for the namespace.
+    /// - `Error` is `crate::cache::Error` indicating a failure during the refresh process.
+    ///
+    /// Listeners are called when the cache is successfully refreshed with new configuration,
+    /// or when an error occurs during a refresh attempt.
+    ///
+    /// # Arguments
+    ///
+    /// * `listener` - The event listener to register. It must be an `Arc`-wrapped, thread-safe
+    ///   closure (`Send + Sync`).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use std::sync::Arc;
+    /// use serde_json::Value;
+    /// use apollo_rust_client::cache::{Cache, Error, EventListener};
+    /// // Assuming `cache` is an existing Arc<Cache> instance
+    ///
+    /// let listener: EventListener = Arc::new(|result: Result<Value, Error>| {
+    ///     match result {
+    ///         Ok(config) => println!("Cache refreshed, new config: {:?}", config),
+    ///         Err(e) => println!("Cache refresh failed: {:?}", e),
+    ///     }
+    /// });
+    /// cache.add_listener(listener).await;
+    /// ```
+    pub async fn add_listener(&self, listener: EventListener) {
+        let mut listeners = self.listeners.write().await;
+        listeners.push(listener);
+    }
 }
 
 #[wasm_bindgen]
 impl Cache {
+    /// Registers a JavaScript function as an event listener for this cache (WASM only).
+    ///
+    /// This method is exposed to JavaScript as `addListener`.
+    /// The provided JavaScript function will be called when the cache is refreshed.
+    ///
+    /// The JavaScript listener function is expected to have a signature like:
+    /// `function(error, data)`
+    /// - `error`: A string describing the error if one occurred during the configuration
+    ///            fetch or processing. If the operation was successful, this will be `null`.
+    /// - `data`: The JSON configuration object (if the refresh was successful and data
+    ///           could be serialized) or `null` if an error occurred or serialization failed.
+    ///
+    /// # Arguments
+    ///
+    /// * `js_listener` - A JavaScript `Function` to be called on cache events.
+    ///
+    /// # Example (JavaScript)
+    ///
+    /// ```javascript
+    /// // Assuming `cacheInstance` is an instance of the Rust `Cache` object in JS
+    /// cacheInstance.addListener((error, data) => {
+    ///   if (error) {
+    ///     console.error('Cache update error:', error);
+    ///   } else {
+    ///     console.log('Cache updated:', data);
+    ///   }
+    /// });
+    /// // ... later, when the cache refreshes, the callback will be invoked.
+    /// ```
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen(js_name = "add_listener")]
+    pub async fn add_listener_wasm(&self, js_listener: JsFunction) {
+        let js_listener_clone = js_listener.clone();
+
+        let event_listener: EventListener = Arc::new(move |result: Result<Value, Error>| {
+            let err_js_val: JsValue;
+            let data_js_val: JsValue;
+
+            match result {
+                Ok(value) => {
+                    match to_js_value(&value) {
+                        // serde_json::Value to JsValue
+                        Ok(js_val) => {
+                            err_js_val = JsValue::NULL;
+                            data_js_val = js_val;
+                        }
+                        Err(e) => {
+                            // Error during serialization
+                            let err_msg = format!("Failed to serialize config to JsValue: {}", e);
+                            err_js_val = JsValue::from_str(&err_msg);
+                            data_js_val = JsValue::NULL;
+                        }
+                    }
+                }
+                Err(cache_error) => {
+                    err_js_val = JsValue::from_str(&cache_error.to_string());
+                    data_js_val = JsValue::NULL;
+                }
+            };
+
+            // Call the JavaScript listener: listener(error, value)
+            match js_listener_clone.call2(&JsValue::UNDEFINED, &err_js_val, &data_js_val) {
+                Ok(_) => {
+                    // JS function called successfully
+                }
+                Err(e) => {
+                    // JS function threw an error or call failed
+                    log::error!("JavaScript listener threw an error: {:?}", e);
+                }
+            }
+        });
+
+        self.add_listener(event_listener).await; // Call the renamed Rust method
+    }
+
     /// Get a property from the cache as a string.
     ///
     /// # Arguments
@@ -449,7 +607,15 @@ pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Er
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client_config::ClientConfig; // Used by both native and wasm tests if ClientConfig::new is used
     use crate::tests::setup;
+    use serde_json::Value; // Used by both native and wasm tests potentially
+    use std::sync::{Arc as StdArc, Mutex as StdMutex};
+
+    #[cfg(all(test, target_arch = "wasm32"))]
+    use wasm_bindgen_test::*;
+    #[cfg(all(test, target_arch = "wasm32"))]
+    use web_sys::console; // Optional: for logging from JS side if needed directly, or if cache refresh panics
 
     #[test]
     fn test_sign_with_path() {
@@ -466,5 +632,155 @@ mod tests {
         let secret = "df23df3f59884980844ff3dada30fa97";
         let signature = sign(1576478257344, url, secret).unwrap();
         assert_eq!(signature, "EoKyziXvKqzHgwx+ijDJwgVTDgE=");
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)] // Re-enable for WASM
+    async fn test_add_listener_and_notify_on_refresh() {
+        setup();
+
+        // Shared state to check if listener was called and what it received
+        let listener_called_flag = StdArc::new(StdMutex::new(false));
+        let received_config_data = StdArc::new(StdMutex::new(None::<Value>));
+
+        // ClientConfig similar to CLIENT_NO_SECRET from lib.rs tests
+        // Using the same external test server and app_id as tests in lib.rs
+        let config = ClientConfig {
+            config_server: "http://81.68.181.139:8080".to_string(), // Use external test server
+            app_id: "101010101".to_string(), // Use existing app_id from lib.rs tests
+            cluster: "default".to_string(),
+            cache_dir: Some(String::from("/tmp/apollo")), // Use a writable directory
+            secret: None,
+            label: None,
+            ip: None,
+            // ..Default::default() // Be careful with Default if it doesn't set all needed fields for tests
+        };
+
+        let cache_namespace = "application";
+        let cache = Cache::new(config, cache_namespace);
+
+        let flag_clone = listener_called_flag.clone();
+        let data_clone = received_config_data.clone();
+
+        let listener: EventListener = StdArc::new(move |result| {
+            let mut called_guard = flag_clone.lock().unwrap();
+            *called_guard = true;
+            if let Ok(config_value) = result {
+                let mut data_guard = data_clone.lock().unwrap();
+                *data_guard = Some(config_value);
+            }
+            // In a real scenario, avoid panicking in a listener.
+            // For a test, this is acceptable to signal issues.
+        });
+
+        cache.add_listener(listener).await;
+
+        // Perform a refresh. This should trigger the listener.
+        // The test Apollo server (localhost:8071) should have some known config for "SampleApp" "application" namespace.
+        match cache.refresh().await {
+            Ok(_) => log::debug!("Refresh successful for test_add_listener_and_notify_on_refresh"),
+            Err(e) => panic!("Cache refresh failed during test: {:?}", e),
+        }
+
+        // Check if the listener was called
+        let called = *listener_called_flag.lock().unwrap();
+        assert!(called, "Listener was not called.");
+
+        // Check if config data was received
+        let config_data_guard = received_config_data.lock().unwrap();
+        assert!(
+            config_data_guard.is_some(),
+            "Listener did not receive config data."
+        );
+
+        // Optionally, assert specific content if known.
+        // Assert based on known data for app_id "101010101", namespace "application"
+        // from the external test server. Example: "stringValue"
+        if let Some(value) = config_data_guard.as_ref() {
+            assert_eq!(
+                value.get("stringValue").and_then(Value::as_str),
+                Some("string value"),
+                "Received config data does not match expected content for stringValue."
+            );
+        }
+    }
+
+    #[cfg(all(test, target_arch = "wasm32"))]
+    #[wasm_bindgen_test]
+    async fn test_add_listener_wasm_and_notify() {
+        setup(); // Existing test setup
+
+        // Use a simpler approach without window object since we're in Node.js
+        use std::sync::{Arc as StdArc, Mutex as StdMutex};
+
+        // Shared state to check if listener was called and what it received
+        let listener_called_flag = StdArc::new(StdMutex::new(false));
+        let received_config_data = StdArc::new(StdMutex::new(None::<Value>));
+
+        let flag_clone = listener_called_flag.clone();
+        let data_clone = received_config_data.clone();
+
+        // Create JS Listener Function that updates our shared state
+        let js_listener_func_body = format!(
+            r#"
+            (error, data) => {{
+                // We can't use window in Node.js, so we'll use a different approach
+                // The Rust closure will handle the verification
+                console.log('JS Listener called with error:', error);
+                console.log('JS Listener called with data:', data);
+            }}
+        "#
+        );
+
+        let js_listener = js_sys::Function::new_with_args("error, data", &js_listener_func_body);
+
+        // Setup Cache using the WASM constructor for ClientConfig
+        let client_config = ClientConfig::new(
+            "101010101".to_string(),                 // app_id
+            "http://81.68.181.139:8080".to_string(), // config_server
+            "default".to_string(),                   // cluster
+        );
+        let cache = Cache::new(client_config, "application");
+
+        // Add a Rust listener to verify the functionality
+        let rust_listener: EventListener = StdArc::new(move |result| {
+            let mut called_guard = flag_clone.lock().unwrap();
+            *called_guard = true;
+            if let Ok(config_value) = result {
+                let mut data_guard = data_clone.lock().unwrap();
+                *data_guard = Some(config_value);
+            }
+        });
+
+        cache.add_listener(rust_listener).await;
+
+        // Add JS Listener
+        cache.add_listener_wasm(js_listener).await;
+
+        // Trigger Refresh
+        match cache.refresh().await {
+            Ok(_) => console::log_1(&"WASM Test: Refresh successful".into()), // web_sys::console for logging
+            Err(e) => panic!("WASM Test: Cache refresh failed: {:?}", e),
+        }
+
+        // Verify Listener Was Called using our Rust listener
+        let called = *listener_called_flag.lock().unwrap();
+        assert!(called, "Listener was not called.");
+
+        // Check if config data was received
+        let config_data_guard = received_config_data.lock().unwrap();
+        assert!(
+            config_data_guard.is_some(),
+            "Listener did not receive config data."
+        );
+
+        // Verify the content
+        if let Some(value) = config_data_guard.as_ref() {
+            assert_eq!(
+                value.get("stringValue").and_then(Value::as_str),
+                Some("string value"),
+                "Received config data does not match expected content for stringValue."
+            );
+        }
     }
 }

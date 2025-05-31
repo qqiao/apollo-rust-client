@@ -206,8 +206,10 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(target_arch = "wasm32"))]
     use lazy_static::lazy_static;
 
+    #[cfg(not(target_arch = "wasm32"))]
     lazy_static! {
         static ref CLIENT_NO_SECRET: Client = {
             let config = ClientConfig {
@@ -286,7 +288,8 @@ mod tests {
     #[allow(dead_code)]
     async fn test_missing_value_wasm() {
         setup();
-        let cache = CLIENT_NO_SECRET.namespace("application");
+        let client = create_client_no_secret();
+        let cache = client.namespace("application");
         assert_eq!(
             cache.await.get_property::<String>("missingValue").await,
             None
@@ -309,7 +312,8 @@ mod tests {
     #[allow(dead_code)]
     async fn test_string_value_wasm() {
         setup();
-        let cache = CLIENT_NO_SECRET.namespace("application");
+        let client = create_client_no_secret();
+        let cache = client.namespace("application");
         assert_eq!(
             cache.await.get_property::<String>("stringValue").await,
             Some("string value".to_string())
@@ -332,9 +336,8 @@ mod tests {
     #[allow(dead_code)]
     async fn test_string_value_with_secret_wasm() {
         setup();
-        console_error_panic_hook::set_once();
-
-        let cache = CLIENT_WITH_SECRET.namespace("application");
+        let client = create_client_with_secret();
+        let cache = client.namespace("application");
         assert_eq!(
             cache.await.get_property::<String>("stringValue").await,
             Some("string value".to_string())
@@ -354,7 +357,8 @@ mod tests {
     #[allow(dead_code)]
     async fn test_int_value_wasm() {
         setup();
-        let cache = CLIENT_NO_SECRET.namespace("application");
+        let client = create_client_no_secret();
+        let cache = client.namespace("application");
         assert_eq!(cache.await.get_property::<i32>("intValue").await, Some(42));
     }
 
@@ -371,7 +375,8 @@ mod tests {
     #[allow(dead_code)]
     async fn test_int_value_with_secret_wasm() {
         setup();
-        let cache = CLIENT_WITH_SECRET.namespace("application");
+        let client = create_client_with_secret();
+        let cache = client.namespace("application");
         assert_eq!(cache.await.get_property::<i32>("intValue").await, Some(42));
     }
 
@@ -391,7 +396,8 @@ mod tests {
     #[allow(dead_code)]
     async fn test_float_value_wasm() {
         setup();
-        let cache = CLIENT_NO_SECRET.namespace("application");
+        let client = create_client_no_secret();
+        let cache = client.namespace("application");
         assert_eq!(
             cache.await.get_property::<f64>("floatValue").await,
             Some(4.20)
@@ -414,7 +420,8 @@ mod tests {
     #[allow(dead_code)]
     async fn test_float_value_with_secret_wasm() {
         setup();
-        let cache = CLIENT_WITH_SECRET.namespace("application");
+        let client = create_client_with_secret();
+        let cache = client.namespace("application");
         assert_eq!(
             cache.await.get_property::<f64>("floatValue").await,
             Some(4.20)
@@ -437,7 +444,8 @@ mod tests {
     #[allow(dead_code)]
     async fn test_bool_value_wasm() {
         setup();
-        let cache = CLIENT_NO_SECRET.namespace("application");
+        let client = create_client_no_secret();
+        let cache = client.namespace("application");
         assert_eq!(
             cache.await.get_property::<bool>("boolValue").await,
             Some(false)
@@ -460,7 +468,8 @@ mod tests {
     #[allow(dead_code)]
     async fn test_bool_value_with_secret_wasm() {
         setup();
-        let cache = CLIENT_WITH_SECRET.namespace("application");
+        let client = create_client_with_secret();
+        let cache = client.namespace("application");
         assert_eq!(
             cache.await.get_property::<bool>("boolValue").await,
             Some(false)
@@ -488,13 +497,15 @@ mod tests {
     #[allow(dead_code)]
     async fn test_bool_value_with_grayscale_ip_wasm() {
         setup();
-        let cache = CLIENT_WITH_GRAYSCALE_IP.namespace("application");
+        let client1 = create_client_with_grayscale_ip();
+        let cache = client1.namespace("application");
         assert_eq!(
             cache.await.get_property::<bool>("grayScaleValue").await,
             Some(true)
         );
 
-        let cache = CLIENT_NO_SECRET.namespace("application");
+        let client2 = create_client_no_secret();
+        let cache = client2.namespace("application");
         assert_eq!(
             cache.await.get_property::<bool>("grayScaleValue").await,
             Some(false)
@@ -522,16 +533,74 @@ mod tests {
     #[allow(dead_code)]
     async fn test_bool_value_with_grayscale_label_wasm() {
         setup();
-        let cache = CLIENT_WITH_GRAYSCALE_LABEL.namespace("application").await;
+        let client1 = create_client_with_grayscale_label();
+        let cache = client1.namespace("application").await;
         assert_eq!(
             cache.get_property::<bool>("grayScaleValue").await,
             Some(true)
         );
 
-        let cache = CLIENT_NO_SECRET.namespace("application").await;
+        let client2 = create_client_no_secret();
+        let cache = client2.namespace("application").await;
         assert_eq!(
             cache.get_property::<bool>("grayScaleValue").await,
             Some(false)
         );
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn create_client_no_secret() -> Client {
+        let config = ClientConfig {
+            app_id: String::from("101010101"),
+            cluster: String::from("default"),
+            config_server: String::from("http://81.68.181.139:8080"),
+            label: None,
+            secret: None,
+            cache_dir: Some(String::from("/tmp/apollo")),
+            ip: None,
+        };
+        Client::new(config)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn create_client_with_secret() -> Client {
+        let config = ClientConfig {
+            app_id: String::from("101010102"),
+            cluster: String::from("default"),
+            config_server: String::from("http://81.68.181.139:8080"),
+            label: None,
+            secret: Some(String::from("53bf47631db540ac9700f0020d2192c8")),
+            cache_dir: Some(String::from("/tmp/apollo")),
+            ip: None,
+        };
+        Client::new(config)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn create_client_with_grayscale_ip() -> Client {
+        let config = ClientConfig {
+            app_id: String::from("101010101"),
+            cluster: String::from("default"),
+            config_server: String::from("http://81.68.181.139:8080"),
+            label: None,
+            secret: None,
+            cache_dir: Some(String::from("/tmp/apollo")),
+            ip: Some(String::from("1.2.3.4")),
+        };
+        Client::new(config)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn create_client_with_grayscale_label() -> Client {
+        let config = ClientConfig {
+            app_id: String::from("101010101"),
+            cluster: String::from("default"),
+            config_server: String::from("http://81.68.181.139:8080"),
+            label: Some(String::from("GrayScale")),
+            secret: None,
+            cache_dir: Some(String::from("/tmp/apollo")),
+            ip: None,
+        };
+        Client::new(config)
     }
 }
