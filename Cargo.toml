@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 async-std = { version = "1.13.1", features = ["tokio1"] }
 base64 = "0.22.1"
-cfg-if = "1.0.0"
+cfg-if = "1.0.1"
 futures = "0.3.31"
 hmac = "0.12.1"
 log = "0.4.27"
