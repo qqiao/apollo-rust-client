@@ -89,17 +89,17 @@ impl Cache {
     pub(crate) fn new(client_config: ClientConfig, namespace: &str) -> Self {
         let mut file_name = namespace.to_string();
         if let Some(ip) = &client_config.ip {
-            file_name.push_str(&format!("_{}", ip));
+            file_name.push_str(&format!("_{ip}"));
         }
         if let Some(label) = &client_config.label {
-            file_name.push_str(&format!("_{}", label));
+            file_name.push_str(&format!("_{label}"));
         }
 
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
                 let file_path = client_config
                     .get_cache_dir()
-                    .join(format!("{}.cache.json", file_name));
+                    .join(format!("{file_name}.cache.json"));
             }
         }
 
@@ -127,7 +127,7 @@ impl Cache {
     ///
     /// The property for the given key as a string.
     pub async fn get_property<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
-        debug!("Getting property for key {}", key);
+        debug!("Getting property for key {key}");
         let value = self.get_value(key).await.ok()?;
 
         value.as_str().and_then(|s| s.parse::<T>().ok())
@@ -166,7 +166,7 @@ impl Cache {
     /// `Err(Error::AlreadyCheckingCache)`. This indicates that a cache lookup or population is
     /// already in progress, and the caller should typically retry shortly.
     async fn get_value(&self, key: &str) -> Result<Value, Error> {
-        debug!("Getting value for key {}", key);
+        debug!("Getting value for key {key}");
 
         // Check if the cache file exists
         let mut checking_cache = self.checking_cache.write().await;
@@ -178,7 +178,7 @@ impl Cache {
         // First we check memory cache
         let memory_cache = self.memory_cache.read().await;
         if let Some(value) = memory_cache.as_ref() {
-            debug!("Memory cache found, using memory cache for key {}", key);
+            debug!("Memory cache found, using memory cache for key {key}");
             if let Some(v) = value.get(key) {
                 *checking_cache = false;
                 return Ok(v.clone());
@@ -357,11 +357,11 @@ impl Cache {
             Ok(c) => c,
             Err(e) => {
                 *loading = false;
-                debug!("error parsing config: {}", e);
+                debug!("error parsing config: {e}");
                 return Err(Error::Serde(e));
             }
         };
-        trace!("parsed config: {:?}", config);
+        trace!("parsed config: {config:?}");
 
         // Notify listeners with the new config
         let listeners = self.listeners.read().await;
@@ -534,7 +534,7 @@ impl Cache {
     ///
     /// The property for the given key as a float.
     pub async fn get_float(&self, key: &str) -> Option<f64> {
-        debug!("Getting property for key {}", key);
+        debug!("Getting property for key {key}");
         let value = self.get_value(key).await.ok()?;
 
         value.as_str().and_then(|s| s.parse::<f64>().ok())
@@ -550,7 +550,7 @@ impl Cache {
     ///
     /// The property for the given key as a boolean.
     pub async fn get_bool(&self, key: &str) -> Option<bool> {
-        debug!("Getting property for key {}", key);
+        debug!("Getting property for key {key}");
         let value = self.get_value(key).await.ok()?;
 
         value.as_str().and_then(|s| s.parse::<bool>().ok())
@@ -589,10 +589,10 @@ pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Er
     };
     let mut path_and_query = String::from(u.path());
     if let Some(query) = u.query() {
-        path_and_query.push_str(&format!("?{}", query));
+        path_and_query.push_str(&format!("?{query}"));
     }
-    let input = format!("{}\n{}", timestamp, path_and_query);
-    trace!("input for signing: {}", input);
+    let input = format!("{timestamp}\n{path_and_query}");
+    trace!("input for signing: {input}");
 
     type HmacSha1 = Hmac<Sha1>;
     let mut mac = HmacSha1::new_from_slice(secret.as_bytes()).unwrap();
@@ -679,7 +679,7 @@ mod tests {
         // The test Apollo server (localhost:8071) should have some known config for "SampleApp" "application" namespace.
         match cache.refresh().await {
             Ok(_) => log::debug!("Refresh successful for test_add_listener_and_notify_on_refresh"),
-            Err(e) => panic!("Cache refresh failed during test: {:?}", e),
+            Err(e) => panic!("Cache refresh failed during test: {e:?}"),
         }
 
         // Check if the listener was called

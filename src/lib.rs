@@ -6,7 +6,7 @@
 use async_std::sync::RwLock;
 use cache::Cache;
 use client_config::ClientConfig;
-use log::trace;
+use log::{debug, error, trace};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -86,13 +86,9 @@ impl Client {
                 // Refresh each namespace's cache
                 for (namespace, cache) in namespaces.iter() {
                     if let Err(err) = cache.refresh().await {
-                        log::error!(
-                            "Failed to refresh cache for namespace {}: {:?}",
-                            namespace,
-                            err
-                        );
+                        error!("Failed to refresh cache for namespace {namespace}: {err:?}");
                     } else {
-                        log::debug!("Successfully refreshed cache for namespace {}", namespace);
+                        debug!("Successfully refreshed cache for namespace {namespace}");
                     }
                 }
 
@@ -172,7 +168,7 @@ cfg_if::cfg_if! {
             pub async fn namespace(&self, namespace: &str) -> Arc<Cache> {
                 let mut namespaces = self.namespaces.write().await;
                 let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
-                    trace!("Cache miss, creating cache for namespace {}", namespace);
+                    trace!("Cache miss, creating cache for namespace {namespace}");
                     Arc::new(Cache::new(self.client_config.clone(), namespace))
                 });
                 cache.clone()
