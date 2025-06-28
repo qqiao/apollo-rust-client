@@ -24,10 +24,11 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.4.0" # Please verify and use the latest version
+apollo-rust-client = "0.4.1" # Please verify and use the latest version
 ```
 
 Alternatively, you can use `cargo add`:
+
 ```bash
 cargo add apollo-rust-client
 ```
@@ -95,7 +96,7 @@ Note: The `ip` field is not set via `from_env()`.
 ### WebAssembly (JavaScript) Usage
 
 ```javascript
-import { Client, ClientConfig } from '@qqiao/apollo-rust-client';
+import { Client, ClientConfig } from "@qqiao/apollo-rust-client";
 
 async function main() {
   // Basic configuration: app_id, config_server URL, cluster name
@@ -144,9 +145,11 @@ async function main() {
 
 main().catch(console.error);
 ```
+
 Properties like `secret`, `label`, `ip`, and `cache_dir` can be set on the `clientConfig` instance directly after construction if needed. `cache_dir` is typically not used in browser environments due to filesystem limitations.
 
 #### Memory Management in WASM
+
 To prevent memory leaks in WebAssembly, explicitly call the `free()` method on `ClientConfig`, `Client`, and `Cache` instances once they are no longer in use. This releases the memory allocated by Rust on the WebAssembly heap.
 
 ## Configuration

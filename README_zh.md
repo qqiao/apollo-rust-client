@@ -24,10 +24,11 @@
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.4.0" # 请确并使用最新版本
+apollo-rust-client = "0.4.1" # 请确并使用最新版本
 ```
 
 或者，您可以使用 `cargo add`：
+
 ```bash
 cargo add apollo-rust-client
 ```
@@ -83,10 +84,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 `ClientConfig` 也可以使用 `ClientConfig::from_env()` 从环境变量初始化。这对于服务器端应用程序非常有用，因为配置通常通过环境传递。识别以下变量：
 
-- `APP_ID`: 您的应用ID。
+- `APP_ID`: 您的应用 ID。
 - `APOLLO_ACCESS_KEY_SECRET`: 您命名空间的密钥（如果适用）。
 - `IDC`: 集群名称（如果未设置，则默认为 "default"）。
-- `APOLLO_CONFIG_SERVICE`: Apollo 配置服务的URL。
+- `APOLLO_CONFIG_SERVICE`: Apollo 配置服务的 URL。
 - `APOLLO_LABEL`: 用于灰度规则的以逗号分隔的标签列表。
 - `APOLLO_CACHE_DIR`: 用于存储本地缓存的目录。
 
@@ -95,7 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### WebAssembly (JavaScript) 用法
 
 ```javascript
-import { Client, ClientConfig } from '@qqiao/apollo-rust-client';
+import { Client, ClientConfig } from "@qqiao/apollo-rust-client";
 
 async function main() {
   // 基本配置：app_id、config_server URL、集群名称
@@ -144,16 +145,18 @@ async function main() {
 
 main().catch(console.error);
 ```
+
 如果需要，可以在构造 `clientConfig` 实例后直接设置 `secret`、`label`、`ip` 和 `cache_dir` 等属性。由于文件系统限制，`cache_dir` 通常不在浏览器环境中使用。
 
 #### WASM 中的内存管理
+
 为防止 WebAssembly 中的内存泄漏，请在不再使用 `ClientConfig`、`Client` 和 `Cache` 实例后，显式调用它们的 `free()` 方法。这将释放在 WebAssembly 堆上由 Rust 分配的内存。
 
 ## 配置
 
 客户端支持以下配置选项：
 
-- `app_id`: 您在 Apollo 中的应用ID。
+- `app_id`: 您在 Apollo 中的应用 ID。
 - `cluster`: 集群名称 (默认为 "`default`")。
 - `secret`: 给定 `app_id` 的可选密钥。
 - `config_server`: 配置服务器的地址。
