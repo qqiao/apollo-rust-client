@@ -18,8 +18,10 @@ cfg_if::cfg_if! {
     }
 }
 
-pub mod cache;
+mod cache;
+
 pub mod client_config;
+pub mod namespace;
 
 /// Different types of errors that can occur when using the client.
 #[derive(Debug, thiserror::Error)]
@@ -165,13 +167,18 @@ cfg_if::cfg_if! {
             /// # Returns
             ///
             /// A cache for the given namespace.
-            pub async fn namespace(&self, namespace: &str) -> Arc<Cache> {
+            async fn cache(&self, namespace: &str) -> Arc<Cache> {
                 let mut namespaces = self.namespaces.write().await;
                 let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
                     trace!("Cache miss, creating cache for namespace {namespace}");
                     Arc::new(Cache::new(self.client_config.clone(), namespace))
                 });
                 cache.clone()
+            }
+
+            pub async fn namespace<T>(&self, namespace: &str) -> namespace::Namespace<T> {
+                let cache = self.cache(namespace).await;
+                namespace::Namespace::Properties(namespace::Properties { cache })
             }
         }
     }
@@ -272,9 +279,16 @@ mod tests {
     #[tokio::test]
     async fn test_missing_value() {
         setup();
-        let cache = CLIENT_NO_SECRET.namespace("application");
+        let properties = match CLIENT_NO_SECRET
+            .namespace::<namespace::Properties>("application")
+            .await
+        {
+            namespace::Namespace::Properties(properties) => properties,
+            _ => panic!("Expected Properties namespace"),
+        };
+
         assert_eq!(
-            cache.await.get_property::<String>("missingValue").await,
+            properties.get_property::<String>("missingValue").await,
             None
         );
     }
@@ -296,9 +310,15 @@ mod tests {
     #[tokio::test]
     async fn test_string_value() {
         setup();
-        let cache = CLIENT_NO_SECRET.namespace("application");
+        let properties = match CLIENT_NO_SECRET
+            .namespace::<namespace::Properties>("application")
+            .await
+        {
+            namespace::Namespace::Properties(properties) => properties,
+            _ => panic!("Expected Properties namespace"),
+        };
         assert_eq!(
-            cache.await.get_property::<String>("stringValue").await,
+            properties.get_property::<String>("stringValue").await,
             Some("string value".to_string())
         );
     }
@@ -320,9 +340,15 @@ mod tests {
     #[tokio::test]
     async fn test_string_value_with_secret() {
         setup();
-        let cache = CLIENT_WITH_SECRET.namespace("application");
+        let properties = match CLIENT_WITH_SECRET
+            .namespace::<namespace::Properties>("application")
+            .await
+        {
+            namespace::Namespace::Properties(properties) => properties,
+            _ => panic!("Expected Properties namespace"),
+        };
         assert_eq!(
-            cache.await.get_property::<String>("stringValue").await,
+            properties.get_property::<String>("stringValue").await,
             Some("string value".to_string())
         );
     }
@@ -344,8 +370,14 @@ mod tests {
     #[tokio::test]
     async fn test_int_value() {
         setup();
-        let cache = CLIENT_NO_SECRET.namespace("application");
-        assert_eq!(cache.await.get_property::<i32>("intValue").await, Some(42));
+        let properties = match CLIENT_NO_SECRET
+            .namespace::<namespace::Properties>("application")
+            .await
+        {
+            namespace::Namespace::Properties(properties) => properties,
+            _ => panic!("Expected Properties namespace"),
+        };
+        assert_eq!(properties.get_property::<i32>("intValue").await, Some(42));
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -362,8 +394,14 @@ mod tests {
     #[tokio::test]
     async fn test_int_value_with_secret() {
         setup();
-        let cache = CLIENT_WITH_SECRET.namespace("application");
-        assert_eq!(cache.await.get_property::<i32>("intValue").await, Some(42));
+        let properties = match CLIENT_WITH_SECRET
+            .namespace::<namespace::Properties>("application")
+            .await
+        {
+            namespace::Namespace::Properties(properties) => properties,
+            _ => panic!("Expected Properties namespace"),
+        };
+        assert_eq!(properties.get_property::<i32>("intValue").await, Some(42));
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -380,9 +418,15 @@ mod tests {
     #[tokio::test]
     async fn test_float_value() {
         setup();
-        let cache = CLIENT_NO_SECRET.namespace("application");
+        let properties = match CLIENT_NO_SECRET
+            .namespace::<namespace::Properties>("application")
+            .await
+        {
+            namespace::Namespace::Properties(properties) => properties,
+            _ => panic!("Expected Properties namespace"),
+        };
         assert_eq!(
-            cache.await.get_property::<f64>("floatValue").await,
+            properties.get_property::<f64>("floatValue").await,
             Some(4.20)
         );
     }
@@ -404,9 +448,15 @@ mod tests {
     #[tokio::test]
     async fn test_float_value_with_secret() {
         setup();
-        let cache = CLIENT_WITH_SECRET.namespace("application");
+        let properties = match CLIENT_WITH_SECRET
+            .namespace::<namespace::Properties>("application")
+            .await
+        {
+            namespace::Namespace::Properties(properties) => properties,
+            _ => panic!("Expected Properties namespace"),
+        };
         assert_eq!(
-            cache.await.get_property::<f64>("floatValue").await,
+            properties.get_property::<f64>("floatValue").await,
             Some(4.20)
         );
     }
@@ -428,9 +478,15 @@ mod tests {
     #[tokio::test]
     async fn test_bool_value() {
         setup();
-        let cache = CLIENT_NO_SECRET.namespace("application");
+        let properties = match CLIENT_NO_SECRET
+            .namespace::<namespace::Properties>("application")
+            .await
+        {
+            namespace::Namespace::Properties(properties) => properties,
+            _ => panic!("Expected Properties namespace"),
+        };
         assert_eq!(
-            cache.await.get_property::<bool>("boolValue").await,
+            properties.get_property::<bool>("boolValue").await,
             Some(false)
         );
     }
@@ -452,9 +508,15 @@ mod tests {
     #[tokio::test]
     async fn test_bool_value_with_secret() {
         setup();
-        let cache = CLIENT_WITH_SECRET.namespace("application");
+        let properties = match CLIENT_WITH_SECRET
+            .namespace::<namespace::Properties>("application")
+            .await
+        {
+            namespace::Namespace::Properties(properties) => properties,
+            _ => panic!("Expected Properties namespace"),
+        };
         assert_eq!(
-            cache.await.get_property::<bool>("boolValue").await,
+            properties.get_property::<bool>("boolValue").await,
             Some(false)
         );
     }
@@ -476,14 +538,26 @@ mod tests {
     #[tokio::test]
     async fn test_bool_value_with_grayscale_ip() {
         setup();
-        let cache = CLIENT_WITH_GRAYSCALE_IP.namespace("application");
+        let properties = match CLIENT_WITH_GRAYSCALE_IP
+            .namespace::<namespace::Properties>("application")
+            .await
+        {
+            namespace::Namespace::Properties(properties) => properties,
+            _ => panic!("Expected Properties namespace"),
+        };
         assert_eq!(
-            cache.await.get_property::<bool>("grayScaleValue").await,
+            properties.get_property::<bool>("grayScaleValue").await,
             Some(true)
         );
-        let cache = CLIENT_NO_SECRET.namespace("application");
+        let properties = match CLIENT_NO_SECRET
+            .namespace::<namespace::Properties>("application")
+            .await
+        {
+            namespace::Namespace::Properties(properties) => properties,
+            _ => panic!("Expected Properties namespace"),
+        };
         assert_eq!(
-            cache.await.get_property::<bool>("grayScaleValue").await,
+            properties.get_property::<bool>("grayScaleValue").await,
             Some(false)
         );
     }
@@ -512,14 +586,26 @@ mod tests {
     #[tokio::test]
     async fn test_bool_value_with_grayscale_label() {
         setup();
-        let cache = CLIENT_WITH_GRAYSCALE_LABEL.namespace("application").await;
+        let properties = match CLIENT_WITH_GRAYSCALE_LABEL
+            .namespace::<namespace::Properties>("application")
+            .await
+        {
+            namespace::Namespace::Properties(properties) => properties,
+            _ => panic!("Expected Properties namespace"),
+        };
         assert_eq!(
-            cache.get_property::<bool>("grayScaleValue").await,
+            properties.get_property::<bool>("grayScaleValue").await,
             Some(true)
         );
-        let cache = CLIENT_NO_SECRET.namespace("application").await;
+        let properties = match CLIENT_NO_SECRET
+            .namespace::<namespace::Properties>("application")
+            .await
+        {
+            namespace::Namespace::Properties(properties) => properties,
+            _ => panic!("Expected Properties namespace"),
+        };
         assert_eq!(
-            cache.get_property::<bool>("grayScaleValue").await,
+            properties.get_property::<bool>("grayScaleValue").await,
             Some(false)
         );
     }

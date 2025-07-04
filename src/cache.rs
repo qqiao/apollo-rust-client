@@ -43,7 +43,7 @@ cfg_if::cfg_if! {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub(crate) enum Error {
     #[error("Io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("Serde error: {0}")]
@@ -63,7 +63,7 @@ pub enum Error {
 /// A cache for a given namespace.
 #[derive(Clone)]
 #[wasm_bindgen]
-pub struct Cache {
+pub(crate) struct Cache {
     client_config: ClientConfig,
     namespace: String,
     loading: Arc<RwLock<bool>>,
@@ -126,7 +126,7 @@ impl Cache {
     /// # Returns
     ///
     /// The property for the given key as a string.
-    pub async fn get_property<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
+    pub(crate) async fn get_property<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
         debug!("Getting property for key {key}");
         let value = self.get_value(key).await.ok()?;
 
@@ -496,64 +496,6 @@ impl Cache {
         });
 
         self.add_listener(event_listener).await; // Call the renamed Rust method
-    }
-
-    /// Get a property from the cache as a string.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to get the property for.
-    ///
-    /// # Returns
-    ///
-    /// The property for the given key as a string.
-    pub async fn get_string(&self, key: &str) -> Option<String> {
-        self.get_property::<String>(key).await
-    }
-
-    /// Get a property from the cache as an integer.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to get the property for.
-    ///
-    /// # Returns
-    ///
-    /// The property for the given key as an integer.
-    pub async fn get_int(&self, key: &str) -> Option<i64> {
-        self.get_property::<i64>(key).await
-    }
-
-    /// Get a property from the cache as a float.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to get the property for.
-    ///
-    /// # Returns
-    ///
-    /// The property for the given key as a float.
-    pub async fn get_float(&self, key: &str) -> Option<f64> {
-        debug!("Getting property for key {key}");
-        let value = self.get_value(key).await.ok()?;
-
-        value.as_str().and_then(|s| s.parse::<f64>().ok())
-    }
-
-    /// Get a property from the cache as a boolean.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to get the property for.
-    ///
-    /// # Returns
-    ///
-    /// The property for the given key as a boolean.
-    pub async fn get_bool(&self, key: &str) -> Option<bool> {
-        debug!("Getting property for key {key}");
-        let value = self.get_value(key).await.ok()?;
-
-        value.as_str().and_then(|s| s.parse::<bool>().ok())
     }
 }
 
