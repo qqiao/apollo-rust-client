@@ -9,7 +9,7 @@
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.4.1" # 請確認並使用最新版本
+apollo-rust-client = "0.5.0" # 請確認並使用最新版本
 ```
 
 或者，您可以使用 `cargo add`：

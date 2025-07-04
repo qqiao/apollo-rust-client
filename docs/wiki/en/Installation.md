@@ -9,7 +9,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.4.1" # Please verify and use the latest version
+apollo-rust-client = "0.5.0" # Please verify and use the latest version
 ```
 
 Alternatively, you can use `cargo add`:
