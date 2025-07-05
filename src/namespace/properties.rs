@@ -1,17 +1,5 @@
-use std::sync::Arc;
-
-use log::debug;
-
 use crate::cache::Cache;
-
-#[derive(Clone)]
-pub enum Namespace<T> {
-    Properties(Properties),
-    Json(T),
-    Yaml(T),
-    Xml(T),
-    Text(String),
-}
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct Properties {

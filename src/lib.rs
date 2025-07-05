@@ -178,7 +178,7 @@ cfg_if::cfg_if! {
 
             pub async fn namespace<T>(&self, namespace: &str) -> namespace::Namespace<T> {
                 let cache = self.cache(namespace).await;
-                namespace::Namespace::Properties(namespace::Properties { cache })
+                namespace::Namespace::Properties(namespace::properties::Properties { cache })
             }
         }
     }
@@ -280,7 +280,7 @@ mod tests {
     async fn test_missing_value() {
         setup();
         let properties = match CLIENT_NO_SECRET
-            .namespace::<namespace::Properties>("application")
+            .namespace::<namespace::properties::Properties>("application")
             .await
         {
             namespace::Namespace::Properties(properties) => properties,
@@ -311,7 +311,7 @@ mod tests {
     async fn test_string_value() {
         setup();
         let properties = match CLIENT_NO_SECRET
-            .namespace::<namespace::Properties>("application")
+            .namespace::<namespace::properties::Properties>("application")
             .await
         {
             namespace::Namespace::Properties(properties) => properties,
@@ -341,7 +341,7 @@ mod tests {
     async fn test_string_value_with_secret() {
         setup();
         let properties = match CLIENT_WITH_SECRET
-            .namespace::<namespace::Properties>("application")
+            .namespace::<namespace::properties::Properties>("application")
             .await
         {
             namespace::Namespace::Properties(properties) => properties,
@@ -371,7 +371,7 @@ mod tests {
     async fn test_int_value() {
         setup();
         let properties = match CLIENT_NO_SECRET
-            .namespace::<namespace::Properties>("application")
+            .namespace::<namespace::properties::Properties>("application")
             .await
         {
             namespace::Namespace::Properties(properties) => properties,
@@ -395,7 +395,7 @@ mod tests {
     async fn test_int_value_with_secret() {
         setup();
         let properties = match CLIENT_WITH_SECRET
-            .namespace::<namespace::Properties>("application")
+            .namespace::<namespace::properties::Properties>("application")
             .await
         {
             namespace::Namespace::Properties(properties) => properties,
@@ -419,7 +419,7 @@ mod tests {
     async fn test_float_value() {
         setup();
         let properties = match CLIENT_NO_SECRET
-            .namespace::<namespace::Properties>("application")
+            .namespace::<namespace::properties::Properties>("application")
             .await
         {
             namespace::Namespace::Properties(properties) => properties,
@@ -449,7 +449,7 @@ mod tests {
     async fn test_float_value_with_secret() {
         setup();
         let properties = match CLIENT_WITH_SECRET
-            .namespace::<namespace::Properties>("application")
+            .namespace::<namespace::properties::Properties>("application")
             .await
         {
             namespace::Namespace::Properties(properties) => properties,
@@ -479,7 +479,7 @@ mod tests {
     async fn test_bool_value() {
         setup();
         let properties = match CLIENT_NO_SECRET
-            .namespace::<namespace::Properties>("application")
+            .namespace::<namespace::properties::Properties>("application")
             .await
         {
             namespace::Namespace::Properties(properties) => properties,
@@ -509,7 +509,7 @@ mod tests {
     async fn test_bool_value_with_secret() {
         setup();
         let properties = match CLIENT_WITH_SECRET
-            .namespace::<namespace::Properties>("application")
+            .namespace::<namespace::properties::Properties>("application")
             .await
         {
             namespace::Namespace::Properties(properties) => properties,
@@ -539,7 +539,7 @@ mod tests {
     async fn test_bool_value_with_grayscale_ip() {
         setup();
         let properties = match CLIENT_WITH_GRAYSCALE_IP
-            .namespace::<namespace::Properties>("application")
+            .namespace::<namespace::properties::Properties>("application")
             .await
         {
             namespace::Namespace::Properties(properties) => properties,
@@ -550,7 +550,7 @@ mod tests {
             Some(true)
         );
         let properties = match CLIENT_NO_SECRET
-            .namespace::<namespace::Properties>("application")
+            .namespace::<namespace::properties::Properties>("application")
             .await
         {
             namespace::Namespace::Properties(properties) => properties,
@@ -587,7 +587,7 @@ mod tests {
     async fn test_bool_value_with_grayscale_label() {
         setup();
         let properties = match CLIENT_WITH_GRAYSCALE_LABEL
-            .namespace::<namespace::Properties>("application")
+            .namespace::<namespace::properties::Properties>("application")
             .await
         {
             namespace::Namespace::Properties(properties) => properties,
@@ -598,7 +598,7 @@ mod tests {
             Some(true)
         );
         let properties = match CLIENT_NO_SECRET
-            .namespace::<namespace::Properties>("application")
+            .namespace::<namespace::properties::Properties>("application")
             .await
         {
             namespace::Namespace::Properties(properties) => properties,
