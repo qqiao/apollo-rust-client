@@ -1,6 +1,6 @@
 use serde::de::DeserializeOwned;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Json {}
 
 impl Json {

@@ -186,9 +186,18 @@ cfg_if::cfg_if! {
                 cache.clone()
             }
 
+            pub async fn add_listener(&self, namespace: &str, listener: EventListener) {
+                let mut namespaces = self.namespaces.write().await;
+                let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
+                    trace!("Cache miss, creating cache for namespace {namespace}");
+                    Arc::new(Cache::new(self.client_config.clone(), namespace))
+                });
+                cache.add_listener(listener).await;
+            }
+
             pub async fn namespace(&self, namespace: &str) -> namespace::Namespace {
                 let cache = self.cache(namespace).await;
-                namespace::Namespace::Properties(namespace::properties::Properties { cache })
+                namespace::get_namespace(namespace, cache.get_value().await.unwrap())
             }
         }
     }
