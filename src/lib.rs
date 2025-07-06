@@ -3,6 +3,7 @@
 //! and keeping them refreshed periodically. It also supports different behavior for wasm32 and non-wasm32 targets,
 //! allowing it to be used in various environments.
 
+use crate::namespace::Namespace;
 use async_std::sync::RwLock;
 use cache::Cache;
 use client_config::ClientConfig;
@@ -29,6 +30,15 @@ pub enum Error {
     #[error("Client is already running")]
     AlreadyRunning,
 }
+
+/// Type alias for event listeners that can be registered with the client.
+/// For native targets, listeners need to be `Send` and `Sync` to be safely
+/// shared across threads.
+///
+/// Listeners are functions that take a `Result<Namespace<T>, Error>` as an
+/// argument, where `Namespace<T>` is a fresh copy of the updated namespace,`
+/// and `Error` is the cache's error enum.
+pub type EventListener<T> = Arc<dyn Fn(Result<Namespace<T>, Error>) + Send + Sync>;
 
 /// Apollo client.
 #[wasm_bindgen]

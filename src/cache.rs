@@ -62,8 +62,7 @@ pub(crate) enum Error {
 
 /// A cache for a given namespace.
 #[derive(Clone)]
-#[wasm_bindgen]
-pub(crate) struct Cache {
+pub(crate) struct CacheBase {
     client_config: ClientConfig,
     namespace: String,
     loading: Arc<RwLock<bool>>,
@@ -73,6 +72,14 @@ pub(crate) struct Cache {
 
     #[cfg(not(target_arch = "wasm32"))]
     file_path: std::path::PathBuf,
+}
+
+cfg_if::cfg_if! {
+    if #[cfg(target_arch = "wasm32")] {
+        pub(crate) type Cache = CacheBase;
+    } else {
+        pub(crate) type Cache = CacheBase;
+    }
 }
 
 impl Cache {
