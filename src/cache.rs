@@ -202,13 +202,8 @@ impl Cache {
             }
         }
 
-        trace!(
-            "Checking memory cache for namespace 1232132 {}",
-            self.namespace
-        );
         let memory_cache = self.memory_cache.read().await;
         if let Some(value) = memory_cache.as_ref() {
-            trace!("Releasing checking_cache for namespace {}", self.namespace);
             *checking_cache = false;
             Ok(value.clone())
         } else {

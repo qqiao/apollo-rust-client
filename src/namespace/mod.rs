@@ -38,6 +38,7 @@ fn get_namespace_type(namespace: &str) -> NamespaceType {
 pub(crate) fn get_namespace(namespace: &str, value: serde_json::Value) -> Namespace {
     match get_namespace_type(namespace) {
         NamespaceType::Properties => Namespace::Properties(properties::Properties::from(value)),
+        NamespaceType::Json => Namespace::Json(json::Json::from(value)),
         _ => todo!(),
     }
 }
