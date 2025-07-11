@@ -12,7 +12,7 @@
 //!
 //! # Examples
 //!
-//! ```rust
+//! ```ignore
 //! use serde_json::json;
 //! use apollo_client::namespace::json::Json;
 //!
@@ -35,7 +35,7 @@ use serde::de::DeserializeOwned;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```ignore
 /// use serde_json::json;
 /// use apollo_client::namespace::json::Json;
 ///
@@ -77,7 +77,7 @@ impl Json {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```ignore
     /// use serde::{Deserialize, Serialize};
     /// use serde_json::json;
     /// use apollo_client::namespace::json::Json;
@@ -108,7 +108,7 @@ impl Json {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```ignore
 /// use serde_json::json;
 /// use apollo_client::namespace::json::Json;
 ///

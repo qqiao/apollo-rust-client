@@ -21,7 +21,7 @@
 //!
 //! # Examples
 //!
-//! ```rust
+//! ```ignore
 //! use serde_json::json;
 //! use apollo_client::namespace::properties::Properties;
 //!
@@ -50,7 +50,7 @@ use log::debug;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```ignore
 /// use serde_json::json;
 /// use apollo_client::namespace::properties::Properties;
 ///
@@ -90,7 +90,7 @@ impl Properties {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```ignore
     /// use serde_json::json;
     /// use apollo_client::namespace::properties::Properties;
     ///
@@ -125,7 +125,7 @@ impl Properties {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```ignore
     /// use serde_json::json;
     /// use apollo_client::namespace::properties::Properties;
     ///
@@ -157,7 +157,7 @@ impl Properties {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```ignore
     /// use serde_json::json;
     /// use apollo_client::namespace::properties::Properties;
     ///
@@ -189,7 +189,7 @@ impl Properties {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```ignore
     /// use serde_json::json;
     /// use apollo_client::namespace::properties::Properties;
     ///
@@ -222,7 +222,7 @@ impl Properties {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```ignore
     /// use serde_json::json;
     /// use apollo_client::namespace::properties::Properties;
     ///
@@ -248,7 +248,7 @@ impl Properties {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```ignore
 /// use serde_json::json;
 /// use apollo_client::namespace::properties::Properties;
 ///

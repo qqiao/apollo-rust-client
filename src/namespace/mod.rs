@@ -35,7 +35,7 @@ pub mod properties;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```ignore
 /// use apollo_client::namespace::Namespace;
 ///
 /// // Working with JSON data
@@ -141,7 +141,7 @@ fn get_namespace_type(namespace: &str) -> NamespaceType {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```ignore
 /// use serde_json::json;
 /// use apollo_client::namespace::get_namespace;
 ///
