@@ -22,6 +22,15 @@
 
 use serde::de::DeserializeOwned;
 
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Failed to get content from JSON value")]
+    ContentNotFound,
+
+    #[error("Failed to deserialize JSON value: {0}")]
+    DeserializeError(#[from] serde_json::Error),
+}
+
 /// A wrapper around `serde_json::Value` for JSON-formatted configuration data.
 ///
 /// This struct provides a type-safe interface for working with JSON configuration
@@ -96,8 +105,8 @@ impl Json {
     /// let json_namespace = Json::from(json_data);
     /// // let config: DatabaseConfig = json_namespace.to_object(); // Will work when implemented
     /// ```
-    pub fn to_object<T: DeserializeOwned>(&self) -> T {
-        todo!()
+    pub fn to_object<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
+        serde_json::from_value(self.value.clone())
     }
 }
 
@@ -115,8 +124,16 @@ impl Json {
 /// let json_data = json!({"key": "value"});
 /// let json_namespace = Json::from(json_data);
 /// ```
-impl From<serde_json::Value> for Json {
-    fn from(value: serde_json::Value) -> Self {
-        Self { value }
+impl TryFrom<serde_json::Value> for Json {
+    type Error = crate::namespace::json::Error;
+
+    fn try_from(value: serde_json::Value) -> Result<Self, Self::Error> {
+        let content_string = match value.get("content") {
+            Some(content) => content,
+            None => return Err(Error::ContentNotFound),
+        };
+        let content_string: String = content_string.to_string();
+        let value = serde_json::from_str(&content_string)?;
+        Ok(Self { value })
     }
 }

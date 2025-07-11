@@ -1,6 +1,10 @@
 //! Cache for the Apollo client.
 
-use crate::{EventListener, client_config::ClientConfig, namespace::get_namespace};
+use crate::{
+    EventListener,
+    client_config::ClientConfig,
+    namespace::{self, get_namespace},
+};
 use async_std::sync::RwLock;
 use base64::display::Base64Display;
 use cfg_if::cfg_if;
@@ -36,9 +40,13 @@ cfg_if::cfg_if! {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum Error {
+pub enum Error {
     #[error("Io error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("Namespace error: {0}")]
+    Namespace(namespace::Error),
+
     #[error("Serde error: {0}")]
     Serde(#[from] serde_json::Error),
 
@@ -341,7 +349,9 @@ impl Cache {
         // Notify listeners with the new config
         let listeners = self.listeners.read().await;
         for listener in listeners.iter() {
-            listener(Ok(get_namespace(&self.namespace, config.clone())));
+            listener(
+                get_namespace(&self.namespace, config.clone()).map_err(crate::Error::Namespace),
+            );
         }
         drop(listeners); // Release read lock before acquiring write lock
 

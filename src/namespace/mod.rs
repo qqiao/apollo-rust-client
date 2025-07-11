@@ -28,6 +28,14 @@ use properties::Properties;
 pub mod json;
 pub mod properties;
 
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Failed to get JSON namespace: {0}")]
+    Json(#[from] json::Error),
+    // #[error("Failed to get Properties namespace: {0}")]
+    // Properties(properties::Error),
+}
+
 /// Represents different types of configuration data formats.
 ///
 /// This enum provides a unified interface for working with various configuration
@@ -153,10 +161,10 @@ fn get_namespace_type(namespace: &str) -> NamespaceType {
 /// let namespace = get_namespace("application", props_data);
 /// // Returns Namespace::Properties variant
 /// ```
-pub(crate) fn get_namespace(namespace: &str, value: serde_json::Value) -> Namespace {
+pub(crate) fn get_namespace(namespace: &str, value: serde_json::Value) -> Result<Namespace, Error> {
     match get_namespace_type(namespace) {
-        NamespaceType::Properties => Namespace::Properties(properties::Properties::from(value)),
-        NamespaceType::Json => Namespace::Json(json::Json::from(value)),
+        NamespaceType::Properties => Ok(Namespace::Properties(properties::Properties::from(value))),
+        NamespaceType::Json => Ok(Namespace::Json(json::Json::try_from(value)?)),
         _ => todo!(),
     }
 }

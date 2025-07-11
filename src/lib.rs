@@ -29,6 +29,12 @@ pub mod namespace;
 pub enum Error {
     #[error("Client is already running")]
     AlreadyRunning,
+
+    #[error("Namespace error: {0}")]
+    Namespace(#[from] namespace::Error),
+
+    #[error("Cache error: {0}")]
+    Cache(#[from] cache::Error),
 }
 
 /// Type alias for event listeners that can be registered with the client.
@@ -195,9 +201,10 @@ cfg_if::cfg_if! {
                 cache.add_listener(listener).await;
             }
 
-            pub async fn namespace(&self, namespace: &str) -> namespace::Namespace {
+            pub async fn namespace(&self, namespace: &str) -> Result<namespace::Namespace, Error> {
                 let cache = self.cache(namespace).await;
-                namespace::get_namespace(namespace, cache.get_value().await.unwrap())
+                let value = cache.get_value().await?;
+                Ok(namespace::get_namespace(namespace, value)?)
             }
         }
     }
@@ -298,7 +305,7 @@ mod tests {
     #[tokio::test]
     async fn test_missing_value() {
         setup();
-        let properties = match CLIENT_NO_SECRET.namespace("application").await {
+        let properties = match CLIENT_NO_SECRET.namespace("application").await.unwrap() {
             namespace::Namespace::Properties(properties) => properties,
             _ => panic!("Expected Properties namespace"),
         };
@@ -326,7 +333,7 @@ mod tests {
     #[tokio::test]
     async fn test_string_value() {
         setup();
-        let properties = match CLIENT_NO_SECRET.namespace("application").await {
+        let properties = match CLIENT_NO_SECRET.namespace("application").await.unwrap() {
             namespace::Namespace::Properties(properties) => properties,
             _ => panic!("Expected Properties namespace"),
         };
@@ -353,7 +360,7 @@ mod tests {
     #[tokio::test]
     async fn test_string_value_with_secret() {
         setup();
-        let properties = match CLIENT_WITH_SECRET.namespace("application").await {
+        let properties = match CLIENT_WITH_SECRET.namespace("application").await.unwrap() {
             namespace::Namespace::Properties(properties) => properties,
             _ => panic!("Expected Properties namespace"),
         };
@@ -380,7 +387,7 @@ mod tests {
     #[tokio::test]
     async fn test_int_value() {
         setup();
-        let properties = match CLIENT_NO_SECRET.namespace("application").await {
+        let properties = match CLIENT_NO_SECRET.namespace("application").await.unwrap() {
             namespace::Namespace::Properties(properties) => properties,
             _ => panic!("Expected Properties namespace"),
         };
@@ -401,7 +408,7 @@ mod tests {
     #[tokio::test]
     async fn test_int_value_with_secret() {
         setup();
-        let properties = match CLIENT_WITH_SECRET.namespace("application").await {
+        let properties = match CLIENT_WITH_SECRET.namespace("application").await.unwrap() {
             namespace::Namespace::Properties(properties) => properties,
             _ => panic!("Expected Properties namespace"),
         };
@@ -422,7 +429,7 @@ mod tests {
     #[tokio::test]
     async fn test_float_value() {
         setup();
-        let properties = match CLIENT_NO_SECRET.namespace("application").await {
+        let properties = match CLIENT_NO_SECRET.namespace("application").await.unwrap() {
             namespace::Namespace::Properties(properties) => properties,
             _ => panic!("Expected Properties namespace"),
         };
@@ -449,7 +456,7 @@ mod tests {
     #[tokio::test]
     async fn test_float_value_with_secret() {
         setup();
-        let properties = match CLIENT_WITH_SECRET.namespace("application").await {
+        let properties = match CLIENT_WITH_SECRET.namespace("application").await.unwrap() {
             namespace::Namespace::Properties(properties) => properties,
             _ => panic!("Expected Properties namespace"),
         };
@@ -476,7 +483,7 @@ mod tests {
     #[tokio::test]
     async fn test_bool_value() {
         setup();
-        let properties = match CLIENT_NO_SECRET.namespace("application").await {
+        let properties = match CLIENT_NO_SECRET.namespace("application").await.unwrap() {
             namespace::Namespace::Properties(properties) => properties,
             _ => panic!("Expected Properties namespace"),
         };
@@ -503,7 +510,7 @@ mod tests {
     #[tokio::test]
     async fn test_bool_value_with_secret() {
         setup();
-        let properties = match CLIENT_WITH_SECRET.namespace("application").await {
+        let properties = match CLIENT_WITH_SECRET.namespace("application").await.unwrap() {
             namespace::Namespace::Properties(properties) => properties,
             _ => panic!("Expected Properties namespace"),
         };
@@ -530,7 +537,11 @@ mod tests {
     #[tokio::test]
     async fn test_bool_value_with_grayscale_ip() {
         setup();
-        let properties = match CLIENT_WITH_GRAYSCALE_IP.namespace("application").await {
+        let properties = match CLIENT_WITH_GRAYSCALE_IP
+            .namespace("application")
+            .await
+            .unwrap()
+        {
             namespace::Namespace::Properties(properties) => properties,
             _ => panic!("Expected Properties namespace"),
         };
@@ -538,7 +549,7 @@ mod tests {
             properties.get_property::<bool>("grayScaleValue").await,
             Some(true)
         );
-        let properties = match CLIENT_NO_SECRET.namespace("application").await {
+        let properties = match CLIENT_NO_SECRET.namespace("application").await.unwrap() {
             namespace::Namespace::Properties(properties) => properties,
             _ => panic!("Expected Properties namespace"),
         };
@@ -572,7 +583,11 @@ mod tests {
     #[tokio::test]
     async fn test_bool_value_with_grayscale_label() {
         setup();
-        let properties = match CLIENT_WITH_GRAYSCALE_LABEL.namespace("application").await {
+        let properties = match CLIENT_WITH_GRAYSCALE_LABEL
+            .namespace("application")
+            .await
+            .unwrap()
+        {
             namespace::Namespace::Properties(properties) => properties,
             _ => panic!("Expected Properties namespace"),
         };
@@ -580,7 +595,7 @@ mod tests {
             properties.get_property::<bool>("grayScaleValue").await,
             Some(true)
         );
-        let properties = match CLIENT_NO_SECRET.namespace("application").await {
+        let properties = match CLIENT_NO_SECRET.namespace("application").await.unwrap() {
             namespace::Namespace::Properties(properties) => properties,
             _ => panic!("Expected Properties namespace"),
         };
