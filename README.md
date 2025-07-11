@@ -59,23 +59,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ip: None,
     };
     let mut client = Client::new(client_config);
+
     // Start background polling for configuration updates.
     client.start().await?;
 
-    // Get configuration for the "application" namespace.
-    let cache = client.namespace("application").await;
+    // Get configuration for the "application" namespace
+    let namespace = client.namespace("application").await?;
 
-    // Example: Retrieve a string property.
-    match cache.get_property::<String>("some_key").await {
-        Some(value) => println!("Property 'some_key': {}", value),
-        None => println!("Property 'some_key' not found"),
+    // The namespace is now typed based on the format detected from the namespace name
+    match namespace {
+        apollo_rust_client::namespace::Namespace::Properties(properties) => {
+            // Example: Retrieve a string property
+            match properties.get_string("some_key").await {
+                Some(value) => println!("Property 'some_key': {}", value),
+                None => println!("Property 'some_key' not found"),
+            }
+
+            // Example: Retrieve an integer property
+            match properties.get_int("meaningOfLife").await {
+                Some(value) => println!("Property 'meaningOfLife': {}", value),
+                None => println!("Property 'meaningOfLife' not found"),
+            }
+        }
+        apollo_rust_client::namespace::Namespace::Json(json) => {
+            // For JSON namespaces, you can deserialize to custom types
+            // let config: MyConfig = json.to_object()?;
+            println!("JSON namespace received");
+        }
+        apollo_rust_client::namespace::Namespace::Text(text) => {
+            println!("Text namespace content: {}", text);
+        }
     }
 
-    // Example: Retrieve an integer property.
-    match cache.get_property::<i64>("meaningOfLife").await {
-        Some(value) => println!("Property 'meaningOfLife': {}", value),
-        None => println!("Property 'meaningOfLife' not found"),
-    }
     Ok(())
 }
 ```
@@ -110,7 +125,6 @@ async function main() {
   clientConfig.secret = "your_apollo_secret"; // Example: if your Apollo namespace requires a secret
   // clientConfig.label = "your_instance_label"; // For grayscale releases
   // clientConfig.ip = "client_ip_address"; // For grayscale releases
-  // clientConfig.cache_dir = "/custom/cache/path"; // Note: cache_dir is less common in browser environments
 
   const client = new Client(clientConfig);
 
@@ -119,10 +133,10 @@ async function main() {
   await client.start();
 
   // Get configuration for the "application" namespace
-  const namespace = await client.namespace("application");
+  const cache = await client.namespace("application");
 
   // Example: Retrieve a string property
-  const stringVal = await namespace.get_string("some_key");
+  const stringVal = await cache.get_string("some_key");
   if (stringVal !== undefined) {
     console.log("Property 'some_key':", stringVal);
   } else {
@@ -130,15 +144,24 @@ async function main() {
   }
 
   // Example: Retrieve an integer property using get_int
-  const intVal = await namespace.get_int("meaningOfLife");
+  const intVal = await cache.get_int("meaningOfLife");
   if (intVal !== undefined) {
     console.log("Property 'meaningOfLife':", intVal);
   } else {
     console.log("Property 'meaningOfLife' not found or not an integer.");
   }
 
+  // Example: Add event listener for configuration changes
+  await cache.add_listener((error, data) => {
+    if (error) {
+      console.error("Configuration update error:", error);
+    } else {
+      console.log("Configuration updated:", data);
+    }
+  });
+
   // IMPORTANT: Release Rust memory for WASM objects when they are no longer needed
-  namespace.free();
+  cache.free();
   client.free();
   clientConfig.free();
 }
@@ -167,6 +190,23 @@ The client supports the following configuration options:
 ## Error Handling
 
 Most client operations return a `Result<T, apollo_rust_client::Error>` in Rust, or a Promise that may reject with an error in JavaScript. Common errors include configuration fetch failures (e.g., network issues, Apollo server errors) or issues with the local cache. Ensure your application code includes appropriate error handling logic (e.g., using `match` or `?` in Rust, or `.catch()` with Promises in JavaScript).
+
+## Key API Changes in v0.5.0
+
+- **Typed Namespaces**: The library now supports multiple configuration formats (Properties, JSON, Text) with automatic format detection based on namespace names
+- **Event Listeners**: Added support for event listeners to react to configuration changes
+- **Improved Error Handling**: Enhanced error types and better error reporting
+- **WASM Improvements**: Better memory management and JavaScript interop for WebAssembly targets
+
+## Namespace Format Detection
+
+The library automatically detects the configuration format based on the namespace name:
+
+- No extension or `.properties` → Properties format (key-value pairs)
+- `.json` → JSON format (structured data)
+- `.txt` → Text format (plain text content)
+- `.yaml` or `.yml` → YAML format (planned)
+- `.xml` → XML format (planned)
 
 ## TODO
 

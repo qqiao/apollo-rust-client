@@ -24,7 +24,7 @@
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.5.0" # 请确并使用最新版本
+apollo-rust-client = "0.5.0" # 请确认并使用最新版本
 ```
 
 或者，您可以使用 `cargo add`：
@@ -50,32 +50,47 @@ use apollo_rust_client::client_config::ClientConfig;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client_config = ClientConfig {
-        app_id: "your_app_id".to_string(), // 你的应用ID
-        cluster: "default".to_string(), // 集群名称
-        secret: Some("your_apollo_secret".to_string()), // 你的 Apollo 密钥
-        config_server: "http://your-apollo-server:8080".to_string(), // 配置服务器地址
-        cache_dir: None, // 本地缓存目录
-        label: None, // 实例标签
-        ip: None, // 应用IP地址
+        app_id: "your_app_id".to_string(),
+        cluster: "default".to_string(),
+        secret: Some("your_apollo_secret".to_string()),
+        config_server: "http://your-apollo-server:8080".to_string(),
+        cache_dir: None,
+        label: None,
+        ip: None,
     };
     let mut client = Client::new(client_config);
-    // 启动后台轮询以获取配置更新。
+
+    // 启动后台轮询以获取配置更新
     client.start().await?;
 
-    // 获取 "application" 命名空间的配置。
-    let cache = client.namespace("application").await;
+    // 获取 "application" 命名空间的配置
+    let namespace = client.namespace("application").await?;
 
-    // 示例：检索字符串属性。
-    match cache.get_property::<String>("some_key").await {
-        Some(value) => println!("属性 'some_key': {}", value),
-        None => println!("未找到属性 'some_key'"),
+    // 命名空间现在根据从命名空间名称检测到的格式进行类型化
+    match namespace {
+        apollo_rust_client::namespace::Namespace::Properties(properties) => {
+            // 示例：检索字符串属性
+            match properties.get_string("some_key").await {
+                Some(value) => println!("属性 'some_key': {}", value),
+                None => println!("属性 'some_key' 未找到"),
+            }
+
+            // 示例：检索整数属性
+            match properties.get_int("meaningOfLife").await {
+                Some(value) => println!("属性 'meaningOfLife': {}", value),
+                None => println!("属性 'meaningOfLife' 未找到"),
+            }
+        }
+        apollo_rust_client::namespace::Namespace::Json(json) => {
+            // 对于 JSON 命名空间，您可以反序列化为自定义类型
+            // let config: MyConfig = json.to_object()?;
+            println!("收到 JSON 命名空间");
+        }
+        apollo_rust_client::namespace::Namespace::Text(text) => {
+            println!("文本命名空间内容: {}", text);
+        }
     }
 
-    // 示例：检索整数属性。
-    match cache.get_property::<i64>("meaningOfLife").await {
-        Some(value) => println!("属性 'meaningOfLife': {}", value),
-        None => println!("未找到属性 'meaningOfLife'"),
-    }
     Ok(())
 }
 ```
@@ -167,6 +182,23 @@ main().catch(console.error);
 ## 错误处理
 
 大多数客户端操作在 Rust 中返回 `Result<T, apollo_rust_client::Error>`，或在 JavaScript 中返回一个可能因错误而拒绝的 Promise。常见错误包括配置获取失败（例如，网络问题、Apollo 服务器错误）或本地缓存问题。确保您的应用程序代码包含适当的错误处理逻辑（例如，在 Rust 中使用 `match` 或 `?`，或在 JavaScript 中使用 Promise 的 `.catch()`）。
+
+## v0.5.0 主要 API 变更
+
+- **类型化命名空间**: 库现在支持多种配置格式（Properties、JSON、Text），并基于命名空间名称自动检测格式
+- **事件监听器**: 添加了事件监听器支持以响应配置更改
+- **改进的错误处理**: 增强的错误类型和更好的错误报告
+- **WASM 改进**: 为 WebAssembly 目标提供更好的内存管理和 JavaScript 互操作
+
+## 命名空间格式检测
+
+库根据命名空间名称自动检测配置格式：
+
+- 无扩展名或 `.properties` → Properties 格式（键值对）
+- `.json` → JSON 格式（结构化数据）
+- `.txt` → 文本格式（纯文本内容）
+- `.yaml` 或 `.yml` → YAML 格式（计划中）
+- `.xml` → XML 格式（计划中）
 
 ## TODO
 
