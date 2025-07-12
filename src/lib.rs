@@ -240,7 +240,7 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     lazy_static! {
-        static ref CLIENT_NO_SECRET: Client = {
+        pub(crate) static ref CLIENT_NO_SECRET: Client = {
             let config = ClientConfig {
                 app_id: String::from("101010101"),
                 cluster: String::from("default"),
@@ -252,7 +252,7 @@ mod tests {
             };
             Client::new(config)
         };
-        static ref CLIENT_WITH_SECRET: Client = {
+        pub(crate) static ref CLIENT_WITH_SECRET: Client = {
             let config = ClientConfig {
                 app_id: String::from("101010102"),
                 cluster: String::from("default"),
@@ -264,7 +264,7 @@ mod tests {
             };
             Client::new(config)
         };
-        static ref CLIENT_WITH_GRAYSCALE_IP: Client = {
+        pub(crate) static ref CLIENT_WITH_GRAYSCALE_IP: Client = {
             let config = ClientConfig {
                 app_id: String::from("101010101"),
                 cluster: String::from("default"),
@@ -276,7 +276,7 @@ mod tests {
             };
             Client::new(config)
         };
-        static ref CLIENT_WITH_GRAYSCALE_LABEL: Client = {
+        pub(crate) static ref CLIENT_WITH_GRAYSCALE_LABEL: Client = {
             let config = ClientConfig {
                 app_id: String::from("101010101"),
                 cluster: String::from("default"),

@@ -20,6 +20,7 @@
 //! let json_namespace = Json::from(json_data);
 //! ```
 
+use log::trace;
 use serde::de::DeserializeOwned;
 
 #[derive(Debug, thiserror::Error)]
@@ -127,13 +128,48 @@ impl Json {
 impl TryFrom<serde_json::Value> for Json {
     type Error = crate::namespace::json::Error;
 
-    fn try_from(value: serde_json::Value) -> Result<Self, Self::Error> {
-        let content_string = match value.get("content") {
-            Some(content) => content,
+    fn try_from(json_value: serde_json::Value) -> Result<Self, Self::Error> {
+        let content_string = match json_value.get("content") {
+            Some(serde_json::Value::String(s)) => s,
             None => return Err(Error::ContentNotFound),
+            _ => return Err(Error::ContentNotFound),
         };
-        let content_string: String = content_string.to_string();
-        let value = serde_json::from_str(&content_string)?;
+        trace!("content_string: {content_string:?}");
+        let value = serde_json::from_str(content_string.as_str())?;
+        trace!("value: {value:?}");
         Ok(Self { value })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::setup;
+    use serde::Deserialize;
+    use serde_json::json;
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct TestStruct {
+        host: String,
+        port: u16,
+        run: bool,
+    }
+
+    #[tokio::test]
+    async fn test_json_to_object() {
+        setup();
+        let json_namespace = Json::try_from(json!({
+            "content": "{\"host\": \"localhost\", \"port\": 8080, \"run\": true}"
+        }))
+        .unwrap();
+        let result: TestStruct = json_namespace.to_object().unwrap();
+        assert_eq!(
+            result,
+            TestStruct {
+                host: "localhost".to_string(),
+                port: 8080,
+                run: true,
+            }
+        );
     }
 }
