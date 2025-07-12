@@ -1,7 +1,54 @@
-//! The `apollo-client` crate provides a client for interacting with an Apollo configuration service.
-//! This client is responsible for managing configurations for different namespaces, caching them locally,
-//! and keeping them refreshed periodically. It also supports different behavior for wasm32 and non-wasm32 targets,
-//! allowing it to be used in various environments.
+//! # Apollo Rust Client
+//!
+//! A robust Rust client for the Apollo Configuration Centre, with support for WebAssembly
+//! for browser and Node.js environments.
+//!
+//! This crate provides a comprehensive client for interacting with Apollo configuration services.
+//! The client manages configurations for different namespaces, supports multiple configuration
+//! formats (Properties, JSON, Text), provides caching mechanisms, and offers real-time updates
+//! through background polling and event listeners.
+//!
+//! ## Key Features
+//!
+//! - **Multiple Configuration Formats**: Support for Properties, JSON, Text formats with automatic detection
+//! - **Cross-Platform**: Native Rust and WebAssembly targets with platform-specific optimizations
+//! - **Real-Time Updates**: Background polling with configurable intervals and event listeners
+//! - **Comprehensive Caching**: Multi-level caching with file persistence (native) and memory-only (WASM)
+//! - **Type-Safe API**: Compile-time guarantees and runtime type conversion
+//! - **Error Handling**: Detailed error diagnostics with comprehensive error types
+//! - **Grayscale Release Support**: IP and label-based configuration targeting
+//!
+//! ## Quick Start
+//!
+//! ```rust,no_run
+//! use apollo_rust_client::{Client, client_config::ClientConfig};
+//!
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let config = ClientConfig {
+//!     app_id: "my-app".to_string(),
+//!     config_server: "http://apollo-server:8080".to_string(),
+//!     cluster: "default".to_string(),
+//!     secret: None,
+//!     cache_dir: None,
+//!     label: None,
+//!     ip: None,
+//! };
+//!
+//! let mut client = Client::new(config);
+//! client.start().await?;
+//!
+//! let namespace = client.namespace("application").await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Platform Support
+//!
+//! The library supports different behavior for wasm32 and non-wasm32 targets:
+//!
+//! - **Native Rust**: Full feature set with file caching, background tasks, and threading
+//! - **WebAssembly**: Memory-only caching, single-threaded execution, JavaScript interop
 
 use crate::namespace::Namespace;
 use async_std::sync::RwLock;
@@ -24,15 +71,73 @@ mod cache;
 pub mod client_config;
 pub mod namespace;
 
-/// Different types of errors that can occur when using the client.
+/// Comprehensive error types that can occur when using the Apollo client.
+///
+/// This enum covers all possible error conditions that may arise during client operations,
+/// from initialization and configuration to runtime cache operations and namespace handling.
+///
+/// # Error Categories
+///
+/// - **Client State Errors**: Issues related to client lifecycle management
+/// - **Namespace Errors**: Problems with namespace format detection and processing
+/// - **Cache Errors**: Network, I/O, and caching-related failures
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use apollo_rust_client::{Client, Error};
+///
+/// # #[tokio::main]
+/// # async fn main() {
+/// # let client = Client::new(apollo_rust_client::client_config::ClientConfig {
+/// #     app_id: "test".to_string(),
+/// #     config_server: "http://localhost:8080".to_string(),
+/// #     cluster: "default".to_string(),
+/// #     secret: None,
+/// #     cache_dir: None,
+/// #     label: None,
+/// #     ip: None,
+/// # });
+/// match client.namespace("application").await {
+///     Ok(namespace) => {
+///         // Handle successful namespace retrieval
+///     }
+///     Err(Error::Cache(cache_error)) => {
+///         // Handle cache-related errors (network, parsing, etc.)
+///         eprintln!("Cache error: {}", cache_error);
+///     }
+///     Err(Error::Namespace(namespace_error)) => {
+///         // Handle namespace-related errors (format detection, etc.)
+///         eprintln!("Namespace error: {}", namespace_error);
+///     }
+///     Err(e) => {
+///         // Handle other errors
+///         eprintln!("Error: {}", e);
+///     }
+/// }
+/// # }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// The client background task is already running.
+    ///
+    /// This error occurs when attempting to start a client that is already
+    /// running its background refresh task. Each client instance can only
+    /// have one active background task at a time.
     #[error("Client is already running")]
     AlreadyRunning,
 
+    /// An error occurred during namespace processing.
+    ///
+    /// This includes errors from format detection, parsing, or type conversion
+    /// operations specific to namespace handling.
     #[error("Namespace error: {0}")]
     Namespace(#[from] namespace::Error),
 
+    /// An error occurred during cache operations.
+    ///
+    /// This encompasses network errors, I/O failures, serialization issues,
+    /// and other cache-related problems during configuration retrieval or storage.
     #[error("Cache error: {0}")]
     Cache(#[from] cache::Error),
 }
@@ -66,21 +171,107 @@ cfg_if::cfg_if! {
     }
 }
 
-/// Apollo client.
+/// The main Apollo configuration client.
+///
+/// This struct provides the primary interface for interacting with Apollo configuration services.
+/// It manages multiple namespace caches, handles background refresh tasks, and provides
+/// event listener functionality for real-time configuration updates.
+///
+/// # Features
+///
+/// - **Namespace Management**: Automatically creates and manages caches for different namespaces
+/// - **Background Refresh**: Optional background task that periodically refreshes all namespaces
+/// - **Event Listeners**: Support for registering callbacks on configuration changes
+/// - **Cross-Platform**: Works on both native Rust and WebAssembly targets
+/// - **Thread Safety**: All operations are thread-safe and async-friendly
+///
+/// # Examples
+///
+/// ## Basic Usage
+///
+/// ```rust,no_run
+/// use apollo_rust_client::{Client, client_config::ClientConfig};
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let config = ClientConfig {
+///     app_id: "my-app".to_string(),
+///     config_server: "http://apollo-server:8080".to_string(),
+///     cluster: "default".to_string(),
+///     secret: None,
+///     cache_dir: None,
+///     label: None,
+///     ip: None,
+/// };
+///
+/// let mut client = Client::new(config);
+/// client.start().await?;
+///
+/// let namespace = client.namespace("application").await?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// ## With Event Listeners
+///
+/// ```rust,no_run
+/// use apollo_rust_client::{Client, client_config::ClientConfig};
+/// use std::sync::Arc;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # let config = ClientConfig {
+/// #     app_id: "my-app".to_string(),
+/// #     config_server: "http://apollo-server:8080".to_string(),
+/// #     cluster: "default".to_string(),
+/// #     secret: None,
+/// #     cache_dir: None,
+/// #     label: None,
+/// #     ip: None,
+/// # };
+/// # let client = Client::new(config);
+/// client.add_listener("application", Arc::new(|result| {
+///     match result {
+///         Ok(namespace) => println!("Config updated: {:?}", namespace),
+///         Err(e) => eprintln!("Update error: {}", e),
+///     }
+/// })).await;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// # Platform Differences
+///
+/// The client behaves differently on different platforms:
+///
+/// - **Native Rust**: Full feature set with file caching and background tasks
+/// - **WebAssembly**: Memory-only caching, single-threaded execution
 #[wasm_bindgen]
 pub struct Client {
-    /// Holds the configuration for the Apollo client, including server address, app ID, etc.
+    /// The configuration settings for this Apollo client instance.
+    ///
+    /// Contains all necessary information to connect to Apollo servers,
+    /// including server URL, application ID, cluster, authentication, and caching settings.
     client_config: ClientConfig,
-    /// Stores the caches for different namespaces.
-    /// Each namespace has its own `Cache` instance, wrapped in `Arc` for shared ownership
-    /// and `RwLock` for thread-safe read/write access to the map of namespaces.
+
+    /// Thread-safe storage for namespace-specific caches.
+    ///
+    /// Each namespace gets its own `Cache` instance, wrapped in `Arc` for shared ownership.
+    /// The `RwLock` provides thread-safe read/write access to the namespace map.
+    /// The outer `Arc` allows the background refresh task to safely access the namespaces.
     namespaces: Arc<RwLock<HashMap<String, Arc<Cache>>>>,
-    /// Holds the handle for the background refresh task.
-    /// This is `Some` on non-wasm32 targets where a separate task is spawned,
-    /// and `None` on wasm32 where `spawn_local` is used without a direct handle.
+
+    /// Handle to the background refresh task (native targets only).
+    ///
+    /// On non-wasm32 targets, this holds a `JoinHandle` to the spawned background task
+    /// that periodically refreshes all namespace caches. On wasm32 targets, this is
+    /// always `None` as task management differs in single-threaded environments.
     handle: Option<async_std::task::JoinHandle<()>>,
-    /// Indicates whether the background refresh task is active.
-    /// Wrapped in `Arc<RwLock<...>>` for thread-safe shared access to its status.
+
+    /// Flag indicating whether the background refresh task is active.
+    ///
+    /// Wrapped in `Arc<RwLock<bool>>` for thread-safe shared access between the
+    /// client and its background task. Used to coordinate task lifecycle management.
     running: Arc<RwLock<bool>>,
 }
 

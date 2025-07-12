@@ -1,4 +1,33 @@
-//! Cache for the Apollo client.
+//! Caching system for Apollo configuration data.
+//!
+//! This module provides the `Cache` struct and related functionality for storing and managing
+//! Apollo configuration data. The cache supports both in-memory and file-based storage with
+//! platform-specific optimizations.
+//!
+//! # Features
+//!
+//! - **Multi-Level Caching**: In-memory cache with optional file-based persistence
+//! - **Thread Safety**: All cache operations are thread-safe and async-friendly
+//! - **Event System**: Support for event listeners on configuration changes
+//! - **Platform Optimization**: Different behavior for native Rust vs WebAssembly
+//! - **Concurrent Access Control**: Prevents race conditions during cache operations
+//!
+//! # Cache Hierarchy
+//!
+//! 1. **Memory Cache**: Fast in-memory storage for immediate access
+//! 2. **File Cache** (native only): Persistent storage to reduce network requests
+//! 3. **Remote Fetch**: Retrieval from Apollo server when cache misses occur
+//!
+//! # Platform Differences
+//!
+//! - **Native Rust**: Full caching with file persistence and background refresh
+//! - **WebAssembly**: Memory-only caching optimized for browser environments
+//!
+//! # Examples
+//!
+//! The cache is typically used internally by the `Client` struct and not directly
+//! by end users. However, understanding its behavior is important for debugging
+//! and performance optimization.
 
 use crate::{
     EventListener,
@@ -40,16 +69,75 @@ pub enum Error {
     AlreadyCheckingCache,
 }
 
-/// A cache for a given namespace.
+/// A cache instance for managing configuration data for a specific namespace.
+///
+/// The `Cache` struct is responsible for storing, retrieving, and managing configuration
+/// data for a single Apollo namespace. It provides multi-level caching with thread-safe
+/// operations and event notification capabilities.
+///
+/// # Features
+///
+/// - **Multi-Level Storage**: Memory cache with optional file-based persistence
+/// - **Thread Safety**: All operations are protected by async-aware locks
+/// - **Event Listeners**: Callbacks for configuration change notifications
+/// - **Concurrent Protection**: Prevents race conditions during cache operations
+/// - **Platform Optimization**: Adapts behavior based on target platform
+///
+/// # Cache Levels
+///
+/// 1. **Memory Cache**: Fast in-memory storage using `Arc<RwLock<Option<Value>>>`
+/// 2. **File Cache** (native only): Persistent JSON files for offline access
+/// 3. **Remote Source**: Apollo Configuration Center via HTTP/HTTPS
+///
+/// # Concurrency Control
+///
+/// The cache uses several locks to ensure thread safety:
+/// - `loading`: Prevents concurrent refresh operations
+/// - `checking_cache`: Prevents concurrent cache initialization
+/// - `memory_cache`: Protects in-memory configuration data
+/// - `listeners`: Protects event listener collection
+///
+/// # Platform Differences
+///
+/// - **Native Rust**: Full feature set with file caching and background refresh
+/// - **WebAssembly**: Memory-only caching optimized for single-threaded execution
 #[derive(Clone)]
 pub(crate) struct Cache {
+    /// Client configuration containing server details and authentication.
     client_config: ClientConfig,
+
+    /// The namespace name this cache instance manages.
     namespace: String,
+
+    /// Lock to prevent concurrent refresh operations.
+    ///
+    /// When a refresh is in progress, other refresh attempts will return
+    /// `Error::AlreadyLoading` to prevent redundant network requests.
     loading: Arc<RwLock<bool>>,
+
+    /// Lock to prevent concurrent cache initialization (native targets only).
+    ///
+    /// This prevents multiple threads from simultaneously attempting to
+    /// read and parse the same cache file during initialization.
     checking_cache: Arc<RwLock<bool>>,
+
+    /// In-memory storage for the parsed configuration data.
+    ///
+    /// Contains the JSON representation of the configuration. `None` indicates
+    /// that the cache has not been populated or a fetch operation failed.
     memory_cache: Arc<RwLock<Option<Value>>>,
+
+    /// Collection of event listeners for configuration change notifications.
+    ///
+    /// Listeners are called when the cache is refreshed, allowing applications
+    /// to react to configuration changes in real-time.
     listeners: Arc<RwLock<Vec<EventListener>>>,
 
+    /// Path to the local cache file (native targets only).
+    ///
+    /// On native targets, this specifies where the configuration should be
+    /// cached locally. The path includes the namespace name and any grayscale
+    /// targeting parameters (IP, labels) to ensure cache isolation.
     #[cfg(not(target_arch = "wasm32"))]
     file_path: std::path::PathBuf,
 }
