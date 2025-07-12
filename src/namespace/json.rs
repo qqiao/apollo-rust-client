@@ -144,7 +144,10 @@ impl TryFrom<serde_json::Value> for Json {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::setup;
+    use crate::{
+        namespace::Namespace,
+        tests::{CLIENT_NO_SECRET, setup},
+    };
     use serde::Deserialize;
     use serde_json::json;
 
@@ -163,6 +166,29 @@ mod tests {
         }))
         .unwrap();
         let result: TestStruct = json_namespace.to_object().unwrap();
+        assert_eq!(
+            result,
+            TestStruct {
+                host: "localhost".to_string(),
+                port: 8080,
+                run: true,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_namespace_to_object() {
+        setup();
+        let namespace = CLIENT_NO_SECRET
+            .namespace("application.json")
+            .await
+            .unwrap();
+
+        let result = match namespace {
+            Namespace::Json(json_namespace) => json_namespace.to_object(),
+            _ => panic!("Namespace is not a JSON namespace"),
+        };
+        let result: TestStruct = result.unwrap();
         assert_eq!(
             result,
             TestStruct {
