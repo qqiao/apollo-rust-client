@@ -94,7 +94,7 @@ impl Client {
     /// # Returns
     ///
     /// A cache for the given namespace.
-    async fn cache(&self, namespace: &str) -> Arc<Cache> {
+    pub(crate) async fn cache(&self, namespace: &str) -> Arc<Cache> {
         let mut namespaces = self.namespaces.write().await;
         let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
             trace!("Cache miss, creating cache for namespace {namespace}");
@@ -292,7 +292,7 @@ impl Client {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen(js_name = "add_listener")]
+    #[wasm_bindgen(js_name = "namespace")]
     pub async fn namespace_wasm(&self, namespace: &str) -> Result<wasm_bindgen::JsValue, Error> {
         let cache = self.cache(namespace).await;
         let value = cache.get_value().await?;
@@ -305,6 +305,15 @@ mod tests {
     use super::*;
     #[cfg(not(target_arch = "wasm32"))]
     use lazy_static::lazy_static;
+
+    cfg_if::cfg_if! {
+        if #[cfg(target_arch = "wasm32")] {
+            use std::sync::Mutex;
+        } else {
+            use async_std::sync::Mutex;
+            use async_std::task::block_on;
+        }
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     lazy_static! {
@@ -390,11 +399,16 @@ mod tests {
     async fn test_missing_value_wasm() {
         setup();
         let client = create_client_no_secret();
-        let cache = client.namespace("application");
-        assert_eq!(
-            cache.await.get_property::<String>("missingValue").await,
-            None
-        );
+        let namespace = client.namespace("application").await;
+        match namespace {
+            Ok(namespace) => match namespace {
+                namespace::Namespace::Properties(properties) => {
+                    assert_eq!(properties.get_string("missingValue").await, None);
+                }
+                _ => panic!("Expected Properties namespace"),
+            },
+            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -417,11 +431,19 @@ mod tests {
     async fn test_string_value_wasm() {
         setup();
         let client = create_client_no_secret();
-        let cache = client.namespace("application");
-        assert_eq!(
-            cache.await.get_property::<String>("stringValue").await,
-            Some("string value".to_string())
-        );
+        let namespace = client.namespace("application").await;
+        match namespace {
+            Ok(namespace) => match namespace {
+                namespace::Namespace::Properties(properties) => {
+                    assert_eq!(
+                        properties.get_string("stringValue").await,
+                        Some("string value".to_string())
+                    );
+                }
+                _ => panic!("Expected Properties namespace"),
+            },
+            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -444,11 +466,19 @@ mod tests {
     async fn test_string_value_with_secret_wasm() {
         setup();
         let client = create_client_with_secret();
-        let cache = client.namespace("application");
-        assert_eq!(
-            cache.await.get_property::<String>("stringValue").await,
-            Some("string value".to_string())
-        );
+        let namespace = client.namespace("application").await;
+        match namespace {
+            Ok(namespace) => match namespace {
+                namespace::Namespace::Properties(properties) => {
+                    assert_eq!(
+                        properties.get_string("stringValue").await,
+                        Some("string value".to_string())
+                    );
+                }
+                _ => panic!("Expected Properties namespace"),
+            },
+            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -468,8 +498,16 @@ mod tests {
     async fn test_int_value_wasm() {
         setup();
         let client = create_client_no_secret();
-        let cache = client.namespace("application");
-        assert_eq!(cache.await.get_property::<i32>("intValue").await, Some(42));
+        let namespace = client.namespace("application").await;
+        match namespace {
+            Ok(namespace) => match namespace {
+                namespace::Namespace::Properties(properties) => {
+                    assert_eq!(properties.get_int("intValue").await, Some(42));
+                }
+                _ => panic!("Expected Properties namespace"),
+            },
+            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -489,8 +527,16 @@ mod tests {
     async fn test_int_value_with_secret_wasm() {
         setup();
         let client = create_client_with_secret();
-        let cache = client.namespace("application");
-        assert_eq!(cache.await.get_property::<i32>("intValue").await, Some(42));
+        let namespace = client.namespace("application").await;
+        match namespace {
+            Ok(namespace) => match namespace {
+                namespace::Namespace::Properties(properties) => {
+                    assert_eq!(properties.get_int("intValue").await, Some(42));
+                }
+                _ => panic!("Expected Properties namespace"),
+            },
+            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -513,11 +559,16 @@ mod tests {
     async fn test_float_value_wasm() {
         setup();
         let client = create_client_no_secret();
-        let cache = client.namespace("application");
-        assert_eq!(
-            cache.await.get_property::<f64>("floatValue").await,
-            Some(4.20)
-        );
+        let namespace = client.namespace("application").await;
+        match namespace {
+            Ok(namespace) => match namespace {
+                namespace::Namespace::Properties(properties) => {
+                    assert_eq!(properties.get_float("floatValue").await, Some(4.20));
+                }
+                _ => panic!("Expected Properties namespace"),
+            },
+            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -540,11 +591,16 @@ mod tests {
     async fn test_float_value_with_secret_wasm() {
         setup();
         let client = create_client_with_secret();
-        let cache = client.namespace("application");
-        assert_eq!(
-            cache.await.get_property::<f64>("floatValue").await,
-            Some(4.20)
-        );
+        let namespace = client.namespace("application").await;
+        match namespace {
+            Ok(namespace) => match namespace {
+                namespace::Namespace::Properties(properties) => {
+                    assert_eq!(properties.get_float("floatValue").await, Some(4.20));
+                }
+                _ => panic!("Expected Properties namespace"),
+            },
+            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -567,11 +623,16 @@ mod tests {
     async fn test_bool_value_wasm() {
         setup();
         let client = create_client_no_secret();
-        let cache = client.namespace("application");
-        assert_eq!(
-            cache.await.get_property::<bool>("boolValue").await,
-            Some(false)
-        );
+        let namespace = client.namespace("application").await;
+        match namespace {
+            Ok(namespace) => match namespace {
+                namespace::Namespace::Properties(properties) => {
+                    assert_eq!(properties.get_bool("boolValue").await, Some(false));
+                }
+                _ => panic!("Expected Properties namespace"),
+            },
+            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -594,11 +655,16 @@ mod tests {
     async fn test_bool_value_with_secret_wasm() {
         setup();
         let client = create_client_with_secret();
-        let cache = client.namespace("application");
-        assert_eq!(
-            cache.await.get_property::<bool>("boolValue").await,
-            Some(false)
-        );
+        let namespace = client.namespace("application").await;
+        match namespace {
+            Ok(namespace) => match namespace {
+                namespace::Namespace::Properties(properties) => {
+                    assert_eq!(properties.get_bool("boolValue").await, Some(false));
+                }
+                _ => panic!("Expected Properties namespace"),
+            },
+            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -633,18 +699,28 @@ mod tests {
     async fn test_bool_value_with_grayscale_ip_wasm() {
         setup();
         let client1 = create_client_with_grayscale_ip();
-        let cache = client1.namespace("application");
-        assert_eq!(
-            cache.await.get_property::<bool>("grayScaleValue").await,
-            Some(true)
-        );
+        let namespace = client1.namespace("application").await;
+        match namespace {
+            Ok(namespace) => match namespace {
+                namespace::Namespace::Properties(properties) => {
+                    assert_eq!(properties.get_bool("grayScaleValue").await, Some(true));
+                }
+                _ => panic!("Expected Properties namespace"),
+            },
+            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+        }
 
         let client2 = create_client_no_secret();
-        let cache = client2.namespace("application");
-        assert_eq!(
-            cache.await.get_property::<bool>("grayScaleValue").await,
-            Some(false)
-        );
+        let namespace = client2.namespace("application").await;
+        match namespace {
+            Ok(namespace) => match namespace {
+                namespace::Namespace::Properties(properties) => {
+                    assert_eq!(properties.get_bool("grayScaleValue").await, Some(false));
+                }
+                _ => panic!("Expected Properties namespace"),
+            },
+            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -679,18 +755,28 @@ mod tests {
     async fn test_bool_value_with_grayscale_label_wasm() {
         setup();
         let client1 = create_client_with_grayscale_label();
-        let cache = client1.namespace("application").await;
-        assert_eq!(
-            cache.get_property::<bool>("grayScaleValue").await,
-            Some(true)
-        );
+        let namespace = client1.namespace("application").await;
+        match namespace {
+            Ok(namespace) => match namespace {
+                namespace::Namespace::Properties(properties) => {
+                    assert_eq!(properties.get_bool("grayScaleValue").await, Some(true));
+                }
+                _ => panic!("Expected Properties namespace"),
+            },
+            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+        }
 
         let client2 = create_client_no_secret();
-        let cache = client2.namespace("application").await;
-        assert_eq!(
-            cache.get_property::<bool>("grayScaleValue").await,
-            Some(false)
-        );
+        let namespace = client2.namespace("application").await;
+        match namespace {
+            Ok(namespace) => match namespace {
+                namespace::Namespace::Properties(properties) => {
+                    assert_eq!(properties.get_bool("grayScaleValue").await, Some(false));
+                }
+                _ => panic!("Expected Properties namespace"),
+            },
+            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+        }
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -747,5 +833,167 @@ mod tests {
             ip: None,
         };
         Client::new(config)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test] // Re-enable for WASM
+    async fn test_add_listener_and_notify_on_refresh() {
+        setup();
+
+        // Shared state to check if listener was called and what it received
+        let listener_called_flag = Arc::new(Mutex::new(false));
+        let received_config_data = Arc::new(Mutex::new(None::<Namespace>));
+
+        // ClientConfig similar to CLIENT_NO_SECRET from lib.rs tests
+        // Using the same external test server and app_id as tests in lib.rs
+        let config = ClientConfig {
+            config_server: "http://81.68.181.139:8080".to_string(), // Use external test server
+            app_id: "101010101".to_string(), // Use existing app_id from lib.rs tests
+            cluster: "default".to_string(),
+            cache_dir: Some(String::from("/tmp/apollo")), // Use a writable directory
+            secret: None,
+            label: None,
+            ip: None,
+            // ..Default::default() // Be careful with Default if it doesn't set all needed fields for tests
+        };
+
+        let client = Client::new(config);
+
+        let flag_clone = listener_called_flag.clone();
+        let data_clone = received_config_data.clone();
+
+        let listener: EventListener = Arc::new(move |result| {
+            let mut called_guard = block_on(flag_clone.lock());
+            *called_guard = true;
+            if let Ok(config_value) = result {
+                match config_value {
+                    Namespace::Properties(_) => {
+                        let mut data_guard = block_on(data_clone.lock());
+                        *data_guard = Some(config_value.clone());
+                    }
+                    _ => {
+                        panic!("Expected Properties namespace, got {config_value:?}");
+                    }
+                }
+            }
+            // In a real scenario, avoid panicking in a listener.
+            // For a test, this is acceptable to signal issues.
+        });
+
+        client.add_listener("application", listener).await;
+
+        let cache = client.cache("application").await;
+
+        // Perform a refresh. This should trigger the listener.
+        // The test Apollo server (localhost:8071) should have some known config for "SampleApp" "application" namespace.
+        match cache.refresh().await {
+            Ok(_) => log::debug!("Refresh successful for test_add_listener_and_notify_on_refresh"),
+            Err(e) => panic!("Cache refresh failed during test: {e:?}"),
+        }
+
+        // Check if the listener was called
+        let called = *listener_called_flag.lock().await;
+        assert!(called, "Listener was not called.");
+
+        // Check if config data was received
+        let config_data_guard = received_config_data.lock().await;
+        assert!(
+            config_data_guard.is_some(),
+            "Listener did not receive config data."
+        );
+
+        // Optionally, assert specific content if known.
+        // Assert based on known data for app_id "101010101", namespace "application"
+        // from the external test server. Example: "stringValue"
+        if let Some(value) = config_data_guard.as_ref() {
+            match value {
+                Namespace::Properties(properties) => {
+                    assert_eq!(
+                        properties.get_string("stringValue").await,
+                        Some(String::from("string value")),
+                        "Received config data does not match expected content for stringValue."
+                    );
+                }
+                _ => {
+                    panic!("Expected Properties namespace, got {value:?}");
+                }
+            }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen_test::wasm_bindgen_test]
+    async fn test_add_listener_wasm_and_notify() {
+        setup(); // Existing test setup
+
+        // Shared state to check if listener was called and what it received
+        let listener_called_flag = Arc::new(Mutex::new(false));
+        let received_config_data = Arc::new(Mutex::new(None::<Namespace>));
+
+        let flag_clone = listener_called_flag.clone();
+        let data_clone = received_config_data.clone();
+
+        // Create JS Listener Function that updates our shared state
+        let js_listener_func_body = format!(
+            r#"
+            (data, error) => {{
+                // We can't use window in Node.js, so we'll use a different approach
+                // The Rust closure will handle the verification
+                console.log('JS Listener called with error:', error);
+                console.log('JS Listener called with data:', data);
+            }}
+        "#
+        );
+
+        let js_listener = js_sys::Function::new_with_args("data, error", &js_listener_func_body);
+
+        let client = create_client_no_secret();
+
+        // Add a Rust listener to verify the functionality
+        let rust_listener: EventListener = Arc::new(move |result| {
+            let mut called_guard = flag_clone.lock().unwrap();
+            *called_guard = true;
+            if let Ok(config_value) = result {
+                let mut data_guard = data_clone.lock().unwrap();
+                *data_guard = Some(config_value);
+            }
+        });
+
+        client.add_listener("application", rust_listener).await;
+
+        // Add JS Listener
+        client.add_listener_wasm("application", js_listener).await;
+
+        let cache = client.cache("application").await;
+
+        // Trigger Refresh
+        match cache.refresh().await {
+            Ok(_) => web_sys::console::log_1(&"WASM Test: Refresh successful".into()), // web_sys::console for logging
+            Err(e) => panic!("WASM Test: Cache refresh failed: {:?}", e),
+        }
+
+        // Verify Listener Was Called using our Rust listener
+        let called = *listener_called_flag.lock().unwrap();
+        assert!(called, "Listener was not called.");
+
+        // Check if config data was received
+        let config_data_guard = received_config_data.lock().unwrap();
+        assert!(
+            config_data_guard.is_some(),
+            "Listener did not receive config data."
+        );
+
+        // Verify the content
+        if let Some(value) = config_data_guard.as_ref() {
+            match value {
+                namespace::Namespace::Properties(properties) => {
+                    assert_eq!(
+                        properties.get_string("stringValue").await,
+                        Some("string value".to_string())
+                    );
+                }
+                _ => panic!("Expected Properties namespace"),
+            }
+        }
     }
 }

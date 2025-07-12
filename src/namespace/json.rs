@@ -149,13 +149,7 @@ impl TryFrom<serde_json::Value> for Json {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{
-        namespace::Namespace,
-        tests::{CLIENT_NO_SECRET, setup},
-    };
     use serde::Deserialize;
-    use serde_json::json;
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct TestStruct {
@@ -167,8 +161,8 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_json_to_object() {
-        setup();
-        let json_namespace = Json::try_from(json!({
+        crate::tests::setup();
+        let json_namespace = crate::namespace::json::Json::try_from(serde_json::json!({
             "content": "{\"host\": \"localhost\", \"port\": 8080, \"run\": true}"
         }))
         .unwrap();
@@ -186,14 +180,14 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_namespace_to_object() {
-        setup();
-        let namespace = CLIENT_NO_SECRET
+        crate::tests::setup();
+        let namespace = crate::tests::CLIENT_NO_SECRET
             .namespace("application.json")
             .await
             .unwrap();
 
         let result = match namespace {
-            Namespace::Json(json_namespace) => json_namespace.to_object(),
+            crate::namespace::Namespace::Json(json_namespace) => json_namespace.to_object(),
             _ => panic!("Namespace is not a JSON namespace"),
         };
         let result: TestStruct = result.unwrap();
