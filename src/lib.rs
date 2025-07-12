@@ -420,11 +420,11 @@ impl Client {
     /// The provided JavaScript function will be called when the cache is refreshed.
     ///
     /// The JavaScript listener function is expected to have a signature like:
-    /// `function(error, data)`
-    /// - `error`: A string describing the error if one occurred during the configuration
-    ///            fetch or processing. If the operation was successful, this will be `null`.
+    /// `function(data, error)`
     /// - `data`: The JSON configuration object (if the refresh was successful and data
     ///           could be serialized) or `null` if an error occurred or serialization failed.
+    /// - `error`: A string describing the error if one occurred during the configuration
+    ///            fetch or processing. If the operation was successful, this will be `null`.
     ///
     /// # Arguments
     ///
@@ -463,7 +463,7 @@ impl Client {
                 }
             };
 
-            // Call the JavaScript listener: listener(error, value)
+            // Call the JavaScript listener: listener(data, error)
             match js_listener_clone.call2(
                 &wasm_bindgen::JsValue::UNDEFINED,
                 &data_js_val,
