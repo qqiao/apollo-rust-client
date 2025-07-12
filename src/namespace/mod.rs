@@ -131,7 +131,7 @@ fn get_namespace_type(namespace: &str) -> NamespaceType {
             "yaml" | "yml" => NamespaceType::Yaml,
             "xml" => NamespaceType::Xml,
             "txt" => NamespaceType::Text,
-            _ => todo!(),
+            _ => NamespaceType::Text,
         }
     }
 }
@@ -176,5 +176,84 @@ pub(crate) fn get_namespace(namespace: &str, value: serde_json::Value) -> Result
         NamespaceType::Properties => Ok(Namespace::Properties(properties::Properties::from(value))),
         NamespaceType::Json => Ok(Namespace::Json(json::Json::try_from(value)?)),
         _ => todo!(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_namespace_type_properties() {
+        // Test cases that should return Properties type
+        assert_eq!(get_namespace_type("application"), NamespaceType::Properties);
+        assert_eq!(get_namespace_type("config"), NamespaceType::Properties);
+        assert_eq!(get_namespace_type("database"), NamespaceType::Properties);
+        assert_eq!(
+            get_namespace_type("app-settings"),
+            NamespaceType::Properties
+        );
+    }
+
+    #[test]
+    fn test_get_namespace_type_json() {
+        // Test cases that should return Json type
+        assert_eq!(get_namespace_type("config.json"), NamespaceType::Json);
+        assert_eq!(get_namespace_type("settings.json"), NamespaceType::Json);
+        assert_eq!(get_namespace_type("app.config.json"), NamespaceType::Json);
+        assert_eq!(get_namespace_type("data.JSON"), NamespaceType::Json); // Test case insensitive
+    }
+
+    #[test]
+    fn test_get_namespace_type_yaml() {
+        // Test cases that should return Yaml type
+        assert_eq!(get_namespace_type("config.yaml"), NamespaceType::Yaml);
+        assert_eq!(get_namespace_type("settings.yml"), NamespaceType::Yaml);
+        assert_eq!(get_namespace_type("app.config.yaml"), NamespaceType::Yaml);
+        assert_eq!(get_namespace_type("data.YAML"), NamespaceType::Yaml); // Test case insensitive
+        assert_eq!(get_namespace_type("config.YML"), NamespaceType::Yaml); // Test case insensitive
+    }
+
+    #[test]
+    fn test_get_namespace_type_xml() {
+        // Test cases that should return Xml type
+        assert_eq!(get_namespace_type("config.xml"), NamespaceType::Xml);
+        assert_eq!(get_namespace_type("settings.xml"), NamespaceType::Xml);
+        assert_eq!(get_namespace_type("app.config.xml"), NamespaceType::Xml);
+        assert_eq!(get_namespace_type("data.XML"), NamespaceType::Xml); // Test case insensitive
+    }
+
+    #[test]
+    fn test_get_namespace_type_text() {
+        // Test cases that should return Text type
+        assert_eq!(get_namespace_type("readme.txt"), NamespaceType::Text);
+        assert_eq!(get_namespace_type("notes.txt"), NamespaceType::Text);
+        assert_eq!(get_namespace_type("config.TXT"), NamespaceType::Text); // Test case insensitive
+    }
+
+    #[test]
+    fn test_get_namespace_type_unsupported_extensions() {
+        // Test cases with unsupported extensions that should default to Text
+        assert_eq!(get_namespace_type("config.ini"), NamespaceType::Text);
+        assert_eq!(get_namespace_type("settings.cfg"), NamespaceType::Text);
+        assert_eq!(get_namespace_type("app.properties"), NamespaceType::Text);
+        assert_eq!(get_namespace_type("data.csv"), NamespaceType::Text);
+        assert_eq!(get_namespace_type("config.toml"), NamespaceType::Text);
+        assert_eq!(get_namespace_type("settings.conf"), NamespaceType::Text);
+        assert_eq!(get_namespace_type("app.unknown"), NamespaceType::Text);
+        assert_eq!(get_namespace_type("file.xyz"), NamespaceType::Text);
+    }
+
+    #[test]
+    fn test_get_namespace_type_edge_cases() {
+        // Test edge cases
+        assert_eq!(get_namespace_type(""), NamespaceType::Properties); // Empty string
+        assert_eq!(get_namespace_type(".json"), NamespaceType::Json); // Leading dot
+        assert_eq!(get_namespace_type("file."), NamespaceType::Text); // Trailing dot with no extension
+        assert_eq!(get_namespace_type("file..json"), NamespaceType::Json); // Double dots
+        assert_eq!(
+            get_namespace_type("config.json.backup"),
+            NamespaceType::Text
+        ); // Multiple extensions
     }
 }
