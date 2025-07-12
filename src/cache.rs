@@ -13,31 +13,8 @@ use hmac::{Hmac, Mac};
 use log::{debug, trace};
 use serde_json::Value;
 use sha1::Sha1;
-use std::sync::Arc; // RwLock is imported from async_std::sync
+use std::sync::Arc;
 use url::{ParseError, Url};
-use wasm_bindgen::prelude::*;
-
-cfg_if::cfg_if! {
-    if #[cfg(target_arch = "wasm32")] {
-        use js_sys::{Function as JsFunction};
-        use wasm_bindgen::JsValue;
-        use serde_wasm_bindgen::to_value as to_js_value;
-    }
-}
-
-// Type alias for event listeners that can be registered with the cache.
-// For WASM targets, listeners don't need to be Send + Sync since WASM is single-threaded.
-// Listeners are functions that take a `Result<Value, Error>` as an argument.
-// `Value` is the `serde_json::Value` representing the configuration.
-// `Error` is the cache's error enum.
-cfg_if::cfg_if! {
-    if #[cfg(target_arch = "wasm32")] {
-        /// Type alias for event listeners that can be registered with the cache.
-        /// For WASM targets, listeners don't need to be Send + Sync since WASM is single-threaded.
-        /// Listeners are functions that take a `Result<Value, Error>` as an argument.
-        pub type EventListener = Arc<dyn Fn(Result<Value, Error>)>;
-    }
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -65,7 +42,6 @@ pub enum Error {
 
 /// A cache for a given namespace.
 #[derive(Clone)]
-#[wasm_bindgen]
 pub(crate) struct Cache {
     client_config: ClientConfig,
     namespace: String,
@@ -403,84 +379,6 @@ impl Cache {
     pub async fn add_listener(&self, listener: EventListener) {
         let mut listeners = self.listeners.write().await;
         listeners.push(listener);
-    }
-}
-
-#[wasm_bindgen]
-impl Cache {
-    /// Registers a JavaScript function as an event listener for this cache (WASM only).
-    ///
-    /// This method is exposed to JavaScript as `addListener`.
-    /// The provided JavaScript function will be called when the cache is refreshed.
-    ///
-    /// The JavaScript listener function is expected to have a signature like:
-    /// `function(error, data)`
-    /// - `error`: A string describing the error if one occurred during the configuration
-    ///            fetch or processing. If the operation was successful, this will be `null`.
-    /// - `data`: The JSON configuration object (if the refresh was successful and data
-    ///           could be serialized) or `null` if an error occurred or serialization failed.
-    ///
-    /// # Arguments
-    ///
-    /// * `js_listener` - A JavaScript `Function` to be called on cache events.
-    ///
-    /// # Example (JavaScript)
-    ///
-    /// ```javascript
-    /// // Assuming `cacheInstance` is an instance of the Rust `Cache` object in JS
-    /// cacheInstance.addListener((error, data) => {
-    ///   if (error) {
-    ///     console.error('Cache update error:', error);
-    ///   } else {
-    ///     console.log('Cache updated:', data);
-    ///   }
-    /// });
-    /// // ... later, when the cache refreshes, the callback will be invoked.
-    /// ```
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen(js_name = "add_listener")]
-    pub async fn add_listener_wasm(&self, js_listener: JsFunction) {
-        let js_listener_clone = js_listener.clone();
-
-        let event_listener: EventListener = Arc::new(move |result: Result<Value, Error>| {
-            let err_js_val: JsValue;
-            let data_js_val: JsValue;
-
-            match result {
-                Ok(value) => {
-                    match to_js_value(&value) {
-                        // serde_json::Value to JsValue
-                        Ok(js_val) => {
-                            err_js_val = JsValue::NULL;
-                            data_js_val = js_val;
-                        }
-                        Err(e) => {
-                            // Error during serialization
-                            let err_msg = format!("Failed to serialize config to JsValue: {}", e);
-                            err_js_val = JsValue::from_str(&err_msg);
-                            data_js_val = JsValue::NULL;
-                        }
-                    }
-                }
-                Err(cache_error) => {
-                    err_js_val = JsValue::from_str(&cache_error.to_string());
-                    data_js_val = JsValue::NULL;
-                }
-            };
-
-            // Call the JavaScript listener: listener(error, value)
-            match js_listener_clone.call2(&JsValue::UNDEFINED, &err_js_val, &data_js_val) {
-                Ok(_) => {
-                    // JS function called successfully
-                }
-                Err(e) => {
-                    // JS function threw an error or call failed
-                    log::error!("JavaScript listener threw an error: {:?}", e);
-                }
-            }
-        });
-
-        self.add_listener(event_listener).await; // Call the renamed Rust method
     }
 }
 

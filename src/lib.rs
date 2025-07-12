@@ -37,14 +37,34 @@ pub enum Error {
     Cache(#[from] cache::Error),
 }
 
-/// Type alias for event listeners that can be registered with the client.
-/// For native targets, listeners need to be `Send` and `Sync` to be safely
-/// shared across threads.
-///
-/// Listeners are functions that take a `Result<Namespace<T>, Error>` as an
-/// argument, where `Namespace<T>` is a fresh copy of the updated namespace,`
-/// and `Error` is the cache's error enum.
-pub type EventListener = Arc<dyn Fn(Result<Namespace, Error>) + Send + Sync>;
+impl From<Error> for wasm_bindgen::JsValue {
+    fn from(error: Error) -> Self {
+        error.to_string().into()
+    }
+}
+
+// Type alias for event listeners that can be registered with the cache.
+// For WASM targets, listeners don't need to be Send + Sync since WASM is single-threaded.
+// Listeners are functions that take a `Result<Value, Error>` as an argument.
+// `Value` is the `serde_json::Value` representing the configuration.
+// `Error` is the cache's error enum.
+cfg_if::cfg_if! {
+    if #[cfg(target_arch = "wasm32")] {
+        /// Type alias for event listeners that can be registered with the cache.
+        /// For WASM targets, listeners don't need to be Send + Sync since WASM is single-threaded.
+        /// Listeners are functions that take a `Result<Value, Error>` as an argument.
+        pub type EventListener = Arc<dyn Fn(Result<Namespace, Error>)>;
+    } else {
+        /// Type alias for event listeners that can be registered with the client.
+        /// For native targets, listeners need to be `Send` and `Sync` to be safely
+        /// shared across threads.
+        ///
+        /// Listeners are functions that take a `Result<Namespace<T>, Error>` as an
+        /// argument, where `Namespace<T>` is a fresh copy of the updated namespace,`
+        /// and `Error` is the cache's error enum.
+        pub type EventListener = Arc<dyn Fn(Result<Namespace, Error>) + Send + Sync>;
+    }
+}
 
 /// Apollo client.
 #[wasm_bindgen]
@@ -65,6 +85,39 @@ pub struct Client {
 }
 
 impl Client {
+    /// Get a cache for a given namespace.
+    ///
+    /// # Arguments
+    ///
+    /// * `namespace` - The namespace to get the cache for.
+    ///
+    /// # Returns
+    ///
+    /// A cache for the given namespace.
+    async fn cache(&self, namespace: &str) -> Arc<Cache> {
+        let mut namespaces = self.namespaces.write().await;
+        let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
+            trace!("Cache miss, creating cache for namespace {namespace}");
+            Arc::new(Cache::new(self.client_config.clone(), namespace))
+        });
+        cache.clone()
+    }
+
+    pub async fn add_listener(&self, namespace: &str, listener: EventListener) {
+        let mut namespaces = self.namespaces.write().await;
+        let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
+            trace!("Cache miss, creating cache for namespace {namespace}");
+            Arc::new(Cache::new(self.client_config.clone(), namespace))
+        });
+        cache.add_listener(listener).await;
+    }
+
+    pub async fn namespace(&self, namespace: &str) -> Result<namespace::Namespace, Error> {
+        let cache = self.cache(namespace).await;
+        let value = cache.get_value().await?;
+        Ok(namespace::get_namespace(namespace, value)?)
+    }
+
     /// Starts a background task that periodically refreshes all registered namespace caches.
     ///
     /// This method spawns an asynchronous task using `async_std::task::spawn` on native targets
@@ -149,67 +202,6 @@ impl Client {
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(target_arch = "wasm32")] {
-        #[wasm_bindgen]
-        impl Client {
-            /// Get a cache for a given namespace.
-            ///
-            /// # Arguments
-            ///
-            /// * `namespace` - The namespace to get the cache for.
-            ///
-            /// # Returns
-            ///
-            /// A cache for the given namespace.
-            pub async fn namespace(&self, namespace: &str) -> Cache {
-                let mut namespaces = self.namespaces.write().await;
-                let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
-                    trace!("Cache miss, creating cache for namespace {}", namespace);
-                    Arc::new(Cache::new(self.client_config.clone(), namespace))
-                });
-                let cache = (*cache).clone();
-                (*cache).to_owned()
-            }
-        }
-    } else {
-        impl Client {
-            /// Get a cache for a given namespace.
-            ///
-            /// # Arguments
-            ///
-            /// * `namespace` - The namespace to get the cache for.
-            ///
-            /// # Returns
-            ///
-            /// A cache for the given namespace.
-            async fn cache(&self, namespace: &str) -> Arc<Cache> {
-                let mut namespaces = self.namespaces.write().await;
-                let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
-                    trace!("Cache miss, creating cache for namespace {namespace}");
-                    Arc::new(Cache::new(self.client_config.clone(), namespace))
-                });
-                cache.clone()
-            }
-
-            pub async fn add_listener(&self, namespace: &str, listener: EventListener) {
-                let mut namespaces = self.namespaces.write().await;
-                let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
-                    trace!("Cache miss, creating cache for namespace {namespace}");
-                    Arc::new(Cache::new(self.client_config.clone(), namespace))
-                });
-                cache.add_listener(listener).await;
-            }
-
-            pub async fn namespace(&self, namespace: &str) -> Result<namespace::Namespace, Error> {
-                let cache = self.cache(namespace).await;
-                let value = cache.get_value().await?;
-                Ok(namespace::get_namespace(namespace, value)?)
-            }
-        }
-    }
-}
-
 #[wasm_bindgen]
 impl Client {
     /// Create a new Apollo client.
@@ -229,6 +221,82 @@ impl Client {
             handle: None,
             running: Arc::new(RwLock::new(false)),
         }
+    }
+
+    /// Registers a JavaScript function as an event listener for this cache (WASM only).
+    ///
+    /// This method is exposed to JavaScript as `addListener`.
+    /// The provided JavaScript function will be called when the cache is refreshed.
+    ///
+    /// The JavaScript listener function is expected to have a signature like:
+    /// `function(error, data)`
+    /// - `error`: A string describing the error if one occurred during the configuration
+    ///            fetch or processing. If the operation was successful, this will be `null`.
+    /// - `data`: The JSON configuration object (if the refresh was successful and data
+    ///           could be serialized) or `null` if an error occurred or serialization failed.
+    ///
+    /// # Arguments
+    ///
+    /// * `js_listener` - A JavaScript `Function` to be called on cache events.
+    ///
+    /// # Example (JavaScript)
+    ///
+    /// ```javascript
+    /// // Assuming `cacheInstance` is an instance of the Rust `Cache` object in JS
+    /// cacheInstance.addListener((data, error) => {
+    ///   if (error) {
+    ///     console.error('Cache update error:', error);
+    ///   } else {
+    ///     console.log('Cache updated:', data);
+    ///   }
+    /// });
+    /// // ... later, when the cache refreshes, the callback will be invoked.
+    /// ```
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen(js_name = "add_listener")]
+    pub async fn add_listener_wasm(&self, namespace: &str, js_listener: js_sys::Function) {
+        let js_listener_clone = js_listener.clone();
+
+        let event_listener: EventListener = Arc::new(move |result: Result<Namespace, Error>| {
+            let err_js_val: wasm_bindgen::JsValue;
+            let data_js_val: wasm_bindgen::JsValue;
+
+            match result {
+                Ok(value) => {
+                    data_js_val = value.into();
+                    err_js_val = wasm_bindgen::JsValue::UNDEFINED;
+                }
+                Err(cache_error) => {
+                    err_js_val = cache_error.into();
+                    data_js_val = wasm_bindgen::JsValue::UNDEFINED;
+                }
+            };
+
+            // Call the JavaScript listener: listener(error, value)
+            match js_listener_clone.call2(
+                &wasm_bindgen::JsValue::UNDEFINED,
+                &data_js_val,
+                &err_js_val,
+            ) {
+                Ok(_) => {
+                    // JS function called successfully
+                }
+                Err(e) => {
+                    // JS function threw an error or call failed
+                    log::error!("JavaScript listener threw an error: {:?}", e);
+                }
+            }
+        });
+
+        self.add_listener(namespace, event_listener).await; // Call the renamed Rust method
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen(js_name = "add_listener")]
+    pub async fn namespace_wasm(&self, namespace: &str) -> Result<wasm_bindgen::JsValue, Error> {
+        let cache = self.cache(namespace).await;
+        let value = cache.get_value().await?;
+        Ok(namespace::get_namespace(namespace, value)?.into())
     }
 }
 

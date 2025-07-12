@@ -36,6 +36,7 @@
 //! ```
 
 use log::debug;
+use wasm_bindgen::prelude::wasm_bindgen;
 
 /// A wrapper around `serde_json::Value` for properties-style configuration data.
 ///
@@ -62,6 +63,7 @@ use log::debug;
 ///
 /// let properties = Properties::from(props_data);
 /// ```
+#[wasm_bindgen]
 #[derive(Clone, Debug)]
 pub struct Properties {
     /// The underlying JSON value containing the properties data
@@ -108,7 +110,10 @@ impl Properties {
         let value = self.value.get(key)?;
         value.as_str().and_then(|s| s.parse::<T>().ok())
     }
+}
 
+#[wasm_bindgen]
+impl Properties {
     /// Get a property from the cache as a string.
     ///
     /// This method retrieves a property value and returns it as a `String`.

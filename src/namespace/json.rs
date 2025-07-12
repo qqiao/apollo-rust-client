@@ -64,6 +64,12 @@ pub struct Json {
     value: serde_json::Value,
 }
 
+impl From<Json> for wasm_bindgen::JsValue {
+    fn from(val: Json) -> Self {
+        serde_wasm_bindgen::to_value(&val.value).unwrap()
+    }
+}
+
 impl Json {
     /// Deserializes the JSON data into a custom type.
     ///
@@ -158,6 +164,7 @@ mod tests {
         run: bool,
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_json_to_object() {
         setup();
@@ -176,6 +183,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_namespace_to_object() {
         setup();

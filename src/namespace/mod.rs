@@ -69,6 +69,16 @@ pub enum Namespace {
     Text(String),
 }
 
+impl From<Namespace> for wasm_bindgen::JsValue {
+    fn from(val: Namespace) -> Self {
+        match val {
+            Namespace::Properties(properties) => properties.into(),
+            Namespace::Json(json) => json.into(),
+            Namespace::Text(text) => text.into(),
+        }
+    }
+}
+
 /// Internal enum for identifying namespace data formats.
 ///
 /// This enum is used internally by the format detection logic to determine
