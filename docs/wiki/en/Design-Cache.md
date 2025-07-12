@@ -147,7 +147,7 @@ cache.add_listener(listener).await;
 ### WASM (JavaScript)
 
 ```javascript
-await cache.add_listener((error, data) => {
+await cache.add_listener((data, error) => {
   if (error) {
     console.error("Configuration update error:", error);
   } else {

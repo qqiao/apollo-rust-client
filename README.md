@@ -171,7 +171,7 @@ async function main() {
   console.log(`App: ${appName}, Port: ${serverPort}, Debug: ${debugEnabled}`);
 
   // Add event listener for configuration changes
-  await cache.add_listener((error, data) => {
+  await cache.add_listener((data, error) => {
     if (error) {
       console.error("Configuration update error:", error);
     } else {
@@ -284,7 +284,7 @@ client.add_listener("application", std::sync::Arc::new(|result| {
 
 ```javascript
 // JavaScript - Add event listener
-await cache.add_listener((error, data) => {
+await cache.add_listener((data, error) => {
   if (error) {
     console.error("Update error:", error);
   } else {

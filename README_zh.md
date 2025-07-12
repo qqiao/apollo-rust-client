@@ -171,7 +171,7 @@ async function main() {
   console.log(`应用: ${appName}, 端口: ${serverPort}, 调试: ${debugEnabled}`);
 
   // 添加配置变更事件监听器
-  await cache.add_listener((error, data) => {
+  await cache.add_listener((data, error) => {
     if (error) {
       console.error("配置更新错误:", error);
     } else {
@@ -284,7 +284,7 @@ client.add_listener("application", std::sync::Arc::new(|result| {
 
 ```javascript
 // JavaScript - 添加事件监听器
-await cache.add_listener((error, data) => {
+await cache.add_listener((data, error) => {
   if (error) {
     console.error("更新错误:", error);
   } else {

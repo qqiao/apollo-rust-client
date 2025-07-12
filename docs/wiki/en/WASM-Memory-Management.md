@@ -62,7 +62,7 @@ async function useWithEventListeners() {
     cache = await client.namespace("application");
 
     // Register event listener
-    await cache.add_listener((error, data) => {
+    await cache.add_listener((data, error) => {
       if (error) {
         console.error("Config error:", error);
       } else {

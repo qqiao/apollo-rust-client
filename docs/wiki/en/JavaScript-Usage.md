@@ -91,7 +91,7 @@ async function main() {
   const cache = await client.namespace("application");
 
   // Register an event listener
-  await cache.add_listener((error, data) => {
+  await cache.add_listener((data, error) => {
     if (error) {
       console.error("Configuration update error:", error);
     } else {

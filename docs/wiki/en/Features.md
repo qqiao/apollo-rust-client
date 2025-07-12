@@ -196,7 +196,7 @@ client.add_listener("application", Arc::new(|result| {
 
 ```javascript
 // JavaScript event listener
-await cache.add_listener((error, data) => {
+await cache.add_listener((data, error) => {
   if (error) {
     console.error("Update error:", error);
   } else {
