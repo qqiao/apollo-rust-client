@@ -1,4 +1,47 @@
-//! Configuration for the Apollo client.
+//! Configuration management for the Apollo client.
+//!
+//! This module provides the `ClientConfig` struct and related functionality for configuring
+//! the Apollo client. It supports both direct configuration and environment variable-based
+//! configuration, with platform-specific optimizations for native Rust and WebAssembly targets.
+//!
+//! # Configuration Sources
+//!
+//! - **Direct Configuration**: Manually specify all configuration fields
+//! - **Environment Variables**: Automatically load configuration from environment variables
+//! - **Mixed Approach**: Load from environment variables and override specific fields
+//!
+//! # Platform Support
+//!
+//! - **Native Rust**: Full feature set including file caching and environment variable support
+//! - **WebAssembly**: Optimized for browser environments with memory-only caching
+//!
+//! # Examples
+//!
+//! ## Direct Configuration
+//!
+//! ```rust
+//! use apollo_rust_client::client_config::ClientConfig;
+//!
+//! let config = ClientConfig {
+//!     app_id: "my-app".to_string(),
+//!     config_server: "http://apollo-server:8080".to_string(),
+//!     cluster: "default".to_string(),
+//!     secret: Some("secret-key".to_string()),
+//!     cache_dir: None, // Uses default
+//!     label: Some("production".to_string()),
+//!     ip: Some("192.168.1.100".to_string()),
+//! };
+//! ```
+//!
+//! ## Environment Variable Configuration
+//!
+//! ```rust,no_run
+//! use apollo_rust_client::client_config::ClientConfig;
+//!
+//! // Requires APP_ID and APOLLO_CONFIG_SERVICE environment variables
+//! let config = ClientConfig::from_env()?;
+//! # Ok::<(), apollo_rust_client::client_config::Error>(())
+//! ```
 
 use cfg_if::cfg_if;
 use wasm_bindgen::prelude::*;
@@ -9,33 +52,106 @@ pub enum Error {
     EnvVar(std::env::VarError, String),
 }
 
-/// Configuration for the Apollo client.
+/// Configuration settings for the Apollo client.
 ///
-/// This struct holds the necessary information to connect to an Apollo Configuration center.
+/// This struct contains all the necessary information to connect to and interact with
+/// an Apollo Configuration Center. It supports various configuration options including
+/// authentication, caching, and grayscale release targeting.
+///
+/// # Required Fields
+///
+/// - `app_id`: Your application identifier in Apollo
+/// - `config_server`: The Apollo configuration server URL
+/// - `cluster`: The cluster name (typically "default")
+///
+/// # Optional Fields
+///
+/// - `secret`: Authentication secret key for secure access
+/// - `cache_dir`: Local cache directory (native targets only)
+/// - `label`: Labels for grayscale release targeting
+/// - `ip`: IP address for grayscale release targeting
+///
+/// # Examples
+///
+/// ## Minimal Configuration
+///
+/// ```rust
+/// use apollo_rust_client::client_config::ClientConfig;
+///
+/// let config = ClientConfig {
+///     app_id: "my-app".to_string(),
+///     config_server: "http://apollo-server:8080".to_string(),
+///     cluster: "default".to_string(),
+///     secret: None,
+///     cache_dir: None,
+///     label: None,
+///     ip: None,
+/// };
+/// ```
+///
+/// ## Full Configuration
+///
+/// ```rust
+/// use apollo_rust_client::client_config::ClientConfig;
+///
+/// let config = ClientConfig {
+///     app_id: "my-app".to_string(),
+///     config_server: "http://apollo-server:8080".to_string(),
+///     cluster: "production".to_string(),
+///     secret: Some("secret-key".to_string()),
+///     cache_dir: Some("/custom/cache/path".to_string()),
+///     label: Some("canary,beta".to_string()),
+///     ip: Some("192.168.1.100".to_string()),
+/// };
+/// ```
 #[derive(Clone, Debug)]
 #[wasm_bindgen(getter_with_clone)]
 pub struct ClientConfig {
-    /// The unique identifier for your application.
+    /// The unique identifier for your application in Apollo.
+    ///
+    /// This is used to identify which application's configuration to retrieve
+    /// from the Apollo Configuration Center.
     pub app_id: String,
 
-    /// The cluster name to connect to (e.g., "default").
+    /// The cluster name to connect to.
+    ///
+    /// Clusters allow you to organize different environments or deployment
+    /// groups. Common values include "default", "production", "staging", etc.
     pub cluster: String,
 
-    /// The directory to store the cache files.
+    /// The directory to store local cache files (native targets only).
+    ///
+    /// On native Rust targets, this specifies where configuration files should
+    /// be cached locally. If `None`, defaults to `/opt/data/{app_id}/config-cache`.
+    /// On WebAssembly targets, this is always `None` as file system access is not available.
     pub cache_dir: Option<String>,
 
-    /// The Apollo config server URL to connect to.
+    /// The Apollo configuration server URL.
+    ///
+    /// This should be the base URL of your Apollo Configuration Center server,
+    /// including the protocol (http/https) and port if necessary.
+    /// Example: "http://apollo-server:8080"
     pub config_server: String,
 
-    /// Secret key for authentication with the Apollo server.
+    /// Optional secret key for authentication with the Apollo server.
+    ///
+    /// If your Apollo namespace requires authentication, provide the secret key here.
+    /// This is used to generate HMAC-SHA1 signatures for secure access to protected
+    /// configuration namespaces.
     pub secret: Option<String>,
 
-    /// The label of the Apollo client. This is used to identify the client in
-    /// the Apollo server in the case of a grayscale release.
+    /// Labels for grayscale release targeting.
+    ///
+    /// Comma-separated list of labels that identify this client instance.
+    /// Apollo can use these labels to determine which configuration version
+    /// to serve during grayscale releases. Example: "canary,beta"
     pub label: Option<String>,
 
-    /// The IP address of the Apollo client. This is used to identify the client
-    /// in the Apollo server in the case of a grayscale release.
+    /// IP address for grayscale release targeting.
+    ///
+    /// The IP address of this client instance. Apollo can use this IP address
+    /// to determine which configuration version to serve during grayscale releases
+    /// based on IP-based targeting rules.
     pub ip: Option<String>,
 }
 
