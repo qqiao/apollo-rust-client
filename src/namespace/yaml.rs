@@ -56,12 +56,12 @@ pub enum Error {
 #[derive(Clone, Debug)]
 pub struct Yaml {
     /// The underlying YAML value containing the configuration data
-    value: serde_yaml::Value,
+    string: String,
 }
 
 impl From<Yaml> for wasm_bindgen::JsValue {
     fn from(val: Yaml) -> Self {
-        serde_wasm_bindgen::to_value(&val.value).unwrap()
+        serde_wasm_bindgen::to_value(&val.string).unwrap()
     }
 }
 
@@ -99,7 +99,8 @@ impl Yaml {
     /// let config: DatabaseConfig = yaml_namespace.to_object().unwrap();
     /// ```
     pub fn to_object<T: DeserializeOwned>(&self) -> Result<T, serde_yaml::Error> {
-        serde_yaml::from_value(self.value.clone())
+        trace!("string: {:?}", self.string);
+        serde_yaml::from_str(&self.string)
     }
 }
 
@@ -127,9 +128,10 @@ impl TryFrom<serde_json::Value> for Yaml {
             _ => return Err(Error::ContentNotFound),
         };
         trace!("content_string: {content_string:?}");
-        let value = serde_yaml::from_str(content_string.as_str())?;
-        trace!("value: {value:?}");
-        Ok(Self { value })
+
+        Ok(Self {
+            string: content_string.clone(),
+        })
     }
 }
 
@@ -149,7 +151,7 @@ mod tests {
     async fn test_yaml_to_object() {
         crate::tests::setup();
         let yaml_namespace = crate::namespace::yaml::Yaml::try_from(serde_json::json!({
-            "content": "host: localhost\nport: 8080\nrun: true"
+            "content": "host: \"localhost\"\nport: 8080\nrun: true"
         }))
         .unwrap();
         let result: TestStruct = yaml_namespace.to_object().unwrap();
@@ -168,20 +170,13 @@ mod tests {
     async fn test_namespace_to_object() {
         crate::tests::setup();
         let namespace = crate::tests::CLIENT_NO_SECRET
-            .namespace("application.json")
+            .namespace("application.yml")
             .await
             .unwrap();
 
         let result = match namespace {
-            crate::namespace::Namespace::Json(json_namespace) => {
-                let json_value = serde_json::to_value(json_namespace).unwrap();
-                let content = serde_json::to_string(json_value.get("value").unwrap()).unwrap();
-                let yaml_namespace = crate::namespace::yaml::Yaml::try_from(serde_json::json!({
-                    "content": content
-                })).unwrap();
-                yaml_namespace.to_object()
-            },
-            _ => panic!("Namespace is not a JSON namespace"),
+            crate::namespace::Namespace::Yaml(yaml_namespace) => yaml_namespace.to_object(),
+            _ => panic!("Namespace is not a YAML namespace"),
         };
         let result: TestStruct = result.unwrap();
         assert_eq!(
