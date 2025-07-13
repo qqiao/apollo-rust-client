@@ -65,7 +65,7 @@ pub enum Namespace {
     Properties(Properties),
     /// JSON format - structured data with full object support
     Json(Json),
-    /// YAML format - planned support for YAML configuration files
+    /// YAML format - structured YAML data with full object support
     Yaml(Yaml),
     /// XML format - planned support for XML configuration files
     // Xml(T),

@@ -9,7 +9,7 @@ A robust Rust client for the Apollo Configuration Centre, with support for WebAs
 
 ## Features
 
-- **Multiple Configuration Formats**: Support for Properties, JSON, Text, and planned YAML/XML formats
+- **Multiple Configuration Formats**: Support for Properties, JSON, YAML, Text formats with planned XML support
 - **Automatic Format Detection**: Based on namespace file extensions
 - **Type-Safe Configuration Management**: Compile-time guarantees and runtime type conversion
 - **Cross-Platform Support**: Native Rust and WebAssembly targets
@@ -210,9 +210,41 @@ The library automatically detects configuration formats based on namespace names
 - **Format**: Plain text content
 - **Example**: Raw text content
 
+### YAML Format
+
+- **Namespace**: `"config.yaml"`, `"config.yml"`
+- **Format**: Structured YAML data
+- **Example**: Complex configuration structures with nested objects
+
+```rust
+#[derive(serde::Deserialize)]
+struct AppConfig {
+    server: ServerConfig,
+    database: DatabaseConfig,
+}
+
+#[derive(serde::Deserialize)]
+struct ServerConfig {
+    host: String,
+    port: u16,
+}
+
+#[derive(serde::Deserialize)]
+struct DatabaseConfig {
+    host: String,
+    port: u16,
+    ssl: bool,
+}
+
+if let apollo_rust_client::namespace::Namespace::Yaml(yaml) = namespace {
+    let config: AppConfig = yaml.to_object()?;
+    println!("Server: {}:{}", config.server.host, config.server.port);
+    println!("Database: {}:{}", config.database.host, config.database.port);
+}
+```
+
 ### Planned Formats
 
-- **YAML**: `"config.yaml"`, `"config.yml"`
 - **XML**: `"config.xml"`
 
 ## Configuration Options

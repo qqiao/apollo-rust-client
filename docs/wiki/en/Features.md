@@ -67,9 +67,38 @@ match namespace {
 }
 ```
 
+#### YAML Format
+
+- **Detection**: `.yaml`, `.yml` extensions
+- **Use Case**: Structured configuration data with human-readable format
+- **Type Support**: Full YAML object support with custom type deserialization
+- **Example**: Complex configuration structures, nested objects
+
+```rust
+#[derive(serde::Deserialize)]
+struct DatabaseConfig {
+    host: String,
+    port: u16,
+    credentials: CredentialConfig,
+}
+
+#[derive(serde::Deserialize)]
+struct CredentialConfig {
+    username: String,
+    password: String,
+}
+
+match namespace {
+    Namespace::Yaml(yaml) => {
+        let config: DatabaseConfig = yaml.to_object()?;
+        println!("Database: {}:{}", config.host, config.port);
+    }
+    _ => {}
+}
+```
+
 #### Planned Formats
 
-- **YAML**: `.yaml`, `.yml` extensions (coming soon)
 - **XML**: `.xml` extension (coming soon)
 
 ### Type-Safe Configuration Access
@@ -89,6 +118,9 @@ let props = client.namespace("application").await?;
 
 // JSON format
 let json = client.namespace("config.json").await?;
+
+// YAML format
+let yaml = client.namespace("config.yaml").await?;
 
 // Text format
 let text = client.namespace("readme.txt").await?;

@@ -9,7 +9,7 @@
 
 ## 功能特性
 
-- **多种配置格式**: 支持 Properties、JSON、文本格式，计划支持 YAML/XML
+- **多种配置格式**: 支持 Properties、JSON、YAML、文本格式，计划支持 XML
 - **自动格式检测**: 基于命名空间文件扩展名自动检测
 - **类型安全的配置管理**: 编译时保证和运行时类型转换
 - **跨平台支持**: 原生 Rust 和 WebAssembly 目标
@@ -210,9 +210,41 @@ main().catch(console.error);
 - **格式**: 纯文本内容
 - **示例**: 原始文本内容
 
+### YAML 格式
+
+- **命名空间**: `"config.yaml"`, `"config.yml"`
+- **格式**: 结构化 YAML 数据
+- **示例**: 复杂配置结构和嵌套对象
+
+```rust
+#[derive(serde::Deserialize)]
+struct AppConfig {
+    server: ServerConfig,
+    database: DatabaseConfig,
+}
+
+#[derive(serde::Deserialize)]
+struct ServerConfig {
+    host: String,
+    port: u16,
+}
+
+#[derive(serde::Deserialize)]
+struct DatabaseConfig {
+    host: String,
+    port: u16,
+    ssl: bool,
+}
+
+if let apollo_rust_client::namespace::Namespace::Yaml(yaml) = namespace {
+    let config: AppConfig = yaml.to_object()?;
+    println!("服务器: {}:{}", config.server.host, config.server.port);
+    println!("数据库: {}:{}", config.database.host, config.database.port);
+}
+```
+
 ### 计划中的格式
 
-- **YAML**: `"config.yaml"`, `"config.yml"`
 - **XML**: `"config.xml"`
 
 ## 配置选项

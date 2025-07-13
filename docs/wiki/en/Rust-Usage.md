@@ -81,6 +81,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(e) => println!("Failed to deserialize JSON config: {}", e),
             }
         }
+        apollo_rust_client::namespace::Namespace::Yaml(yaml) => {
+            // For YAML namespaces, you can deserialize to custom types
+            use serde::{Deserialize, Serialize};
+
+            #[derive(Deserialize, Serialize)]
+            struct ServerConfig {
+                host: String,
+                port: u16,
+                database: DatabaseConfig,
+            }
+
+            #[derive(Deserialize, Serialize)]
+            struct DatabaseConfig {
+                host: String,
+                port: u16,
+                credentials: CredentialConfig,
+            }
+
+            #[derive(Deserialize, Serialize)]
+            struct CredentialConfig {
+                username: String,
+                password: String,
+            }
+
+            match yaml.to_object::<ServerConfig>() {
+                Ok(config) => {
+                    println!("Server: {}:{}", config.host, config.port);
+                    println!("Database: {}:{}", config.database.host, config.database.port);
+                    println!("DB User: {}", config.database.credentials.username);
+                }
+                Err(e) => println!("Failed to deserialize YAML config: {}", e),
+            }
+        }
         apollo_rust_client::namespace::Namespace::Text(text) => {
             println!("Text namespace content: {}", text);
         }
@@ -182,7 +215,7 @@ The library automatically detects the configuration format based on the namespac
 - **Properties format** (default): `application`, `database.properties` → Key-value pairs
 - **JSON format**: `config.json`, `settings.json` → Structured JSON data
 - **Text format**: `readme.txt`, `content.txt` → Plain text content
-- **YAML format** (planned): `config.yaml`, `app.yml` → YAML configuration
+- **YAML format**: `config.yaml`, `app.yml` → YAML configuration with structured data support
 - **XML format** (planned): `config.xml` → XML configuration
 
 ## Error Handling
