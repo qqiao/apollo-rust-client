@@ -30,7 +30,7 @@ The library is built around a few core modules/structs:
   - **`Properties`**: Key-value pairs, typically used for application configuration
   - **`Json`**: Structured JSON data with full object support and custom type deserialization
   - **`Text`**: Plain text content for simple configurations
-  - **`Yaml`** (planned): YAML format support
+  - **`Yaml`**: YAML format support with structured data and custom type deserialization
   - **`Xml`** (planned): XML format support
 
 ## Key Interactions
@@ -51,7 +51,7 @@ The library is built around a few core modules/structs:
       - No extension → Properties format (default)
       - `.json` → JSON format
       - `.txt` → Text format
-      - `.yaml` or `.yml` → YAML format (planned)
+      - `.yaml` or `.yml` → YAML format
       - `.xml` → XML format (planned)
 
 4.  **General Flow of a Configuration Request**:

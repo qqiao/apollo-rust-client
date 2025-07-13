@@ -61,7 +61,7 @@ The library automatically detects configuration formats based on namespace names
 | **Properties** | `"application"`, `"config.properties"` | Key-value pairs (default format)              |
 | **JSON**       | `"config.json"`, `"settings.json"`     | Structured JSON data with custom type support |
 | **Text**       | `"readme.txt"`, `"content.txt"`        | Plain text content                            |
-| **YAML**       | `"config.yaml"`, `"config.yml"`        | YAML format (planned)                         |
+| **YAML**       | `"config.yaml"`, `"config.yml"`        | YAML format with structured data support      |
 | **XML**        | `"config.xml"`                         | XML format (planned)                          |
 
 ## Documentation Sections
@@ -108,6 +108,9 @@ match namespace {
     }
     Namespace::Json(json) => {
         let config: MyConfig = json.to_object()?;
+    }
+    Namespace::Yaml(yaml) => {
+        let config: MyConfig = yaml.to_object()?;
     }
     Namespace::Text(text) => {
         println!("Content: {}", text);

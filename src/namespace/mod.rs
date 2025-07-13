@@ -9,7 +9,7 @@
 //!
 //! - **Properties**: Key-value pairs, typically used for application configuration
 //! - **JSON**: Structured JSON data with full object support
-//! - **YAML**: YAML format (planned, currently commented out)
+//! - **YAML**: Structured YAML data with full object support
 //! - **XML**: XML format (planned, currently commented out)
 //! - **Text**: Plain text content
 //!
@@ -24,14 +24,18 @@
 
 use json::Json;
 use properties::Properties;
+use yaml::Yaml;
 
 pub mod json;
 pub mod properties;
+pub mod yaml;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Failed to get JSON namespace: {0}")]
     Json(#[from] json::Error),
+    #[error("Failed to get YAML namespace: {0}")]
+    Yaml(#[from] yaml::Error),
     // #[error("Failed to get Properties namespace: {0}")]
     // Properties(properties::Error),
 }
@@ -61,8 +65,8 @@ pub enum Namespace {
     Properties(Properties),
     /// JSON format - structured data with full object support
     Json(Json),
-    /// YAML format - planned support for YAML configuration files
-    // Yaml(T),
+    /// YAML format - structured YAML data with full object support
+    Yaml(Yaml),
     /// XML format - planned support for XML configuration files
     // Xml(T),
     /// Plain text format - raw string content
@@ -74,6 +78,7 @@ impl From<Namespace> for wasm_bindgen::JsValue {
         match val {
             Namespace::Properties(properties) => properties.into(),
             Namespace::Json(json) => json.into(),
+            Namespace::Yaml(yaml) => yaml.into(),
             Namespace::Text(text) => text.into(),
         }
     }
@@ -175,6 +180,7 @@ pub(crate) fn get_namespace(namespace: &str, value: serde_json::Value) -> Result
     match get_namespace_type(namespace) {
         NamespaceType::Properties => Ok(Namespace::Properties(properties::Properties::from(value))),
         NamespaceType::Json => Ok(Namespace::Json(json::Json::try_from(value)?)),
+        NamespaceType::Yaml => Ok(Namespace::Yaml(yaml::Yaml::try_from(value)?)),
         _ => todo!(),
     }
 }

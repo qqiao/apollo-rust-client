@@ -61,7 +61,7 @@
 | **Properties** | `"application"`, `"config.properties"` | 键值对（默认格式）               |
 | **JSON**       | `"config.json"`, `"settings.json"`     | 结构化 JSON 数据，支持自定义类型 |
 | **Text**       | `"readme.txt"`, `"content.txt"`        | 纯文本内容                       |
-| **YAML**       | `"config.yaml"`, `"config.yml"`        | YAML 格式（计划中）              |
+| **YAML**       | `"config.yaml"`, `"config.yml"`        | YAML 格式，支持结构化数据        |
 | **XML**        | `"config.xml"`                         | XML 格式（计划中）               |
 
 ## 文档章节
@@ -108,6 +108,9 @@ match namespace {
     }
     Namespace::Json(json) => {
         let config: MyConfig = json.to_object()?;
+    }
+    Namespace::Yaml(yaml) => {
+        let config: MyConfig = yaml.to_object()?;
     }
     Namespace::Text(text) => {
         println!("内容: {}", text);

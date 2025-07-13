@@ -58,7 +58,9 @@ pub enum Error {
 ///
 /// let json_namespace = Json::from(json_data);
 /// ```
-#[derive(Clone, Debug)]
+use serde::Serialize;
+
+#[derive(Clone, Debug, Serialize)]
 pub struct Json {
     /// The underlying JSON value containing the configuration data
     value: serde_json::Value,
