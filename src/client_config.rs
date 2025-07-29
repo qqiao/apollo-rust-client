@@ -153,6 +153,12 @@ pub struct ClientConfig {
     /// to determine which configuration version to serve during grayscale releases
     /// based on IP-based targeting rules.
     pub ip: Option<String>,
+
+    /// Time-to-live for the cache, in seconds.
+    ///
+    /// When using `from_env`, this defaults to 600 seconds (10 minutes) if
+    /// the `APOLLO_CACHE_TTL` environment variable is not set.
+    pub cache_ttl: Option<u64>,
 }
 
 impl From<Error> for JsValue {
@@ -181,6 +187,10 @@ impl ClientConfig {
             .map_err(|e| (Error::EnvVar(e, "APOLLO_LABEL".to_string())))
             .ok();
         let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok();
+        let cache_ttl = std::env::var("APOLLO_CACHE_TTL")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .or(Some(600));
         Ok(Self {
             app_id,
             secret,
@@ -189,6 +199,7 @@ impl ClientConfig {
             cache_dir,
             label,
             ip: None,
+            cache_ttl,
         })
     }
 }
@@ -261,6 +272,7 @@ cfg_if! {
                     secret: None,
                     label: None,
                     ip: None,
+                    cache_ttl: None,
                 }
             }
         }

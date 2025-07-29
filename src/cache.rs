@@ -40,10 +40,17 @@ use cfg_if::cfg_if;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use log::{debug, trace};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha1::Sha1;
 use std::sync::Arc;
 use url::{ParseError, Url};
+
+#[derive(Serialize, Deserialize)]
+struct CacheItem {
+    timestamp: i64,
+    config: Value,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -241,20 +248,37 @@ impl Cache {
 
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
+                let mut needs_refresh = true;
                 let file_path = self.file_path.clone();
+
                 if file_path.exists() {
-                    trace!("Cache file {} exists, using file cache", file_path.display());
-                    let file = match std::fs::File::open(file_path) {
-                        Ok(file) => file,
-                        Err(e) => {
-                            *checking_cache = false;
-                            return Err(Error::Io(e));
+                    trace!("Cache file {} exists, attempting to use it.", file_path.display());
+                    if let Ok(file) = std::fs::File::open(&file_path) {
+                        if let Ok(cache_item) = serde_json::from_reader::<_, CacheItem>(file) {
+                            let mut is_stale = false;
+                            if let Some(ttl) = self.client_config.cache_ttl {
+                                let age = Utc::now().timestamp() - cache_item.timestamp;
+                                if age > ttl as i64 {
+                                    is_stale = true;
+                                    trace!("Cache for {} is stale.", self.namespace);
+                                }
+                            }
+
+                            if !is_stale {
+                                trace!("Cache for {} is fresh, using it.", self.namespace);
+                                self.memory_cache.write().await.replace(cache_item.config);
+                                needs_refresh = false;
+                            }
+                        } else {
+                            trace!("Failed to parse cache file, will refresh.");
                         }
-                    };
-                    let config: Value = serde_json::from_reader(file)?;
-                    self.memory_cache.write().await.replace(config.clone());
-                } else {
-                    trace!("Cache file {} doesn't exist, refreshing cache", file_path.display());
+                    } else {
+                        trace!("Failed to open cache file, will refresh.");
+                    }
+                }
+
+                if needs_refresh {
+                    trace!("Refreshing cache for namespace {}", self.namespace);
                     match self.refresh().await {
                         Ok(_) => (),
                         Err(e) => {
@@ -375,6 +399,17 @@ impl Cache {
         };
 
         trace!("Response body {} for namespace {}", body, self.namespace);
+
+        let config: Value = match serde_json::from_str(&body) {
+            Ok(c) => c,
+            Err(e) => {
+                *loading = false;
+                debug!("error parsing config: {e}");
+                return Err(Error::Serde(e));
+            }
+        };
+        trace!("parsed config: {config:?}");
+
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
                 debug!("writing cache file {}", self.file_path.display());
@@ -388,7 +423,21 @@ impl Cache {
                         }
                     }
                 }
-                match std::fs::write(&self.file_path, body.clone()) {
+
+                let cache_item = CacheItem {
+                    timestamp: Utc::now().timestamp(),
+                    config: config.clone(),
+                };
+
+                let cache_content = match serde_json::to_string(&cache_item) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        *loading = false;
+                        return Err(Error::Serde(e));
+                    }
+                };
+
+                match std::fs::write(&self.file_path, cache_content) {
                     Ok(_) => {
                         trace!("Wrote cache file {} for namespace {}", self.file_path.display(), self.namespace);
                     },
@@ -399,16 +448,6 @@ impl Cache {
                 }
             }
         }
-
-        let config: Value = match serde_json::from_str(&body) {
-            Ok(c) => c,
-            Err(e) => {
-                *loading = false;
-                debug!("error parsing config: {e}");
-                return Err(Error::Serde(e));
-            }
-        };
-        trace!("parsed config: {config:?}");
 
         // Notify listeners with the new config
         let listeners = self.listeners.read().await;
