@@ -5,6 +5,26 @@ All notable changes to the apollo-rust-client project will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2025-01-27
+
+### Changed
+
+- **Platform-specific Cache TTL**: Made `cache_ttl` field native-only to align with WASM limitations:
+  - Added `#[cfg(not(target_arch = "wasm32"))]` attribute to `cache_ttl` field in `ClientConfig`
+  - Updated `from_env()` method to conditionally handle cache TTL only on native targets
+  - Modified WASM constructor to exclude cache TTL field
+  - Wrapped cache TTL logic in `cache.rs` with conditional compilation
+  - Updated all documentation to reflect native-only availability
+  - Reduced WASM bundle size by excluding unnecessary cache TTL code
+
+### Documentation
+
+- **Updated Documentation**: Clarified platform-specific nature of cache TTL:
+  - Added conditional compilation attributes to all code examples
+  - Updated README files to indicate native-only availability
+  - Modified configuration documentation to specify platform support
+  - Updated changelog entries to reflect native-only nature
+
 ## [0.5.0] - 2025-07-29
 
 ### Added
