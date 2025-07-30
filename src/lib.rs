@@ -33,6 +33,7 @@
 //!     cache_dir: None,
 //!     label: None,
 //!     ip: None,
+//!     cache_ttl: None,
 //! };
 //!
 //! let mut client = Client::new(config);
@@ -97,6 +98,7 @@ pub mod namespace;
 /// #     cache_dir: None,
 /// #     label: None,
 /// #     ip: None,
+/// #     cache_ttl: None,
 /// # });
 /// match client.namespace("application").await {
 ///     Ok(namespace) => {
@@ -202,6 +204,7 @@ cfg_if::cfg_if! {
 ///     cache_dir: None,
 ///     label: None,
 ///     ip: None,
+///     cache_ttl: None,
 /// };
 ///
 /// let mut client = Client::new(config);
@@ -228,6 +231,7 @@ cfg_if::cfg_if! {
 /// #     cache_dir: None,
 /// #     label: None,
 /// #     ip: None,
+/// #     cache_ttl: None,
 /// # };
 /// # let client = Client::new(config);
 /// client.add_listener("application", Arc::new(|result| {

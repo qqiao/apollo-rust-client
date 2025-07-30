@@ -36,6 +36,10 @@ pub enum Error {
     Json(#[from] json::Error),
     #[error("Failed to get YAML namespace: {0}")]
     Yaml(#[from] yaml::Error),
+    #[error("Failed to get text namespace: {0}")]
+    Text(String),
+    #[error("Failed to get XML namespace: {0}")]
+    Xml(String),
     // #[error("Failed to get Properties namespace: {0}")]
     // Properties(properties::Error),
 }
@@ -156,11 +160,12 @@ fn get_namespace_type(namespace: &str) -> NamespaceType {
 ///
 /// A `Namespace` enum variant containing the typed representation of the data
 ///
-/// # Panics
+/// # Errors
 ///
-/// This function will panic (via `todo!()`) if:
-/// - An unsupported format is detected (YAML, XML, or Text)
-/// - An unrecognized file extension is encountered
+/// This function will return an error if:
+/// - XML format is detected (not yet supported)
+/// - Text format content cannot be extracted from the JSON value
+/// - JSON or YAML parsing fails
 ///
 /// # Examples
 ///
@@ -181,7 +186,22 @@ pub(crate) fn get_namespace(namespace: &str, value: serde_json::Value) -> Result
         NamespaceType::Properties => Ok(Namespace::Properties(properties::Properties::from(value))),
         NamespaceType::Json => Ok(Namespace::Json(json::Json::try_from(value)?)),
         NamespaceType::Yaml => Ok(Namespace::Yaml(yaml::Yaml::try_from(value)?)),
-        _ => todo!(),
+        NamespaceType::Text => {
+            // Extract text content from the JSON value
+            let text_content = match value.get("content") {
+                Some(serde_json::Value::String(s)) => s.clone(),
+                _ => {
+                    return Err(Error::Text(
+                        "Failed to get text content from JSON value".to_string(),
+                    ));
+                }
+            };
+            Ok(Namespace::Text(text_content))
+        }
+        NamespaceType::Xml => {
+            // XML format is not yet implemented
+            Err(Error::Xml("XML format is not yet supported".to_string()))
+        }
     }
 }
 

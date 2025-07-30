@@ -30,6 +30,7 @@
 //!     cache_dir: None, // Uses default
 //!     label: Some("production".to_string()),
 //!     ip: Some("192.168.1.100".to_string()),
+//!     cache_ttl: None,
 //! };
 //! ```
 //!
@@ -86,6 +87,7 @@ pub enum Error {
 ///     cache_dir: None,
 ///     label: None,
 ///     ip: None,
+///     cache_ttl: None,
 /// };
 /// ```
 ///
@@ -102,6 +104,7 @@ pub enum Error {
 ///     cache_dir: Some("/custom/cache/path".to_string()),
 ///     label: Some("canary,beta".to_string()),
 ///     ip: Some("192.168.1.100".to_string()),
+///     cache_ttl: None,
 /// };
 /// ```
 #[derive(Clone, Debug)]
