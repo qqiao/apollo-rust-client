@@ -63,6 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cache_dir: None, // 使用默认值: /opt/data/{app_id}/config-cache
         label: None,     // 用于灰度发布
         ip: None,        // 用于灰度发布
+        cache_ttl: None, // 使用默认值: 600 秒（10 分钟）
     };
 
     let mut client = Client::new(client_config);
@@ -135,6 +136,7 @@ let client_config = ClientConfig::from_env()?;
 - `APOLLO_ACCESS_KEY_SECRET`: 认证密钥（可选）
 - `APOLLO_LABEL`: 灰度规则的标签列表，用逗号分隔（可选）
 - `APOLLO_CACHE_DIR`: 本地缓存目录（可选）
+- `APOLLO_CACHE_TTL`: 缓存生存时间，以秒为单位（可选，默认为 600）
 
 ### JavaScript/WebAssembly 用法
 
@@ -336,6 +338,7 @@ let client_config = ClientConfig {
     cache_dir: None,
     label: Some("canary,beta".to_string()),  // 多个标签
     ip: Some("192.168.1.100".to_string()),  // 客户端 IP
+    cache_ttl: None,
 };
 ```
 
