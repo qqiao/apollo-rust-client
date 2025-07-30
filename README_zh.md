@@ -29,7 +29,7 @@
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.5.0"
+apollo-rust-client = "0.5.1"
 ```
 
 或者，您可以使用 `cargo add`：
@@ -362,7 +362,7 @@ if let apollo_rust_client::namespace::Namespace::Json(json) = namespace {
 }
 ```
 
-## v0.5.0 API 变更
+## v0.5.1 API 变更
 
 - **类型化命名空间**: 支持多种配置格式和自动检测
 - **事件监听器**: 实时配置变更通知
