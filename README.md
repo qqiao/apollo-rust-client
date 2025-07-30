@@ -29,7 +29,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.5.0"
+apollo-rust-client = "0.5.1"
 ```
 
 Alternatively, you can use `cargo add`:
@@ -362,7 +362,7 @@ if let apollo_rust_client::namespace::Namespace::Json(json) = namespace {
 }
 ```
 
-## API Changes in v0.5.0
+## API Changes in v0.5.1
 
 - **Typed Namespaces**: Support for multiple configuration formats with automatic detection
 - **Event Listeners**: Real-time configuration change notifications

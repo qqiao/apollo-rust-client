@@ -552,7 +552,7 @@ println!("Configuration loaded: {:?}", config);
 
 ### Upgrading from Previous Versions
 
-#### Version 0.4.x to 0.5.0
+#### Version 0.4.x to 0.5.1
 
 - No breaking changes in configuration structure
 - New optional fields are backward compatible
