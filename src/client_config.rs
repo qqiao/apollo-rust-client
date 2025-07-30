@@ -157,10 +157,12 @@ pub struct ClientConfig {
     /// based on IP-based targeting rules.
     pub ip: Option<String>,
 
-    /// Time-to-live for the cache, in seconds.
+    /// Time-to-live for the cache, in seconds (native targets only).
     ///
     /// When using `from_env`, this defaults to 600 seconds (10 minutes) if
     /// the `APOLLO_CACHE_TTL` environment variable is not set.
+    /// This field is not available on WebAssembly targets as disk caching is not supported.
+    #[cfg(not(target_arch = "wasm32"))]
     pub cache_ttl: Option<u64>,
 }
 
@@ -190,10 +192,6 @@ impl ClientConfig {
             .map_err(|e| (Error::EnvVar(e, "APOLLO_LABEL".to_string())))
             .ok();
         let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok();
-        let cache_ttl = std::env::var("APOLLO_CACHE_TTL")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .or(Some(600));
         Ok(Self {
             app_id,
             secret,
@@ -202,7 +200,11 @@ impl ClientConfig {
             cache_dir,
             label,
             ip: None,
-            cache_ttl,
+            #[cfg(not(target_arch = "wasm32"))]
+            cache_ttl: std::env::var("APOLLO_CACHE_TTL")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .or(Some(600)),
         })
     }
 }
@@ -275,7 +277,6 @@ cfg_if! {
                     secret: None,
                     label: None,
                     ip: None,
-                    cache_ttl: None,
                 }
             }
         }
