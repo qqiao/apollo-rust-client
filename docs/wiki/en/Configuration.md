@@ -132,15 +132,17 @@ let config = ClientConfig {
 };
 ```
 
-#### `cache_ttl` (Option<u64>)
+#### `cache_ttl` (Option<u64>) - Native targets only
 
 - **Description**: Time-to-live for the file cache in seconds.
 - **Purpose**: Prevents the client from using a stale cache.
 - **Default**: When using `from_env`, this defaults to 600 seconds (10 minutes) if the `APOLLO_CACHE_TTL` environment variable is not set.
 - **Environment Variable**: `APOLLO_CACHE_TTL`
+- **Platform Support**: This field is only available on native targets (not WebAssembly) as disk caching is not supported in WASM environments.
 
 ```rust
 let config = ClientConfig {
+    #[cfg(not(target_arch = "wasm32"))]
     cache_ttl: Some(300), // 5 minutes
     // ... other fields
 };
@@ -222,7 +224,7 @@ let config = ClientConfig::from_env()?;
 - **`APOLLO_ACCESS_KEY_SECRET`**: The secret key for authentication (optional)
 - **`APOLLO_LABEL`**: Comma-separated list of labels for grayscale rules (optional)
 - **`APOLLO_CACHE_DIR`**: Directory to store local cache (optional)
-- **`APOLLO_CACHE_TTL`**: Time-to-live for the cache in seconds (optional, defaults to 600)
+- **`APOLLO_CACHE_TTL`**: Time-to-live for the cache in seconds (optional, defaults to 600, native targets only)
 
 #### Setting Environment Variables
 

@@ -256,11 +256,15 @@ impl Cache {
                     if let Ok(file) = std::fs::File::open(&file_path) {
                         if let Ok(cache_item) = serde_json::from_reader::<_, CacheItem>(file) {
                             let mut is_stale = false;
-                            if let Some(ttl) = self.client_config.cache_ttl {
-                                let age = Utc::now().timestamp() - cache_item.timestamp;
-                                if age > ttl as i64 {
-                                    is_stale = true;
-                                    trace!("Cache for {} is stale.", self.namespace);
+                            cfg_if::cfg_if! {
+                                if #[cfg(not(target_arch = "wasm32"))] {
+                                    if let Some(ttl) = self.client_config.cache_ttl {
+                                        let age = Utc::now().timestamp() - cache_item.timestamp;
+                                        if age > ttl as i64 {
+                                            is_stale = true;
+                                            trace!("Cache for {} is stale.", self.namespace);
+                                        }
+                                    }
                                 }
                             }
 

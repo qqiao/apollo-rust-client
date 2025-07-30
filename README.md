@@ -63,7 +63,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cache_dir: None, // Uses default: /opt/data/{app_id}/config-cache
         label: None,     // For grayscale releases
         ip: None,        // For grayscale releases
-        cache_ttl: None, // Uses default: 600 seconds (10 minutes)
+        #[cfg(not(target_arch = "wasm32"))]
+cache_ttl: None, // Uses default: 600 seconds (10 minutes)
     };
 
     let mut client = Client::new(client_config);
@@ -136,7 +137,7 @@ let client_config = ClientConfig::from_env()?;
 - `APOLLO_ACCESS_KEY_SECRET`: The secret key for authentication (optional)
 - `APOLLO_LABEL`: Comma-separated list of labels for grayscale rules (optional)
 - `APOLLO_CACHE_DIR`: Directory to store local cache (optional)
-- `APOLLO_CACHE_TTL`: Time-to-live for cache in seconds (optional, defaults to 600)
+- `APOLLO_CACHE_TTL`: Time-to-live for cache in seconds (optional, defaults to 600, native targets only)
 
 ### JavaScript/WebAssembly Usage
 
@@ -338,6 +339,7 @@ let client_config = ClientConfig {
     cache_dir: None,
     label: Some("canary,beta".to_string()),  // Multiple labels
     ip: Some("192.168.1.100".to_string()),  // Client IP
+    #[cfg(not(target_arch = "wasm32"))]
     cache_ttl: None,
 };
 ```
