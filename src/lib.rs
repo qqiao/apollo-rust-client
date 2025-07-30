@@ -996,7 +996,6 @@ mod tests {
             secret: None,
             cache_dir: None,
             ip: None,
-            cache_ttl: None,
         };
         Client::new(config)
     }
@@ -1011,7 +1010,6 @@ mod tests {
             secret: Some(String::from("53bf47631db540ac9700f0020d2192c8")),
             cache_dir: None,
             ip: None,
-            cache_ttl: None,
         };
         Client::new(config)
     }
@@ -1026,7 +1024,6 @@ mod tests {
             secret: None,
             cache_dir: None,
             ip: Some(String::from("1.2.3.4")),
-            cache_ttl: None,
         };
         Client::new(config)
     }
@@ -1041,7 +1038,6 @@ mod tests {
             secret: None,
             cache_dir: None,
             ip: None,
-            cache_ttl: None,
         };
         Client::new(config)
     }

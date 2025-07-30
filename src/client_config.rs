@@ -30,6 +30,7 @@
 //!     cache_dir: None, // Uses default
 //!     label: Some("production".to_string()),
 //!     ip: Some("192.168.1.100".to_string()),
+//!     #[cfg(not(target_arch = "wasm32"))]
 //!     cache_ttl: None,
 //! };
 //! ```
@@ -87,6 +88,7 @@ pub enum Error {
 ///     cache_dir: None,
 ///     label: None,
 ///     ip: None,
+///     #[cfg(not(target_arch = "wasm32"))]
 ///     cache_ttl: None,
 /// };
 /// ```
@@ -104,6 +106,7 @@ pub enum Error {
 ///     cache_dir: Some("/custom/cache/path".to_string()),
 ///     label: Some("canary,beta".to_string()),
 ///     ip: Some("192.168.1.100".to_string()),
+///     #[cfg(not(target_arch = "wasm32"))]
 ///     cache_ttl: None,
 /// };
 /// ```
@@ -172,40 +175,75 @@ impl From<Error> for JsValue {
     }
 }
 
-#[wasm_bindgen]
-impl ClientConfig {
-    /// Create a new configuration from environment variables.
-    ///
-    /// # Returns
-    ///
-    /// A new configuration instance.
-    pub fn from_env() -> Result<Self, Error> {
-        let app_id =
-            std::env::var("APP_ID").map_err(|e| (Error::EnvVar(e, "APP_ID".to_string())))?;
-        let secret = std::env::var("APOLLO_ACCESS_KEY_SECRET")
-            .map_err(|e| (Error::EnvVar(e, "APOLLO_ACCESS_KEY_SECRET".to_string())))
-            .ok();
-        let cluster = std::env::var("IDC").unwrap_or("default".to_string());
-        let config_server = std::env::var("APOLLO_CONFIG_SERVICE")
-            .map_err(|e| (Error::EnvVar(e, "APOLLO_CONFIG_SERVICE".to_string())))?;
-        let label = std::env::var("APOLLO_LABEL")
-            .map_err(|e| (Error::EnvVar(e, "APOLLO_LABEL".to_string())))
-            .ok();
-        let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok();
-        Ok(Self {
-            app_id,
-            secret,
-            cluster,
-            config_server,
-            cache_dir,
-            label,
-            ip: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            cache_ttl: std::env::var("APOLLO_CACHE_TTL")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .or(Some(600)),
-        })
+cfg_if! {
+    if #[cfg(not(target_arch = "wasm32"))] {
+        impl ClientConfig {
+            /// Create a new configuration from environment variables.
+            ///
+            /// # Returns
+            ///
+            /// A new configuration instance.
+            pub fn from_env() -> Result<Self, Error> {
+                let app_id =
+                    std::env::var("APP_ID").map_err(|e| (Error::EnvVar(e, "APP_ID".to_string())))?;
+                let secret = std::env::var("APOLLO_ACCESS_KEY_SECRET")
+                    .map_err(|e| (Error::EnvVar(e, "APOLLO_ACCESS_KEY_SECRET".to_string())))
+                    .ok();
+                let cluster = std::env::var("IDC").unwrap_or("default".to_string());
+                let config_server = std::env::var("APOLLO_CONFIG_SERVICE")
+                    .map_err(|e| (Error::EnvVar(e, "APOLLO_CONFIG_SERVICE".to_string())))?;
+                let label = std::env::var("APOLLO_LABEL")
+                    .map_err(|e| (Error::EnvVar(e, "APOLLO_LABEL".to_string())))
+                    .ok();
+                let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok();
+                let cache_ttl = std::env::var("APOLLO_CACHE_TTL")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .or(Some(600));
+                Ok(Self {
+                    app_id,
+                    secret,
+                    cluster,
+                    config_server,
+                    cache_dir,
+                    label,
+                    ip: None,
+                    cache_ttl,
+                })
+            }
+        }
+    } else {
+        #[wasm_bindgen]
+        impl ClientConfig {
+            /// Create a new configuration from environment variables.
+            ///
+            /// # Returns
+            ///
+            /// A new configuration instance.
+            pub fn from_env() -> Result<Self, Error> {
+                let app_id =
+                    std::env::var("APP_ID").map_err(|e| (Error::EnvVar(e, "APP_ID".to_string())))?;
+                let secret = std::env::var("APOLLO_ACCESS_KEY_SECRET")
+                    .map_err(|e| (Error::EnvVar(e, "APOLLO_ACCESS_KEY_SECRET".to_string())))
+                    .ok();
+                let cluster = std::env::var("IDC").unwrap_or("default".to_string());
+                let config_server = std::env::var("APOLLO_CONFIG_SERVICE")
+                    .map_err(|e| (Error::EnvVar(e, "APOLLO_CONFIG_SERVICE".to_string())))?;
+                let label = std::env::var("APOLLO_LABEL")
+                    .map_err(|e| (Error::EnvVar(e, "APOLLO_LABEL".to_string())))
+                    .ok();
+                let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok();
+                Ok(Self {
+                    app_id,
+                    secret,
+                    cluster,
+                    config_server,
+                    cache_dir,
+                    label,
+                    ip: None,
+                })
+            }
+        }
     }
 }
 
