@@ -35,10 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Text Format**: Plain text configuration support with automatic detection via `.txt` extensions
   - **Properties Format**: Enhanced existing properties format support (default when no extension is specified)
 - **Automatic Format Detection**: Intelligent namespace format detection based on file extensions in namespace names
-- **Cache TTL Support**: Added Time-To-Live (TTL) mechanism for cache expiration (native targets only):
-  - New `cache_ttl` field in `ClientConfig` struct (native targets only)
+- **Cache TTL Support**: Added Time-To-Live (TTL) mechanism for cache expiration:
+  - New `cache_ttl` field in `ClientConfig` struct
   - Default TTL of 600 seconds (10 minutes) when using `from_env()`
-  - Configurable via `APOLLO_CACHE_TTL` environment variable (native targets only)
+  - Configurable via `APOLLO_CACHE_TTL` environment variable
   - Automatic cache refresh when TTL expires
 - **Enhanced Namespace System**: Complete refactoring of the namespace module with:
   - Unified `Namespace` enum supporting all configuration formats
@@ -106,8 +106,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **API Documentation**: Complete API reference with examples
 - **Multi-language Support**: Documentation available in English, Simplified Chinese, and Traditional Chinese
 - **Documentation Updates**: Recent improvements including:
-  - Added `cache_ttl` field documentation in all code examples (native targets only)
-  - Updated README files to include `APOLLO_CACHE_TTL` environment variable (native targets only)
+  - Added `cache_ttl` field documentation in all code examples
+  - Updated README files to include `APOLLO_CACHE_TTL` environment variable
   - Enhanced error handling documentation for namespace formats
   - Improved text format support with proper error handling
   - Better documentation for unsupported XML format
