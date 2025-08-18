@@ -93,7 +93,7 @@ dependencies = [
 
 [[package]]
 name = "apollo-rust-client"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "async-std",
  "base64",

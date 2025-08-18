@@ -20,6 +20,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         label: None,
         ip: None,
         allow_insecure_https: None,
+        #[cfg(not(target_arch = "wasm32"))]
+        cache_ttl: None, // Uses default: 600 seconds (10 minutes)
     };
     let mut client = Client::new(client_config);
 

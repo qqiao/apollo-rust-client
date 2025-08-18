@@ -5,6 +5,39 @@ All notable changes to the apollo-rust-client project will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2025-08-19
+
+### Added
+
+- **Insecure HTTPS Support**: Added `allow_insecure_https` flag to `ClientConfig` for handling self-signed certificates:
+  - New `allow_insecure_https` field in `ClientConfig` struct
+  - Configurable via `APOLLO_ALLOW_INSECURE_HTTPS` environment variable
+  - Enables `danger_accept_invalid_certs(true)` and `danger_accept_invalid_hostnames(true)` in reqwest client
+  - Useful for development environments and internal networks with self-signed certificates
+  - **Warning**: Reduces security by bypassing SSL certificate validation
+
+### Changed
+
+- **Dependency Updates**: Updated all dependencies to latest stable versions:
+  - `reqwest` updated from 0.12.22 to 0.12.23
+  - `thiserror` updated from 2.0.12 to 2.0.15
+  - `async-std` updated from 1.13.1 to 1.13.2
+  - `tokio` updated from 1.46.1 to 1.47.1
+  - `serde_json` updated from 1.0.140 to 1.0.142
+
+### Documentation
+
+- **Enhanced Configuration Guide**: Added comprehensive documentation for insecure HTTPS feature
+- **Multi-language Support**: Updated documentation in English, Simplified Chinese, and Traditional Chinese
+- **Usage Examples**: Added examples showing how to configure and use the insecure HTTPS feature
+- **Security Warnings**: Added clear warnings about security implications of enabling insecure HTTPS
+
+### Technical Improvements
+
+- **HTTP Client Configuration**: Enhanced reqwest client builder with conditional insecure certificate handling
+- **Environment Variable Support**: Added `APOLLO_ALLOW_INSECURE_HTTPS` environment variable support
+- **Platform Compatibility**: Feature works on both native and WebAssembly targets
+
 ## [0.5.1] - 2025-07-31
 
 ### Changed
