@@ -33,6 +33,7 @@
 //!     cache_dir: None,
 //!     label: None,
 //!     ip: None,
+//!     allow_insecure_https: None,
 //!     #[cfg(not(target_arch = "wasm32"))]
 //!     cache_ttl: None,
 //! };
@@ -99,6 +100,7 @@ pub mod namespace;
 /// #     cache_dir: None,
 /// #     label: None,
 /// #     ip: None,
+/// #     allow_insecure_https: None,
 /// #     #[cfg(not(target_arch = "wasm32"))]
 /// #     cache_ttl: None,
 /// # });
@@ -206,6 +208,7 @@ cfg_if::cfg_if! {
 ///     cache_dir: None,
 ///     label: None,
 ///     ip: None,
+///     allow_insecure_https: None,
 ///     #[cfg(not(target_arch = "wasm32"))]
 ///     cache_ttl: None,
 /// };
@@ -234,6 +237,7 @@ cfg_if::cfg_if! {
 /// #     cache_dir: None,
 /// #     label: None,
 /// #     ip: None,
+/// #     allow_insecure_https: None,
 /// #     #[cfg(not(target_arch = "wasm32"))]
 /// #     cache_ttl: None,
 /// # };
@@ -525,6 +529,7 @@ mod tests {
                 secret: None,
                 cache_dir: Some(String::from("/tmp/apollo")),
                 ip: None,
+                allow_insecure_https: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 cache_ttl: None,
             };
@@ -539,6 +544,7 @@ mod tests {
                 secret: Some(String::from("53bf47631db540ac9700f0020d2192c8")),
                 cache_dir: Some(String::from("/tmp/apollo")),
                 ip: None,
+                allow_insecure_https: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 cache_ttl: None,
             };
@@ -553,6 +559,7 @@ mod tests {
                 secret: None,
                 cache_dir: Some(String::from("/tmp/apollo")),
                 ip: Some(String::from("1.2.3.4")),
+                allow_insecure_https: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 cache_ttl: None,
             };
@@ -567,6 +574,7 @@ mod tests {
                 secret: None,
                 cache_dir: Some(String::from("/tmp/apollo")),
                 ip: None,
+                allow_insecure_https: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 cache_ttl: None,
             };
@@ -996,6 +1004,7 @@ mod tests {
             secret: None,
             cache_dir: None,
             ip: None,
+            allow_insecure_https: None,
         };
         Client::new(config)
     }
@@ -1010,6 +1019,7 @@ mod tests {
             secret: Some(String::from("53bf47631db540ac9700f0020d2192c8")),
             cache_dir: None,
             ip: None,
+            allow_insecure_https: None,
         };
         Client::new(config)
     }
@@ -1024,6 +1034,7 @@ mod tests {
             secret: None,
             cache_dir: None,
             ip: Some(String::from("1.2.3.4")),
+            allow_insecure_https: None,
         };
         Client::new(config)
     }
@@ -1038,6 +1049,7 @@ mod tests {
             secret: None,
             cache_dir: None,
             ip: None,
+            allow_insecure_https: None,
         };
         Client::new(config)
     }
@@ -1061,6 +1073,7 @@ mod tests {
             secret: None,
             label: None,
             ip: None,
+            allow_insecure_https: None,
             #[cfg(not(target_arch = "wasm32"))]
             cache_ttl: None,
             // ..Default::default() // Be careful with Default if it doesn't set all needed fields for tests

@@ -19,6 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cache_dir: None,
         label: None,
         ip: None,
+        allow_insecure_https: None,
     };
     let mut client = Client::new(client_config);
 
@@ -184,6 +185,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cache_dir: None,
         label: None,
         ip: None,
+        allow_insecure_https: None,
     };
     let mut client = Client::new(client_config);
 
