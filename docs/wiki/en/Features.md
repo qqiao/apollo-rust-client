@@ -284,6 +284,7 @@ await cache.add_listener((data, error) => {
 let config = ClientConfig {
     app_id: "my-app".to_string(),
     secret: Some("secret-key".to_string()),
+    allow_insecure_https: None,
     // ... other fields
 };
 ```
@@ -307,6 +308,7 @@ let config = ClientConfig {
     app_id: "my-app".to_string(),
     label: Some("canary,beta".to_string()),
     ip: Some("192.168.1.100".to_string()),
+    allow_insecure_https: None,
     // ... other fields
 };
 ```

@@ -19,6 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cache_dir: None, // 本地快取目錄
         label: None, // 實例標籤
         ip: None, // 應用IP位址
+        allow_insecure_https: None, // 是否允許不安全的HTTPS連接
     };
     let mut client = Client::new(client_config);
     // 啟動後台輪詢以獲取設定更新。
@@ -46,11 +47,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 `ClientConfig` 也可以使用 `ClientConfig::from_env()` 從環境變數初始化。這對於伺服器端應用程式非常有用，因為設定通常通過環境傳遞。識別以下變數：
 
-- `APP_ID`: 您的應用ID。
+- `APP_ID`: 您的應用 ID。
 - `APOLLO_ACCESS_KEY_SECRET`: 您命名空間的金鑰（如果適用）。
 - `IDC`: 叢集名稱（如果未設定，則預設為 "default"）。
-- `APOLLO_CONFIG_SERVICE`: Apollo 設定服務的URL。
+- `APOLLO_CONFIG_SERVICE`: Apollo 設定服務的 URL。
 - `APOLLO_LABEL`: 用于灰度規則的以逗號分隔的標籤列表。
 - `APOLLO_CACHE_DIR`: 用于儲存本地快取的目錄。
+- `APOLLO_ALLOW_INSECURE_HTTPS`: 是否允許不安全的 HTTPS 連接（可選，預設為 false）。
 
 注意：`ip` 欄位不會通過 `from_env()` 設定。

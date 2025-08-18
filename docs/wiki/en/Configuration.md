@@ -132,6 +132,22 @@ let config = ClientConfig {
 };
 ```
 
+#### `allow_insecure_https` (Option<bool>)
+
+- **Description**: Whether to allow insecure HTTPS connections (self-signed certificates)
+- **Purpose**: Enables connection to servers with self-signed or invalid SSL certificates
+- **When to Use**: Company internal networks, development environments, testing
+- **Security Warning**: Reduces security by bypassing SSL certificate validation
+- **Default**: `None` (secure by default)
+- **Environment Variable**: `APOLLO_ALLOW_INSECURE_HTTPS`
+
+```rust
+let config = ClientConfig {
+    allow_insecure_https: Some(true), // Allow self-signed certificates
+    // ... other fields
+};
+```
+
 #### `cache_ttl` (Option<u64>) - Native targets only
 
 - **Description**: Time-to-live for the file cache in seconds.
@@ -163,6 +179,7 @@ let config = ClientConfig {
     cache_dir: None,
     label: None,
     ip: None,
+    allow_insecure_https: None,
 };
 ```
 
@@ -179,6 +196,7 @@ let config = ClientConfig {
     cache_dir: Some("/var/cache/apollo".to_string()),
     label: Some("datacenter-east,version-2.1".to_string()),
     ip: Some("10.0.1.100".to_string()),
+    allow_insecure_https: None, // Secure by default in production
 };
 ```
 
@@ -195,6 +213,7 @@ let config = ClientConfig {
     cache_dir: Some("/tmp/apollo-cache".to_string()),
     label: Some("developer-workstation".to_string()),
     ip: None,
+    allow_insecure_https: None,
 };
 ```
 
@@ -225,6 +244,7 @@ let config = ClientConfig::from_env()?;
 - **`APOLLO_LABEL`**: Comma-separated list of labels for grayscale rules (optional)
 - **`APOLLO_CACHE_DIR`**: Directory to store local cache (optional)
 - **`APOLLO_CACHE_TTL`**: Time-to-live for the cache in seconds (optional, defaults to 600, native targets only)
+- **`APOLLO_ALLOW_INSECURE_HTTPS`**: Whether to allow insecure HTTPS connections (optional, defaults to false)
 
 #### Setting Environment Variables
 
@@ -237,6 +257,7 @@ export IDC="production"
 export APOLLO_ACCESS_KEY_SECRET="secret-key"
 export APOLLO_LABEL="canary,beta"
 export APOLLO_CACHE_DIR="/opt/apollo/cache"
+export APOLLO_ALLOW_INSECURE_HTTPS="false"
 ```
 
 ##### Windows (PowerShell)
@@ -248,6 +269,7 @@ $env:IDC = "production"
 $env:APOLLO_ACCESS_KEY_SECRET = "secret-key"
 $env:APOLLO_LABEL = "canary,beta"
 $env:APOLLO_CACHE_DIR = "C:\apollo\cache"
+$env:APOLLO_ALLOW_INSECURE_HTTPS = "false"
 ```
 
 ##### Windows (Command Prompt)

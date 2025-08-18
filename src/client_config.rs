@@ -10,6 +10,18 @@
 //! - **Environment Variables**: Automatically load configuration from environment variables
 //! - **Mixed Approach**: Load from environment variables and override specific fields
 //!
+//! ## Environment Variables
+//!
+//! The following environment variables are supported:
+//! - `APP_ID`: Your application identifier in Apollo
+//! - `APOLLO_CONFIG_SERVICE`: The Apollo configuration server URL
+//! - `IDC`: The cluster name (defaults to "default")
+//! - `APOLLO_ACCESS_KEY_SECRET`: Authentication secret key
+//! - `APOLLO_LABEL`: Labels for grayscale release targeting
+//! - `APOLLO_CACHE_DIR`: Local cache directory
+//! - `APOLLO_CACHE_TTL`: Cache time-to-live in seconds
+//! - `APOLLO_ALLOW_INSECURE_HTTPS`: Whether to allow insecure HTTPS connections
+//!
 //! # Platform Support
 //!
 //! - **Native Rust**: Full feature set including file caching and environment variable support
@@ -30,6 +42,7 @@
 //!     cache_dir: None, // Uses default
 //!     label: Some("production".to_string()),
 //!     ip: Some("192.168.1.100".to_string()),
+//!     allow_insecure_https: None,
 //!     #[cfg(not(target_arch = "wasm32"))]
 //!     cache_ttl: None,
 //! };
@@ -72,6 +85,7 @@ pub enum Error {
 /// - `cache_dir`: Local cache directory (native targets only)
 /// - `label`: Labels for grayscale release targeting
 /// - `ip`: IP address for grayscale release targeting
+/// - `allow_insecure_https`: Whether to allow insecure HTTPS connections (self-signed certificates)
 ///
 /// # Examples
 ///
@@ -88,6 +102,7 @@ pub enum Error {
 ///     cache_dir: None,
 ///     label: None,
 ///     ip: None,
+///     allow_insecure_https: None,
 ///     #[cfg(not(target_arch = "wasm32"))]
 ///     cache_ttl: None,
 /// };
@@ -106,6 +121,7 @@ pub enum Error {
 ///     cache_dir: Some("/custom/cache/path".to_string()),
 ///     label: Some("canary,beta".to_string()),
 ///     ip: Some("192.168.1.100".to_string()),
+///     allow_insecure_https: Some(true), // Allow self-signed certificates
 ///     #[cfg(not(target_arch = "wasm32"))]
 ///     cache_ttl: None,
 /// };
@@ -160,6 +176,16 @@ pub struct ClientConfig {
     /// based on IP-based targeting rules.
     pub ip: Option<String>,
 
+    /// Whether to allow insecure HTTPS connections (self-signed certificates).
+    ///
+    /// When set to `true`, the client will accept self-signed SSL certificates
+    /// and other insecure HTTPS connections. This is useful in company internal
+    /// networks or development environments where self-signed certificates are used.
+    ///
+    /// **Warning**: Setting this to `true` reduces security by bypassing SSL
+    /// certificate validation. Only use this in trusted internal networks.
+    pub allow_insecure_https: Option<bool>,
+
     /// Time-to-live for the cache, in seconds (native targets only).
     ///
     /// When using `from_env`, this defaults to 600 seconds (10 minutes) if
@@ -196,6 +222,9 @@ cfg_if! {
                     .map_err(|e| (Error::EnvVar(e, "APOLLO_LABEL".to_string())))
                     .ok();
                 let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok();
+                let allow_insecure_https = std::env::var("APOLLO_ALLOW_INSECURE_HTTPS")
+                    .ok()
+                    .and_then(|s| s.parse().ok());
                 let cache_ttl = std::env::var("APOLLO_CACHE_TTL")
                     .ok()
                     .and_then(|s| s.parse().ok())
@@ -208,6 +237,7 @@ cfg_if! {
                     cache_dir,
                     label,
                     ip: None,
+                    allow_insecure_https,
                     cache_ttl,
                 })
             }
@@ -233,6 +263,9 @@ cfg_if! {
                     .map_err(|e| (Error::EnvVar(e, "APOLLO_LABEL".to_string())))
                     .ok();
                 let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok();
+                let allow_insecure_https = std::env::var("APOLLO_ALLOW_INSECURE_HTTPS")
+                    .ok()
+                    .and_then(|s| s.parse().ok());
                 Ok(Self {
                     app_id,
                     secret,
@@ -241,6 +274,7 @@ cfg_if! {
                     cache_dir,
                     label,
                     ip: None,
+                    allow_insecure_https,
                 })
             }
         }
@@ -315,6 +349,7 @@ cfg_if! {
                     secret: None,
                     label: None,
                     ip: None,
+                    allow_insecure_https: None,
                 }
             }
         }

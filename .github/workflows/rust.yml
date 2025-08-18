@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Update Rust toolchain
+        run: rustup update
       - name: Install wasm-pack
         run: cargo install wasm-pack
       - name: Build
@@ -23,6 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Update Rust toolchain
+        run: rustup update
       - name: Install wasm-pack
         run: cargo install wasm-pack
       - name: Run tests
