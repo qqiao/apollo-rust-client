@@ -373,11 +373,18 @@ impl Cache {
 
         // Create HTTP client with optional insecure HTTPS support
         let http_client = if self.client_config.allow_insecure_https.unwrap_or(false) {
-            reqwest::Client::builder()
-                .danger_accept_invalid_certs(true)
-                .danger_accept_invalid_hostnames(true)
-                .build()
-                .unwrap_or_else(|_| reqwest::Client::new())
+            cfg_if! {
+                if #[cfg(not(target_arch = "wasm32"))] {
+                    reqwest::Client::builder()
+                        .danger_accept_invalid_certs(true)
+                        .danger_accept_invalid_hostnames(true)
+                        .build()
+                        .unwrap_or_else(|_| reqwest::Client::new())
+                } else {
+                    // WASM target doesn't support these methods, use default client
+                    reqwest::Client::new()
+                }
+            }
         } else {
             reqwest::Client::new()
         };
@@ -405,7 +412,7 @@ impl Cache {
             }
         };
 
-        let body = match response.text().await {
+        let body: String = match response.text().await {
             Ok(b) => b,
             Err(e) => {
                 *loading = false;
