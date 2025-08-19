@@ -5,6 +5,13 @@ All notable changes to the apollo-rust-client project will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2025-08-19
+
+### Changed
+
+- **Dependency Updates**: Updated transitive dependencies to latest stable versions:
+  - `slab` updated from 0.4.10 to 0.4.11 (bug fix for `Slab::get_disjoint_mut` out of bounds issue)
+
 ## [0.5.2] - 2025-08-19
 
 ### Added
