@@ -35,31 +35,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match namespace {
         apollo_rust_client::namespace::Namespace::Properties(properties) => {
             // Example: Retrieve a string property.
-            match properties.get_string("some_key").await {
+            match properties.get_string("some_key") {
                 Some(value) => println!("Property 'some_key': {}", value),
                 None => println!("Property 'some_key' not found"),
             }
 
             // Example: Retrieve an integer property.
-            match properties.get_int("meaningOfLife").await {
+            match properties.get_int("meaningOfLife") {
                 Some(value) => println!("Property 'meaningOfLife': {}", value),
                 None => println!("Property 'meaningOfLife' not found"),
             }
 
             // Example: Retrieve a float property.
-            match properties.get_float("pi").await {
+            match properties.get_float("pi") {
                 Some(value) => println!("Property 'pi': {}", value),
                 None => println!("Property 'pi' not found"),
             }
 
             // Example: Retrieve a boolean property.
-            match properties.get_bool("debug_enabled").await {
+            match properties.get_bool("debug_enabled") {
                 Some(value) => println!("Property 'debug_enabled': {}", value),
                 None => println!("Property 'debug_enabled' not found"),
             }
 
             // Example: Retrieve a generic property with custom type.
-            match properties.get_property::<u32>("port").await {
+            match properties.get_property::<u32>("port") {
                 Some(value) => println!("Property 'port': {}", value),
                 None => println!("Property 'port' not found"),
             }
@@ -155,7 +155,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match namespace {
         apollo_rust_client::namespace::Namespace::Properties(properties) => {
             // Work with properties
-            if let Some(value) = properties.get_string("app.name").await {
+            if let Some(value) = properties.get_string("app.name") {
                 println!("Application name: {}", value);
             }
         }

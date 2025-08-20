@@ -96,15 +96,14 @@ impl Properties {
     /// use serde_json::json;
     /// use apollo_client::namespace::properties::Properties;
     ///
-    /// # async fn example() {
     /// let props_data = json!({"timeout": "30", "retries": "3"});
     /// let properties = Properties::from(props_data);
     ///
-    /// let timeout: Option<u32> = properties.get_property("timeout").await;
-    /// let retries: Option<i32> = properties.get_property("retries").await;
-    /// # }
+    /// let timeout: Option<u32> = properties.get_property("timeout");
+    /// let retries: Option<i32> = properties.get_property("retries");
     /// ```
-    pub async fn get_property<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
+    #[must_use]
+    pub fn get_property<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
         debug!("Getting property for key {key}");
 
         let value = self.value.get(key)?;
@@ -134,16 +133,15 @@ impl Properties {
     /// use serde_json::json;
     /// use apollo_client::namespace::properties::Properties;
     ///
-    /// # async fn example() {
     /// let props_data = json!({"app.name": "MyApp"});
     /// let properties = Properties::from(props_data);
     ///
-    /// let app_name = properties.get_string("app.name").await;
+    /// let app_name = properties.get_string("app.name");
     /// assert_eq!(app_name, Some("MyApp".to_string()));
-    /// # }
     /// ```
-    pub async fn get_string(&self, key: &str) -> Option<String> {
-        self.get_property::<String>(key).await
+    #[must_use]
+    pub fn get_string(&self, key: &str) -> Option<String> {
+        self.get_property::<String>(key)
     }
 
     /// Get a property from the cache as an integer.
@@ -166,16 +164,15 @@ impl Properties {
     /// use serde_json::json;
     /// use apollo_client::namespace::properties::Properties;
     ///
-    /// # async fn example() {
     /// let props_data = json!({"server.port": "8080"});
     /// let properties = Properties::from(props_data);
     ///
-    /// let port = properties.get_int("server.port").await;
+    /// let port = properties.get_int("server.port");
     /// assert_eq!(port, Some(8080));
-    /// # }
     /// ```
-    pub async fn get_int(&self, key: &str) -> Option<i64> {
-        self.get_property::<i64>(key).await
+    #[must_use]
+    pub fn get_int(&self, key: &str) -> Option<i64> {
+        self.get_property::<i64>(key)
     }
 
     /// Get a property from the cache as a float.
@@ -198,16 +195,15 @@ impl Properties {
     /// use serde_json::json;
     /// use apollo_client::namespace::properties::Properties;
     ///
-    /// # async fn example() {
     /// let props_data = json!({"timeout.seconds": "30.5"});
     /// let properties = Properties::from(props_data);
     ///
-    /// let timeout = properties.get_float("timeout.seconds").await;
+    /// let timeout = properties.get_float("timeout.seconds");
     /// assert_eq!(timeout, Some(30.5));
-    /// # }
     /// ```
-    pub async fn get_float(&self, key: &str) -> Option<f64> {
-        self.get_property::<f64>(key).await
+    #[must_use]
+    pub fn get_float(&self, key: &str) -> Option<f64> {
+        self.get_property::<f64>(key)
     }
 
     /// Get a property from the cache as a boolean.
@@ -231,16 +227,15 @@ impl Properties {
     /// use serde_json::json;
     /// use apollo_client::namespace::properties::Properties;
     ///
-    /// # async fn example() {
     /// let props_data = json!({"debug.enabled": "true"});
     /// let properties = Properties::from(props_data);
     ///
-    /// let debug_enabled = properties.get_bool("debug.enabled").await;
+    /// let debug_enabled = properties.get_bool("debug.enabled");
     /// assert_eq!(debug_enabled, Some(true));
-    /// # }
     /// ```
-    pub async fn get_bool(&self, key: &str) -> Option<bool> {
-        self.get_property::<bool>(key).await
+    #[must_use]
+    pub fn get_bool(&self, key: &str) -> Option<bool> {
+        self.get_property::<bool>(key)
     }
 }
 

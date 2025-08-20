@@ -30,14 +30,76 @@ pub mod json;
 pub mod properties;
 pub mod yaml;
 
+/// Comprehensive error types that can occur when working with namespaces.
+///
+/// This enum covers all possible error conditions that may arise during namespace
+/// operations, from format detection to parsing and type conversion failures.
+///
+/// # Error Categories
+///
+/// - **JSON Errors**: Issues with JSON namespace processing and deserialization
+/// - **YAML Errors**: Issues with YAML namespace processing and deserialization
+/// - **Text Errors**: Issues with text content extraction and processing
+/// - **XML Errors**: Issues with XML format (currently unsupported)
+///
+/// # Examples
+///
+/// ```rust
+/// use apollo_rust_client::namespace::{get_namespace, Error};
+///
+/// match get_namespace("config.json", json_value) {
+///     Ok(namespace) => {
+///         // Handle successful namespace creation
+///     }
+///     Err(Error::Json(json_error)) => {
+///         // Handle JSON-specific errors
+///         eprintln!("JSON error: {}", json_error);
+///     }
+///     Err(Error::Yaml(yaml_error)) => {
+///         // Handle YAML-specific errors
+///         eprintln!("YAML error: {}", yaml_error);
+///     }
+///     Err(Error::Text(text_error)) => {
+///         // Handle text-specific errors
+///         eprintln!("Text error: {}", text_error);
+///     }
+///     Err(Error::Xml(xml_error)) => {
+///         // Handle XML-specific errors (currently unsupported)
+///         eprintln!("XML error: {}", xml_error);
+///     }
+///     Err(e) => {
+///         // Handle other errors
+///         eprintln!("Error: {}", e);
+///     }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// Failed to process JSON namespace.
+    ///
+    /// This error occurs when there are issues with JSON format detection,
+    /// parsing, or deserialization operations specific to JSON namespaces.
     #[error("Failed to get JSON namespace: {0}")]
     Json(#[from] json::Error),
+
+    /// Failed to process YAML namespace.
+    ///
+    /// This error occurs when there are issues with YAML format detection,
+    /// parsing, or deserialization operations specific to YAML namespaces.
     #[error("Failed to get YAML namespace: {0}")]
     Yaml(#[from] yaml::Error),
+
+    /// Failed to process text namespace.
+    ///
+    /// This error occurs when there are issues with text content extraction
+    /// or processing from the configuration data.
     #[error("Failed to get text namespace: {0}")]
     Text(String),
+
+    /// Failed to process XML namespace.
+    ///
+    /// This error occurs when XML format is detected but XML processing
+    /// is not yet supported by the library.
     #[error("Failed to get XML namespace: {0}")]
     Xml(String),
     // #[error("Failed to get Properties namespace: {0}")]
@@ -131,7 +193,7 @@ enum NamespaceType {
 /// // get_namespace_type("readme.txt") -> NamespaceType::Text
 /// ```
 fn get_namespace_type(namespace: &str) -> NamespaceType {
-    let parts = namespace.split(".").collect::<Vec<&str>>();
+    let parts = namespace.split('.').collect::<Vec<&str>>();
     if parts.len() == 1 {
         NamespaceType::Properties
     } else {
@@ -139,7 +201,6 @@ fn get_namespace_type(namespace: &str) -> NamespaceType {
             "json" => NamespaceType::Json,
             "yaml" | "yml" => NamespaceType::Yaml,
             "xml" => NamespaceType::Xml,
-            "txt" => NamespaceType::Text,
             _ => NamespaceType::Text,
         }
     }
@@ -158,14 +219,19 @@ fn get_namespace_type(namespace: &str) -> NamespaceType {
 ///
 /// # Returns
 ///
-/// A `Namespace` enum variant containing the typed representation of the data
+/// * `Ok(Namespace)` - A namespace variant containing the typed representation of the data
+/// * `Err(Error::Json)` - If JSON format processing fails
+/// * `Err(Error::Yaml)` - If YAML format processing fails
+/// * `Err(Error::Text)` - If text format content extraction fails
+/// * `Err(Error::Xml)` - If XML format is detected (not yet supported)
 ///
 /// # Errors
 ///
 /// This function will return an error if:
 /// - XML format is detected (not yet supported)
 /// - Text format content cannot be extracted from the JSON value
-/// - JSON or YAML parsing fails
+/// - JSON or YAML parsing fails during format conversion
+/// - The namespace format detection logic encounters unexpected data
 ///
 /// # Examples
 ///
@@ -173,12 +239,12 @@ fn get_namespace_type(namespace: &str) -> NamespaceType {
 /// use serde_json::json;
 /// use apollo_client::namespace::get_namespace;
 ///
-/// let json_data = json!({"key": "value"});
-/// let namespace = get_namespace("config.json", json_data);
+/// let json_data = json!({"content": "{\"key\": \"value\"}"});
+/// let namespace = get_namespace("config.json", json_data)?;
 /// // Returns Namespace::Json variant
 ///
 /// let props_data = json!({"app.name": "MyApp", "app.version": "1.0"});
-/// let namespace = get_namespace("application", props_data);
+/// let namespace = get_namespace("application", props_data)?;
 /// // Returns Namespace::Properties variant
 /// ```
 pub(crate) fn get_namespace(namespace: &str, value: serde_json::Value) -> Result<Namespace, Error> {

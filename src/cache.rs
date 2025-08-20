@@ -43,7 +43,7 @@ use log::{debug, trace};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha1::Sha1;
-use std::sync::Arc;
+use std::{fmt::Write, sync::Arc};
 use url::{ParseError, Url};
 
 #[derive(Serialize, Deserialize)]
@@ -52,26 +52,105 @@ struct CacheItem {
     config: Value,
 }
 
+/// Comprehensive error types that can occur during cache operations.
+///
+/// This enum covers all possible error conditions that may arise during cache
+/// operations, from I/O failures to network and parsing issues.
+///
+/// # Error Categories
+///
+/// - **I/O Errors**: File system operations, directory creation, and file writing
+/// - **Namespace Errors**: Issues with namespace format detection and processing
+/// - **Serialization Errors**: JSON parsing and serialization failures
+/// - **Network Errors**: HTTP request failures and response parsing issues
+/// - **URL Errors**: Malformed URLs and parsing failures
+/// - **Concurrency Errors**: Race conditions during cache operations
+///
+/// # Examples
+///
+/// ```rust
+/// use apollo_rust_client::cache::{Cache, Error};
+///
+/// match cache.refresh().await {
+///     Ok(()) => {
+///         // Handle successful cache refresh
+///     }
+///     Err(Error::Io(io_error)) => {
+///         // Handle file system errors
+///         eprintln!("I/O error: {}", io_error);
+///     }
+///     Err(Error::Reqwest(reqwest_error)) => {
+///         // Handle network errors
+///         eprintln!("Network error: {}", reqwest_error);
+///     }
+///     Err(Error::Serde(serde_error)) => {
+///         // Handle JSON parsing errors
+///         eprintln!("JSON error: {}", serde_error);
+///     }
+///     Err(e) => {
+///         // Handle other errors
+///         eprintln!("Error: {}", e);
+///     }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// An I/O error occurred during file operations.
+    ///
+    /// This error occurs when there are issues with file system operations,
+    /// such as reading/writing cache files, creating directories, or
+    /// insufficient permissions.
     #[error("Io error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// An error occurred during namespace processing.
+    ///
+    /// This includes errors from format detection, parsing, or type conversion
+    /// operations specific to namespace handling.
     #[error("Namespace error: {0}")]
     Namespace(namespace::Error),
 
+    /// A serialization/deserialization error occurred.
+    ///
+    /// This error occurs when there are issues with JSON parsing, such as
+    /// malformed JSON data, type mismatches, or encoding problems.
     #[error("Serde error: {0}")]
     Serde(#[from] serde_json::Error),
 
+    /// The requested namespace was not found.
+    ///
+    /// This error occurs when attempting to access a namespace that doesn't
+    /// exist in the cache or when the cache has not been properly initialized.
     #[error("Namespace not found: {0}")]
     NamespaceNotFound(String),
 
+    /// A network request error occurred.
+    ///
+    /// This error occurs when there are issues with HTTP requests to the
+    /// Apollo server, such as connection failures, timeouts, or invalid responses.
     #[error("Reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
+
+    /// A URL parsing error occurred.
+    ///
+    /// This error occurs when the constructed URL for the Apollo server
+    /// is malformed or cannot be parsed.
     #[error("Url parse error: {0}")]
     UrlParse(#[from] url::ParseError),
+
+    /// A refresh operation is already in progress.
+    ///
+    /// This error occurs when attempting to refresh a cache that is already
+    /// being refreshed by another operation. This prevents concurrent refresh
+    /// operations that could cause race conditions.
     #[error("Already loading")]
     AlreadyLoading,
+
+    /// A cache initialization check is already in progress.
+    ///
+    /// This error occurs when attempting to check or initialize a cache that
+    /// is already being processed by another operation. This prevents concurrent
+    /// cache initialization that could cause race conditions.
     #[error("Already checking cache")]
     AlreadyCheckingCache,
 }
@@ -126,13 +205,13 @@ pub(crate) struct Cache {
     ///
     /// This prevents multiple threads from simultaneously attempting to
     /// read and parse the same cache file during initialization.
-    checking_cache: Arc<RwLock<bool>>,
+    checking: Arc<RwLock<bool>>,
 
     /// In-memory storage for the parsed configuration data.
     ///
     /// Contains the JSON representation of the configuration. `None` indicates
     /// that the cache has not been populated or a fetch operation failed.
-    memory_cache: Arc<RwLock<Option<Value>>>,
+    memory: Arc<RwLock<Option<Value>>>,
 
     /// Collection of event listeners for configuration change notifications.
     ///
@@ -163,10 +242,10 @@ impl Cache {
     pub(crate) fn new(client_config: ClientConfig, namespace: &str) -> Self {
         let mut file_name = namespace.to_string();
         if let Some(ip) = &client_config.ip {
-            file_name.push_str(&format!("_{ip}"));
+            let _ = write!(file_name, "_{ip}");
         }
         if let Some(label) = &client_config.label {
-            file_name.push_str(&format!("_{label}"));
+            let _ = write!(file_name, "_{label}");
         }
 
         cfg_if! {
@@ -182,8 +261,8 @@ impl Cache {
             namespace: namespace.to_string(),
 
             loading: Arc::new(RwLock::new(false)),
-            checking_cache: Arc::new(RwLock::new(false)),
-            memory_cache: Arc::new(RwLock::new(None)),
+            checking: Arc::new(RwLock::new(false)),
+            memory: Arc::new(RwLock::new(None)),
             listeners: Arc::new(RwLock::new(Vec::new())),
 
             #[cfg(not(target_arch = "wasm32"))]
@@ -192,14 +271,6 @@ impl Cache {
     }
 
     /// Get a configuration from the cache.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to get the configuration for.
-    ///
-    /// # Returns
-    ///
-    /// The configuration for the given key.
     ///
     /// This method attempts to retrieve a configuration value associated with the given `key`.
     /// The process involves several steps:
@@ -223,18 +294,40 @@ impl Cache {
     /// If another task is already performing this check/initialization, the current task will return
     /// `Err(Error::AlreadyCheckingCache)`. This indicates that a cache lookup or population is
     /// already in progress, and the caller should typically retry shortly.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Value)` - The configuration value if successfully retrieved
+    /// * `Err(Error::AlreadyCheckingCache)` - If another cache operation is in progress
+    /// * `Err(Error::NamespaceNotFound)` - If the namespace cannot be found or initialized
+    /// * `Err(Error::Io)` - If file system operations fail (native targets only)
+    /// * `Err(Error::Serde)` - If cache file parsing fails (native targets only)
+    /// * `Err(Error::Reqwest)` - If network requests fail during refresh
+    /// * `Err(Error::UrlParse)` - If URL construction fails
+    /// * `Err(Error::Namespace)` - If namespace processing fails
+    ///
+    /// # Errors
+    ///
+    /// This method will return an error if:
+    /// - Another cache operation is already in progress
+    /// - The namespace cannot be found or initialized
+    /// - File system operations fail (native targets only)
+    /// - Cache file parsing fails (native targets only)
+    /// - Network requests fail during refresh
+    /// - URL construction fails
+    /// - Namespace processing fails
     pub(crate) async fn get_value(&self) -> Result<Value, Error> {
         debug!("Getting value for namesapce {}", self.namespace);
 
         // Check if the cache file exists
-        let mut checking_cache = self.checking_cache.write().await;
+        let mut checking_cache = self.checking.write().await;
         if *checking_cache {
             return Err(Error::AlreadyCheckingCache);
         }
         *checking_cache = true;
 
         // First we check memory cache
-        let memory_cache = self.memory_cache.read().await;
+        let memory_cache = self.memory.read().await;
         if let Some(value) = memory_cache.as_ref() {
             debug!(
                 "Memory cache found, using memory cache for namespace {}",
@@ -260,7 +353,9 @@ impl Cache {
                                 if #[cfg(not(target_arch = "wasm32"))] {
                                     if let Some(ttl) = self.client_config.cache_ttl {
                                         let age = Utc::now().timestamp() - cache_item.timestamp;
-                                        if age > ttl as i64 {
+                                        #[allow(clippy::cast_possible_wrap)]
+                                        let ttl = ttl as i64;
+                                        if age > ttl {
                                             is_stale = true;
                                             trace!("Cache for {} is stale.", self.namespace);
                                         }
@@ -270,7 +365,7 @@ impl Cache {
 
                             if !is_stale {
                                 trace!("Cache for {} is fresh, using it.", self.namespace);
-                                self.memory_cache.write().await.replace(cache_item.config);
+                                self.memory.write().await.replace(cache_item.config);
                                 needs_refresh = false;
                             }
                         } else {
@@ -284,7 +379,7 @@ impl Cache {
                 if needs_refresh {
                     trace!("Refreshing cache for namespace {}", self.namespace);
                     match self.refresh().await {
-                        Ok(_) => (),
+                        Ok(()) => (),
                         Err(e) => {
                             *checking_cache = false;
                             return Err(e);
@@ -293,7 +388,7 @@ impl Cache {
                 }
             } else {
                 match self.refresh().await {
-                    Ok(_) => (),
+                    Ok(()) => (),
                     Err(e) => {
                         *checking_cache = false;
                         return Err(e);
@@ -302,7 +397,7 @@ impl Cache {
             }
         }
 
-        let memory_cache = self.memory_cache.read().await;
+        let memory_cache = self.memory.read().await;
         if let Some(value) = memory_cache.as_ref() {
             *checking_cache = false;
             Ok(value.clone())
@@ -339,6 +434,25 @@ impl Cache {
     /// the current task will return `Err(Error::AlreadyLoading)`. This indicates that a refresh
     /// is already in progress, and the caller should typically wait for the ongoing refresh to
     /// complete rather than initiating a new one.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the cache was successfully refreshed
+    /// * `Err(Error::AlreadyLoading)` - If another refresh operation is already in progress
+    /// * `Err(Error::UrlParse)` - If URL construction fails
+    /// * `Err(Error::Reqwest)` - If the HTTP request fails
+    /// * `Err(Error::Serde)` - If the response body cannot be parsed as JSON
+    /// * `Err(Error::Io)` - If file cache operations fail (native targets only)
+    ///
+    /// # Errors
+    ///
+    /// This method will return an error if:
+    /// - Another refresh operation is already in progress
+    /// - URL construction fails
+    /// - HTTP request fails (network issues, server errors, etc.)
+    /// - Response body cannot be parsed as JSON
+    /// - File cache operations fail (native targets only)
+    /// - Authentication signature generation fails
     pub(crate) async fn refresh(&self) -> Result<(), Error> {
         let mut loading = self.loading.write().await;
         if *loading {
@@ -347,6 +461,50 @@ impl Cache {
         *loading = true;
 
         trace!("Refreshing cache for namespace {}", self.namespace);
+
+        // Build the request URL
+        let url = self.build_request_url()?;
+        trace!("Url {} for namespace {}", url, self.namespace);
+
+        // Create HTTP client
+        let http_client = self.create_http_client();
+
+        // Build the HTTP request with authentication if needed
+        let client = self.build_http_request(&url, &http_client)?;
+
+        // Execute the request and get response
+        let response = self.execute_request(client).await?;
+
+        // Parse the response body
+        let config = self.parse_response(response).await?;
+        trace!("parsed config: {config:?}");
+
+        // Write to file cache (native targets only)
+        cfg_if! {
+            if #[cfg(not(target_arch = "wasm32"))] {
+                self.write_to_file_cache(&config)?;
+            }
+        }
+
+        // Notify listeners and update memory cache
+        self.update_cache_and_notify_listeners(config).await;
+
+        trace!("Refreshed cache for namespace {}", self.namespace);
+        *loading = false;
+
+        Ok(())
+    }
+
+    /// Builds the request URL for the Apollo configuration service.
+    ///
+    /// Constructs the URL with the base path, app ID, cluster, and namespace,
+    /// and adds optional query parameters for IP and label.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Url)` - The constructed URL
+    /// * `Err(Error::UrlParse)` - If URL parsing fails
+    fn build_request_url(&self) -> Result<Url, Error> {
         let url = format!(
             "{}/configfiles/json/{}/{}/{}",
             self.client_config.config_server,
@@ -357,11 +515,9 @@ impl Cache {
 
         let mut url = match Url::parse(&url) {
             Ok(u) => u,
-            Err(e) => {
-                *loading = false;
-                return Err(Error::UrlParse(e));
-            }
+            Err(e) => return Err(Error::UrlParse(e)),
         };
+
         if let Some(ip) = &self.client_config.ip {
             url.query_pairs_mut().append_pair("ip", ip);
         }
@@ -369,10 +525,19 @@ impl Cache {
             url.query_pairs_mut().append_pair("label", label);
         }
 
-        trace!("Url {} for namespace {}", url, self.namespace);
+        Ok(url)
+    }
 
-        // Create HTTP client with optional insecure HTTPS support
-        let http_client = if self.client_config.allow_insecure_https.unwrap_or(false) {
+    /// Creates an HTTP client with optional insecure HTTPS support.
+    ///
+    /// For native targets, allows insecure HTTPS if configured.
+    /// For WASM targets, always uses the default client.
+    ///
+    /// # Returns
+    ///
+    /// * `reqwest::Client` - The configured HTTP client
+    fn create_http_client(&self) -> reqwest::Client {
+        if self.client_config.allow_insecure_https.unwrap_or(false) {
             cfg_if! {
                 if #[cfg(not(target_arch = "wasm32"))] {
                     reqwest::Client::builder()
@@ -387,16 +552,33 @@ impl Cache {
             }
         } else {
             reqwest::Client::new()
-        };
+        }
+    }
 
+    /// Builds the HTTP request with optional authentication headers.
+    ///
+    /// If a secret is configured, adds timestamp and authorization headers
+    /// with HMAC-SHA1 signature.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The request URL
+    /// * `http_client` - The HTTP client to use
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(reqwest::RequestBuilder)` - The configured request builder
+    /// * `Err(Error)` - If signature generation fails
+    fn build_http_request(
+        &self,
+        url: &Url,
+        http_client: &reqwest::Client,
+    ) -> Result<reqwest::RequestBuilder, Error> {
         let mut client = http_client.get(url.as_str());
-        if self.client_config.secret.is_some() {
+
+        if let Some(secret) = &self.client_config.secret {
             let timestamp = Utc::now().timestamp_millis();
-            let signature = sign(
-                timestamp,
-                url.as_str(),
-                self.client_config.secret.as_ref().unwrap(),
-            )?;
+            let signature = sign(timestamp, url.as_str(), secret)?;
             client = client.header("timestamp", timestamp.to_string());
             client = client.header(
                 "Authorization",
@@ -404,73 +586,103 @@ impl Cache {
             );
         }
 
-        let response = match client.send().await {
-            Ok(r) => r,
-            Err(e) => {
-                *loading = false;
-                return Err(Error::Reqwest(e));
-            }
-        };
+        Ok(client)
+    }
 
+    /// Executes the HTTP request and returns the response.
+    ///
+    /// # Arguments
+    ///
+    /// * `client` - The configured request builder
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(reqwest::Response)` - The HTTP response
+    /// * `Err(Error::Reqwest)` - If the request fails
+    async fn execute_request(
+        &self,
+        client: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, Error> {
+        match client.send().await {
+            Ok(r) => Ok(r),
+            Err(e) => Err(Error::Reqwest(e)),
+        }
+    }
+
+    /// Parses the HTTP response body as JSON configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The HTTP response
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Value)` - The parsed configuration
+    /// * `Err(Error::Reqwest)` - If reading the response body fails
+    /// * `Err(Error::Serde)` - If JSON parsing fails
+    async fn parse_response(&self, response: reqwest::Response) -> Result<Value, Error> {
         let body: String = match response.text().await {
             Ok(b) => b,
-            Err(e) => {
-                *loading = false;
-                return Err(Error::Reqwest(e));
-            }
+            Err(e) => return Err(Error::Reqwest(e)),
         };
 
         trace!("Response body {} for namespace {}", body, self.namespace);
 
-        let config: Value = match serde_json::from_str(&body) {
-            Ok(c) => c,
+        match serde_json::from_str(&body) {
+            Ok(c) => Ok(c),
             Err(e) => {
-                *loading = false;
                 debug!("error parsing config: {e}");
-                return Err(Error::Serde(e));
-            }
-        };
-        trace!("parsed config: {config:?}");
-
-        cfg_if! {
-            if #[cfg(not(target_arch = "wasm32"))] {
-                debug!("writing cache file {}", self.file_path.display());
-                 // Create parent directories if they don't exist
-                if let Some(parent) = self.file_path.parent() {
-                    match std::fs::create_dir_all(parent) {
-                        Ok(_) => (),
-                        Err(e) => {
-                            *loading = false;
-                            return Err(Error::Io(e));
-                        }
-                    }
-                }
-
-                let cache_item = CacheItem {
-                    timestamp: Utc::now().timestamp(),
-                    config: config.clone(),
-                };
-
-                let cache_content = match serde_json::to_string(&cache_item) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        *loading = false;
-                        return Err(Error::Serde(e));
-                    }
-                };
-
-                match std::fs::write(&self.file_path, cache_content) {
-                    Ok(_) => {
-                        trace!("Wrote cache file {} for namespace {}", self.file_path.display(), self.namespace);
-                    },
-                    Err(e) => {
-                        *loading = false;
-                        return Err(Error::Io(e));
-                    }
-                }
+                Err(Error::Serde(e))
             }
         }
+    }
 
+    /// Writes the configuration to the file cache (native targets only).
+    ///
+    /// Creates parent directories if they don't exist and writes the cache item
+    /// with timestamp and configuration data.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The configuration to cache
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If caching succeeds
+    /// * `Err(Error::Io)` - If file operations fail
+    /// * `Err(Error::Serde)` - If serialization fails
+    #[cfg(not(target_arch = "wasm32"))]
+    fn write_to_file_cache(&self, config: &Value) -> Result<(), Error> {
+        debug!("writing cache file {}", self.file_path.display());
+
+        // Create parent directories if they don't exist
+        if let Some(parent) = self.file_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let cache_item = CacheItem {
+            timestamp: Utc::now().timestamp(),
+            config: config.clone(),
+        };
+
+        let cache_content = serde_json::to_string(&cache_item)?;
+
+        std::fs::write(&self.file_path, cache_content)?;
+        trace!(
+            "Wrote cache file {} for namespace {}",
+            self.file_path.display(),
+            self.namespace
+        );
+
+        Ok(())
+    }
+
+    /// Updates the memory cache and notifies all listeners.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The new configuration to store
+    async fn update_cache_and_notify_listeners(&self, config: Value) {
         // Notify listeners with the new config
         let listeners = self.listeners.read().await;
         for listener in listeners.iter() {
@@ -480,12 +692,8 @@ impl Cache {
         }
         drop(listeners); // Release read lock before acquiring write lock
 
-        self.memory_cache.write().await.replace(config);
-
-        trace!("Refreshed cache for namespace {}", self.namespace);
-        *loading = false;
-
-        Ok(())
+        // Update memory cache
+        self.memory.write().await.replace(config);
     }
 
     /// Adds an event listener to the cache.
@@ -531,6 +739,8 @@ impl Cache {
     }
 }
 
+type HmacSha1 = Hmac<Sha1>;
+
 /// Generates a signature for Apollo API authentication using HMAC-SHA1.
 ///
 /// This function takes a timestamp, the request URL (or its path and query), and an Apollo secret key
@@ -545,9 +755,23 @@ impl Cache {
 ///
 /// # Returns
 ///
-/// A `Result` which is:
-/// * `Ok(String)`: A Base64 encoded string representing the signature.
-/// * `Err(Error)`: An error if URL parsing fails.
+/// * `Ok(String)` - A Base64 encoded string representing the signature
+/// * `Err(Error::UrlParse)` - If URL parsing fails during signature generation
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The URL cannot be parsed (including relative URLs without a base)
+/// - The URL structure is malformed
+///
+/// # Examples
+///
+/// ```rust
+/// use apollo_rust_client::cache::sign;
+///
+/// let signature = sign(1576478257344, "/configs/100004458/default/application?ip=10.0.0.1", "secret_key")?;
+/// println!("Generated signature: {}", signature);
+/// ```
 pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Error> {
     let u = match Url::parse(url) {
         Ok(u) => u,
@@ -563,12 +787,11 @@ pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Er
     };
     let mut path_and_query = String::from(u.path());
     if let Some(query) = u.query() {
-        path_and_query.push_str(&format!("?{query}"));
+        let _ = write!(path_and_query, "?{query}");
     }
     let input = format!("{timestamp}\n{path_and_query}");
     trace!("input for signing: {input}");
 
-    type HmacSha1 = Hmac<Sha1>;
     let mut mac = HmacSha1::new_from_slice(secret.as_bytes()).unwrap();
     mac.update(input.as_bytes());
     let result: [u8; 20] = mac.finalize().into_bytes().into();
@@ -587,7 +810,7 @@ mod tests {
     fn test_sign_with_path() {
         let url = "/configs/100004458/default/application?ip=10.0.0.1";
         let secret = "df23df3f59884980844ff3dada30fa97";
-        let signature = sign(1576478257344, url, secret).unwrap();
+        let signature = sign(1_576_478_257_344, url, secret).unwrap();
         assert_eq!(signature, "EoKyziXvKqzHgwx+ijDJwgVTDgE=");
     }
 
@@ -596,7 +819,7 @@ mod tests {
         setup();
         let url = "http://localhost:8080/configs/100004458/default/application?ip=10.0.0.1";
         let secret = "df23df3f59884980844ff3dada30fa97";
-        let signature = sign(1576478257344, url, secret).unwrap();
+        let signature = sign(1_576_478_257_344, url, secret).unwrap();
         assert_eq!(signature, "EoKyziXvKqzHgwx+ijDJwgVTDgE=");
     }
 }

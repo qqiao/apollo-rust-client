@@ -6,7 +6,7 @@
 此範例顯示了如何通過 WebAssembly 在 JavaScript 環境（例如，瀏覽器或 Node.js）中使用客戶端。它涵蓋了 `ClientConfig` 初始化、啟動客戶端、獲取命名空間和獲取屬性。
 
 ```javascript
-import { Client, ClientConfig } from '@qqiao/apollo-rust-client';
+import { Client, ClientConfig } from "@qqiao/apollo-rust-client";
 
 async function main() {
   // 基本設定：app_id、config_server URL、叢集名稱
@@ -32,7 +32,7 @@ async function main() {
   const namespace = await client.namespace("application");
 
   // 範例：檢索字串屬性
-  const stringVal = await namespace.get_string("some_key");
+  const stringVal = namespace.get_string("some_key");
   if (stringVal !== undefined) {
     console.log("屬性 'some_key':", stringVal);
   } else {
@@ -40,7 +40,7 @@ async function main() {
   }
 
   // 範例：使用 get_int 檢索整數屬性
-  const intVal = await namespace.get_int("meaningOfLife");
+  const intVal = namespace.get_int("meaningOfLife");
   if (intVal !== undefined) {
     console.log("屬性 'meaningOfLife':", intVal);
   } else {
@@ -55,4 +55,5 @@ async function main() {
 
 main().catch(console.error);
 ```
+
 如果需要，可以在建構 `clientConfig` 實例後直接設定 `secret`、`label`、`ip` 和 `cache_dir` 等屬性。由於檔案系統限制，`cache_dir` 通常不在瀏覽器環境中使用。

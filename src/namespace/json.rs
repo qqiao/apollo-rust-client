@@ -23,11 +23,49 @@
 use log::trace;
 use serde::de::DeserializeOwned;
 
+/// Comprehensive error types that can occur when working with JSON namespaces.
+///
+/// This enum covers all possible error conditions that may arise during JSON
+/// namespace operations, from content extraction to deserialization failures.
+///
+/// # Error Categories
+///
+/// - **Content Errors**: Issues with extracting content from JSON values
+/// - **Deserialization Errors**: Problems with parsing JSON into custom types
+///
+/// # Examples
+///
+/// ```rust
+/// use apollo_rust_client::namespace::json::{Json, Error};
+///
+/// match json_namespace.to_object::<MyType>() {
+///     Ok(config) => {
+///         // Handle successful deserialization
+///     }
+///     Err(Error::DeserializeError(serde_error)) => {
+///         // Handle JSON parsing errors
+///         eprintln!("JSON parsing failed: {}", serde_error);
+///     }
+///     Err(e) => {
+///         // Handle other errors
+///         eprintln!("Error: {}", e);
+///     }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// Failed to extract content from the JSON value.
+    ///
+    /// This error occurs when the JSON value doesn't contain the expected
+    /// "content" field or when the content field is not a string.
     #[error("Failed to get content from JSON value")]
     ContentNotFound,
 
+    /// Failed to deserialize JSON value into the target type.
+    ///
+    /// This error occurs when the JSON content cannot be parsed into the
+    /// requested type due to format mismatches, missing fields, or type
+    /// conversion failures.
     #[error("Failed to deserialize JSON value: {0}")]
     DeserializeError(#[from] serde_json::Error),
 }
@@ -85,13 +123,17 @@ impl Json {
     ///
     /// # Returns
     ///
-    /// An instance of type `T` containing the deserialized data.
+    /// * `Ok(T)` - The deserialized configuration object
+    /// * `Err(serde_json::Error)` - If deserialization fails due to format mismatches,
+    ///   missing fields, or type conversion failures
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// This method currently panics (via `todo!()`) as the implementation is not
-    /// yet complete. In the future, it will return a `Result` type to handle
-    /// deserialization errors gracefully.
+    /// This method will return an error if:
+    /// - The JSON structure doesn't match the expected type
+    /// - Required fields are missing from the JSON
+    /// - Type conversion fails (e.g., string to number)
+    /// - The JSON is malformed or invalid
     ///
     /// # Examples
     ///
@@ -112,7 +154,7 @@ impl Json {
     /// });
     ///
     /// let json_namespace = Json::from(json_data);
-    /// // let config: DatabaseConfig = json_namespace.to_object(); // Will work when implemented
+    /// let config: DatabaseConfig = json_namespace.to_object()?;
     /// ```
     pub fn to_object<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
         serde_json::from_value(self.value.clone())
@@ -124,23 +166,38 @@ impl Json {
 /// This implementation allows for easy creation of `Json` instances from
 /// raw JSON data, typically used by the namespace detection system.
 ///
+/// # Arguments
+///
+/// * `json_value` - The raw JSON value containing configuration data
+///
+/// # Returns
+///
+/// * `Ok(Json)` - A new Json instance containing the parsed configuration
+/// * `Err(Error::ContentNotFound)` - If the JSON value doesn't contain a "content" field
+/// * `Err(Error::DeserializeError)` - If the content field cannot be parsed as valid JSON
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The JSON value doesn't contain a "content" field
+/// - The "content" field is not a string
+/// - The content string cannot be parsed as valid JSON
+///
 /// # Examples
 ///
 /// ```ignore
 /// use serde_json::json;
 /// use apollo_client::namespace::json::Json;
 ///
-/// let json_data = json!({"key": "value"});
-/// let json_namespace = Json::from(json_data);
+/// let json_data = json!({"content": "{\"key\": \"value\"}"});
+/// let json_namespace = Json::try_from(json_data)?;
 /// ```
 impl TryFrom<serde_json::Value> for Json {
     type Error = crate::namespace::json::Error;
 
     fn try_from(json_value: serde_json::Value) -> Result<Self, Self::Error> {
-        let content_string = match json_value.get("content") {
-            Some(serde_json::Value::String(s)) => s,
-            None => return Err(Error::ContentNotFound),
-            _ => return Err(Error::ContentNotFound),
+        let Some(serde_json::Value::String(content_string)) = json_value.get("content") else {
+            return Err(Error::ContentNotFound);
         };
         trace!("content_string: {content_string:?}");
         let value = serde_json::from_str(content_string.as_str())?;

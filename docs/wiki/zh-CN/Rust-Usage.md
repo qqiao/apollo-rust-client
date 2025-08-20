@@ -29,13 +29,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache = client.namespace("application").await;
 
     // 示例：检索字符串属性。
-    match cache.get_property::<String>("some_key").await {
+    match cache.get_property::<String>("some_key") {
         Some(value) => println!("属性 'some_key': {}", value),
         None => println!("未找到属性 'some_key'"),
     }
 
     // 示例：检索整数属性。
-    match cache.get_property::<i64>("meaningOfLife").await {
+    match cache.get_property::<i64>("meaningOfLife") {
         Some(value) => println!("属性 'meaningOfLife': {}", value),
         None => println!("未找到属性 'meaningOfLife'"),
     }
