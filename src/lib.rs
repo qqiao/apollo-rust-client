@@ -313,6 +313,51 @@ impl Client {
         cache.add_listener(listener).await;
     }
 
+    /// Retrieves a namespace configuration from the Apollo server.
+    ///
+    /// This method fetches the configuration for the specified namespace and
+    /// automatically detects the format based on the namespace name. The format
+    /// detection follows these rules:
+    ///
+    /// - **Properties format** (default): No file extension
+    /// - **JSON format**: `.json` extension
+    /// - **YAML format**: `.yaml` or `.yml` extension
+    /// - **Text format**: `.txt` extension
+    /// - **XML format**: `.xml` extension (not yet supported)
+    ///
+    /// # Arguments
+    ///
+    /// * `namespace` - The namespace identifier string (e.g., "application", "config.json")
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Namespace)` - The configuration data in the appropriate format
+    /// * `Err(Error::Cache)` - If cache operations fail (network, I/O, etc.)
+    /// * `Err(Error::Namespace)` - If namespace format detection or processing fails
+    ///
+    /// # Errors
+    ///
+    /// This method will return an error if:
+    /// - Network requests to the Apollo server fail
+    /// - Cache file operations fail (native targets only)
+    /// - JSON parsing fails during configuration retrieval
+    /// - Namespace format detection fails
+    /// - The requested namespace format is not supported (e.g., XML)
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use apollo_rust_client::Client;
+    ///
+    /// // Get properties namespace (default format)
+    /// let props_namespace = client.namespace("application").await?;
+    ///
+    /// // Get JSON namespace
+    /// let json_namespace = client.namespace("config.json").await?;
+    ///
+    /// // Get YAML namespace
+    /// let yaml_namespace = client.namespace("settings.yaml").await?;
+    /// ```
     pub async fn namespace(&self, namespace: &str) -> Result<namespace::Namespace, Error> {
         let cache = self.cache(namespace).await;
         let value = cache.get_value().await?;
@@ -335,6 +380,12 @@ impl Client {
     ///
     /// * `Ok(())` if the background task was successfully started.
     /// * `Err(Error::AlreadyRunning)` if the background task is already active.
+    ///
+    /// # Errors
+    ///
+    /// This method will return an error if:
+    /// - The background task is already running (`Error::AlreadyRunning`)
+    /// - Task spawning fails (though this is rare and typically indicates system resource issues)
     pub async fn start(&mut self) -> Result<(), Error> {
         let mut running = self.running.write().await;
         if *running {

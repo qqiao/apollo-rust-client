@@ -80,15 +80,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match namespace {
         apollo_rust_client::namespace::Namespace::Properties(properties) => {
             // Properties format (default) - key-value pairs
-            if let Some(app_name) = properties.get_string("app.name").await {
+            if let Some(app_name) = properties.get_string("app.name") {
                 println!("Application name: {}", app_name);
             }
 
-            if let Some(port) = properties.get_int("server.port").await {
+            if let Some(port) = properties.get_int("server.port") {
                 println!("Server port: {}", port);
             }
 
-            if let Some(debug) = properties.get_bool("debug.enabled").await {
+            if let Some(debug) = properties.get_bool("debug.enabled") {
                 println!("Debug enabled: {}", debug);
             }
         }

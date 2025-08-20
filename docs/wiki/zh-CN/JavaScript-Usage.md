@@ -6,7 +6,7 @@
 此示例显示了如何通过 WebAssembly 在 JavaScript 环境（例如，浏览器或 Node.js）中使用客户端。它涵盖了 `ClientConfig` 初始化、启动客户端、获取命名空间和获取属性。
 
 ```javascript
-import { Client, ClientConfig } from '@qqiao/apollo-rust-client';
+import { Client, ClientConfig } from "@qqiao/apollo-rust-client";
 
 async function main() {
   // 基本配置：app_id、config_server URL、集群名称
@@ -32,7 +32,7 @@ async function main() {
   const namespace = await client.namespace("application");
 
   // 示例：检索字符串属性
-  const stringVal = await namespace.get_string("some_key");
+  const stringVal = namespace.get_string("some_key");
   if (stringVal !== undefined) {
     console.log("属性 'some_key':", stringVal);
   } else {
@@ -40,7 +40,7 @@ async function main() {
   }
 
   // 示例：使用 get_int 检索整数属性
-  const intVal = await namespace.get_int("meaningOfLife");
+  const intVal = namespace.get_int("meaningOfLife");
   if (intVal !== undefined) {
     console.log("属性 'meaningOfLife':", intVal);
   } else {
@@ -55,4 +55,5 @@ async function main() {
 
 main().catch(console.error);
 ```
+
 如果需要，可以在构造 `clientConfig` 实例后直接设置 `secret`、`label`、`ip` 和 `cache_dir` 等属性。由于文件系统限制，`cache_dir` 通常不在浏览器环境中使用。

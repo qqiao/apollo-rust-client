@@ -61,8 +61,42 @@
 use cfg_if::cfg_if;
 use wasm_bindgen::prelude::*;
 
+/// Comprehensive error types that can occur during client configuration.
+///
+/// This enum covers all possible error conditions that may arise during
+/// client configuration operations, from environment variable access to
+/// configuration validation.
+///
+/// # Error Categories
+///
+/// - **Environment Variable Errors**: Issues with accessing or parsing environment variables
+///
+/// # Examples
+///
+/// ```rust
+/// use apollo_rust_client::client_config::{ClientConfig, Error};
+///
+/// match ClientConfig::from_env() {
+///     Ok(config) => {
+///         // Handle successful configuration creation
+///     }
+///     Err(Error::EnvVar(var_error, var_name)) => {
+///         // Handle missing or invalid environment variables
+///         eprintln!("Environment variable '{}' error: {}", var_name, var_error);
+///     }
+///     Err(e) => {
+///         // Handle other errors
+///         eprintln!("Configuration error: {}", e);
+///     }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// An environment variable access error occurred.
+    ///
+    /// This error occurs when attempting to read an environment variable
+    /// that is not set or cannot be accessed. The error includes both
+    /// the underlying system error and the name of the variable that failed.
     #[error("Environment variable is not set: {1}")]
     EnvVar(std::env::VarError, String),
 }

@@ -79,15 +79,15 @@ cache_ttl: None, // 使用默认值: 600 秒（10 分钟）
     match namespace {
         apollo_rust_client::namespace::Namespace::Properties(properties) => {
             // Properties 格式（默认）- 键值对
-            if let Some(app_name) = properties.get_string("app.name").await {
+            if let Some(app_name) = properties.get_string("app.name") {
                 println!("应用名称: {}", app_name);
             }
 
-            if let Some(port) = properties.get_int("server.port").await {
+            if let Some(port) = properties.get_int("server.port") {
                 println!("服务器端口: {}", port);
             }
 
-            if let Some(debug) = properties.get_bool("debug.enabled").await {
+            if let Some(debug) = properties.get_bool("debug.enabled") {
                 println!("调试启用: {}", debug);
             }
         }
@@ -166,10 +166,10 @@ async function main() {
   const cache = await client.namespace("application");
 
   // 检索不同数据类型
-  const appName = await cache.get_string("app.name");
-  const serverPort = await cache.get_int("server.port");
-  const debugEnabled = await cache.get_bool("debug.enabled");
-  const timeout = await cache.get_float("timeout.seconds");
+  const appName = cache.get_string("app.name");
+  const serverPort = cache.get_int("server.port");
+  const debugEnabled = cache.get_bool("debug.enabled");
+  const timeout = cache.get_float("timeout.seconds");
 
   console.log(`应用: ${appName}, 端口: ${serverPort}, 调试: ${debugEnabled}`);
 

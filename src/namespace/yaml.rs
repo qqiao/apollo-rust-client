@@ -23,11 +23,49 @@
 use log::trace;
 use serde::de::DeserializeOwned;
 
+/// Comprehensive error types that can occur when working with YAML namespaces.
+///
+/// This enum covers all possible error conditions that may arise during YAML
+/// namespace operations, from content extraction to deserialization failures.
+///
+/// # Error Categories
+///
+/// - **Content Errors**: Issues with extracting content from JSON values
+/// - **Deserialization Errors**: Problems with parsing YAML into custom types
+///
+/// # Examples
+///
+/// ```rust
+/// use apollo_rust_client::namespace::yaml::{Yaml, Error};
+///
+/// match yaml_namespace.to_object::<MyType>() {
+///     Ok(config) => {
+///         // Handle successful deserialization
+///     }
+///     Err(Error::DeserializeError(serde_error)) => {
+///         // Handle YAML parsing errors
+///         eprintln!("YAML parsing failed: {}", serde_error);
+///     }
+///     Err(e) => {
+///         // Handle other errors
+///         eprintln!("Error: {}", e);
+///     }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// Failed to extract content from the JSON value.
+    ///
+    /// This error occurs when the JSON value doesn't contain the expected
+    /// "content" field or when the content field is not a string.
     #[error("Failed to get content from YAML value")]
     ContentNotFound,
 
+    /// Failed to deserialize YAML value into the target type.
+    ///
+    /// This error occurs when the YAML content cannot be parsed into the
+    /// requested type due to format mismatches, missing fields, or type
+    /// conversion failures.
     #[error("Failed to deserialize YAML value: {0}")]
     DeserializeError(#[from] serde_yaml::Error),
 }
@@ -41,7 +79,7 @@ pub enum Error {
 /// # Thread Safety
 ///
 /// This struct is `Clone` and `Debug`, making it easy to work with in concurrent
-/// environments. The underlying `serde_yaml::Value` is also thread-safe.
+/// environments. The underlying YAML string is also thread-safe.
 ///
 /// # Examples
 ///
@@ -55,7 +93,7 @@ pub enum Error {
 /// ```
 #[derive(Clone, Debug)]
 pub struct Yaml {
-    /// The underlying YAML value containing the configuration data
+    /// The underlying YAML string containing the configuration data
     string: String,
 }
 
@@ -68,7 +106,7 @@ impl From<Yaml> for wasm_bindgen::JsValue {
 impl Yaml {
     /// Deserializes the YAML data into a custom type.
     ///
-    /// This method attempts to deserialize the stored YAML value into any type
+    /// This method attempts to deserialize the stored YAML string into any type
     /// that implements `DeserializeOwned`. This is useful for converting the
     /// raw YAML configuration into strongly-typed structs.
     ///
@@ -78,7 +116,17 @@ impl Yaml {
     ///
     /// # Returns
     ///
-    /// An instance of type `T` containing the deserialized data.
+    /// * `Ok(T)` - The deserialized configuration object
+    /// * `Err(serde_yaml::Error)` - If deserialization fails due to format mismatches,
+    ///   missing fields, or type conversion failures
+    ///
+    /// # Errors
+    ///
+    /// This method will return an error if:
+    /// - The YAML structure doesn't match the expected type
+    /// - Required fields are missing from the YAML
+    /// - Type conversion fails (e.g., string to number)
+    /// - The YAML is malformed or invalid
     ///
     /// # Examples
     ///
@@ -96,7 +144,7 @@ impl Yaml {
     /// let yaml_data = serde_yaml::from_str("host: localhost\nport: 5432").unwrap();
     ///
     /// let yaml_namespace = Yaml::from(yaml_data);
-    /// let config: DatabaseConfig = yaml_namespace.to_object().unwrap();
+    /// let config: DatabaseConfig = yaml_namespace.to_object()?;
     /// ```
     pub fn to_object<T: DeserializeOwned>(&self) -> Result<T, serde_yaml::Error> {
         trace!("string: {:?}", self.string);
@@ -109,6 +157,21 @@ impl Yaml {
 /// This implementation allows for easy creation of `Yaml` instances from
 /// raw JSON data, typically used by the namespace detection system.
 ///
+/// # Arguments
+///
+/// * `json_value` - The raw JSON value containing YAML configuration data
+///
+/// # Returns
+///
+/// * `Ok(Yaml)` - A new Yaml instance containing the parsed configuration
+/// * `Err(Error::ContentNotFound)` - If the JSON value doesn't contain a "content" field
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The JSON value doesn't contain a "content" field
+/// - The "content" field is not a string
+///
 /// # Examples
 ///
 /// ```ignore
@@ -116,7 +179,7 @@ impl Yaml {
 /// use apollo_client::namespace::yaml::Yaml;
 ///
 /// let json_data = json!({"content": "name: MyApp\nversion: 1.0.0"});
-/// let yaml_namespace = Yaml::try_from(json_data).unwrap();
+/// let yaml_namespace = Yaml::try_from(json_data)?;
 /// ```
 impl TryFrom<serde_json::Value> for Yaml {
     type Error = crate::namespace::yaml::Error;

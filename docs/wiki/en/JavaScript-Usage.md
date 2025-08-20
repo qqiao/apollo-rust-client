@@ -33,7 +33,7 @@ async function main() {
   const cache = await client.namespace("application");
 
   // Example: Retrieve a string property
-  const stringVal = await cache.get_string("some_key");
+  const stringVal = cache.get_string("some_key");
   if (stringVal !== undefined) {
     console.log("Property 'some_key':", stringVal);
   } else {
@@ -41,7 +41,7 @@ async function main() {
   }
 
   // Example: Retrieve an integer property
-  const intVal = await cache.get_int("meaningOfLife");
+  const intVal = cache.get_int("meaningOfLife");
   if (intVal !== undefined) {
     console.log("Property 'meaningOfLife':", intVal);
   } else {
@@ -49,7 +49,7 @@ async function main() {
   }
 
   // Example: Retrieve a float property
-  const floatVal = await cache.get_float("pi");
+  const floatVal = cache.get_float("pi");
   if (floatVal !== undefined) {
     console.log("Property 'pi':", floatVal);
   } else {
@@ -57,7 +57,7 @@ async function main() {
   }
 
   // Example: Retrieve a boolean property
-  const boolVal = await cache.get_bool("debug_enabled");
+  const boolVal = cache.get_bool("debug_enabled");
   if (boolVal !== undefined) {
     console.log("Property 'debug_enabled':", boolVal);
   } else {
@@ -136,7 +136,7 @@ async function main() {
 
   // Properties namespace (default format)
   const propsCache = await client.namespace("application");
-  const stringValue = await propsCache.get_string("app.name");
+  const stringValue = propsCache.get_string("app.name");
   console.log("App name:", stringValue);
 
   // JSON namespace (detected by .json extension)
@@ -183,7 +183,7 @@ async function main() {
 
     cache = await client.namespace("application");
 
-    const value = await cache.get_string("some_key");
+    const value = cache.get_string("some_key");
     if (value !== undefined) {
       console.log("Retrieved value:", value);
     }

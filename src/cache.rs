@@ -52,26 +52,105 @@ struct CacheItem {
     config: Value,
 }
 
+/// Comprehensive error types that can occur during cache operations.
+///
+/// This enum covers all possible error conditions that may arise during cache
+/// operations, from I/O failures to network and parsing issues.
+///
+/// # Error Categories
+///
+/// - **I/O Errors**: File system operations, directory creation, and file writing
+/// - **Namespace Errors**: Issues with namespace format detection and processing
+/// - **Serialization Errors**: JSON parsing and serialization failures
+/// - **Network Errors**: HTTP request failures and response parsing issues
+/// - **URL Errors**: Malformed URLs and parsing failures
+/// - **Concurrency Errors**: Race conditions during cache operations
+///
+/// # Examples
+///
+/// ```rust
+/// use apollo_rust_client::cache::{Cache, Error};
+///
+/// match cache.refresh().await {
+///     Ok(()) => {
+///         // Handle successful cache refresh
+///     }
+///     Err(Error::Io(io_error)) => {
+///         // Handle file system errors
+///         eprintln!("I/O error: {}", io_error);
+///     }
+///     Err(Error::Reqwest(reqwest_error)) => {
+///         // Handle network errors
+///         eprintln!("Network error: {}", reqwest_error);
+///     }
+///     Err(Error::Serde(serde_error)) => {
+///         // Handle JSON parsing errors
+///         eprintln!("JSON error: {}", serde_error);
+///     }
+///     Err(e) => {
+///         // Handle other errors
+///         eprintln!("Error: {}", e);
+///     }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// An I/O error occurred during file operations.
+    ///
+    /// This error occurs when there are issues with file system operations,
+    /// such as reading/writing cache files, creating directories, or
+    /// insufficient permissions.
     #[error("Io error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// An error occurred during namespace processing.
+    ///
+    /// This includes errors from format detection, parsing, or type conversion
+    /// operations specific to namespace handling.
     #[error("Namespace error: {0}")]
     Namespace(namespace::Error),
 
+    /// A serialization/deserialization error occurred.
+    ///
+    /// This error occurs when there are issues with JSON parsing, such as
+    /// malformed JSON data, type mismatches, or encoding problems.
     #[error("Serde error: {0}")]
     Serde(#[from] serde_json::Error),
 
+    /// The requested namespace was not found.
+    ///
+    /// This error occurs when attempting to access a namespace that doesn't
+    /// exist in the cache or when the cache has not been properly initialized.
     #[error("Namespace not found: {0}")]
     NamespaceNotFound(String),
 
+    /// A network request error occurred.
+    ///
+    /// This error occurs when there are issues with HTTP requests to the
+    /// Apollo server, such as connection failures, timeouts, or invalid responses.
     #[error("Reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
+
+    /// A URL parsing error occurred.
+    ///
+    /// This error occurs when the constructed URL for the Apollo server
+    /// is malformed or cannot be parsed.
     #[error("Url parse error: {0}")]
     UrlParse(#[from] url::ParseError),
+
+    /// A refresh operation is already in progress.
+    ///
+    /// This error occurs when attempting to refresh a cache that is already
+    /// being refreshed by another operation. This prevents concurrent refresh
+    /// operations that could cause race conditions.
     #[error("Already loading")]
     AlreadyLoading,
+
+    /// A cache initialization check is already in progress.
+    ///
+    /// This error occurs when attempting to check or initialize a cache that
+    /// is already being processed by another operation. This prevents concurrent
+    /// cache initialization that could cause race conditions.
     #[error("Already checking cache")]
     AlreadyCheckingCache,
 }
@@ -193,14 +272,6 @@ impl Cache {
 
     /// Get a configuration from the cache.
     ///
-    /// # Arguments
-    ///
-    /// * `key` - The key to get the configuration for.
-    ///
-    /// # Returns
-    ///
-    /// The configuration for the given key.
-    ///
     /// This method attempts to retrieve a configuration value associated with the given `key`.
     /// The process involves several steps:
     ///
@@ -223,6 +294,28 @@ impl Cache {
     /// If another task is already performing this check/initialization, the current task will return
     /// `Err(Error::AlreadyCheckingCache)`. This indicates that a cache lookup or population is
     /// already in progress, and the caller should typically retry shortly.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Value)` - The configuration value if successfully retrieved
+    /// * `Err(Error::AlreadyCheckingCache)` - If another cache operation is in progress
+    /// * `Err(Error::NamespaceNotFound)` - If the namespace cannot be found or initialized
+    /// * `Err(Error::Io)` - If file system operations fail (native targets only)
+    /// * `Err(Error::Serde)` - If cache file parsing fails (native targets only)
+    /// * `Err(Error::Reqwest)` - If network requests fail during refresh
+    /// * `Err(Error::UrlParse)` - If URL construction fails
+    /// * `Err(Error::Namespace)` - If namespace processing fails
+    ///
+    /// # Errors
+    ///
+    /// This method will return an error if:
+    /// - Another cache operation is already in progress
+    /// - The namespace cannot be found or initialized
+    /// - File system operations fail (native targets only)
+    /// - Cache file parsing fails (native targets only)
+    /// - Network requests fail during refresh
+    /// - URL construction fails
+    /// - Namespace processing fails
     pub(crate) async fn get_value(&self) -> Result<Value, Error> {
         debug!("Getting value for namesapce {}", self.namespace);
 
@@ -341,6 +434,25 @@ impl Cache {
     /// the current task will return `Err(Error::AlreadyLoading)`. This indicates that a refresh
     /// is already in progress, and the caller should typically wait for the ongoing refresh to
     /// complete rather than initiating a new one.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the cache was successfully refreshed
+    /// * `Err(Error::AlreadyLoading)` - If another refresh operation is already in progress
+    /// * `Err(Error::UrlParse)` - If URL construction fails
+    /// * `Err(Error::Reqwest)` - If the HTTP request fails
+    /// * `Err(Error::Serde)` - If the response body cannot be parsed as JSON
+    /// * `Err(Error::Io)` - If file cache operations fail (native targets only)
+    ///
+    /// # Errors
+    ///
+    /// This method will return an error if:
+    /// - Another refresh operation is already in progress
+    /// - URL construction fails
+    /// - HTTP request fails (network issues, server errors, etc.)
+    /// - Response body cannot be parsed as JSON
+    /// - File cache operations fail (native targets only)
+    /// - Authentication signature generation fails
     pub(crate) async fn refresh(&self) -> Result<(), Error> {
         let mut loading = self.loading.write().await;
         if *loading {
@@ -549,9 +661,23 @@ type HmacSha1 = Hmac<Sha1>;
 ///
 /// # Returns
 ///
-/// A `Result` which is:
-/// * `Ok(String)`: A Base64 encoded string representing the signature.
-/// * `Err(Error)`: An error if URL parsing fails.
+/// * `Ok(String)` - A Base64 encoded string representing the signature
+/// * `Err(Error::UrlParse)` - If URL parsing fails during signature generation
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The URL cannot be parsed (including relative URLs without a base)
+/// - The URL structure is malformed
+///
+/// # Examples
+///
+/// ```rust
+/// use apollo_rust_client::cache::sign;
+///
+/// let signature = sign(1576478257344, "/configs/100004458/default/application?ip=10.0.0.1", "secret_key")?;
+/// println!("Generated signature: {}", signature);
+/// ```
 pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Error> {
     let u = match Url::parse(url) {
         Ok(u) => u,
