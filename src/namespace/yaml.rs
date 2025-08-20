@@ -122,10 +122,8 @@ impl TryFrom<serde_json::Value> for Yaml {
     type Error = crate::namespace::yaml::Error;
 
     fn try_from(json_value: serde_json::Value) -> Result<Self, Self::Error> {
-        let content_string = match json_value.get("content") {
-            Some(serde_json::Value::String(s)) => s,
-            None => return Err(Error::ContentNotFound),
-            _ => return Err(Error::ContentNotFound),
+        let Some(serde_json::Value::String(content_string)) = json_value.get("content") else {
+            return Err(Error::ContentNotFound);
         };
         trace!("content_string: {content_string:?}");
 

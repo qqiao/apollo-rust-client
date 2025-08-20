@@ -264,7 +264,7 @@ pub struct Client {
     ///
     /// Contains all necessary information to connect to Apollo servers,
     /// including server URL, application ID, cluster, authentication, and caching settings.
-    client_config: ClientConfig,
+    config: ClientConfig,
 
     /// Thread-safe storage for namespace-specific caches.
     ///
@@ -301,7 +301,7 @@ impl Client {
         let mut namespaces = self.namespaces.write().await;
         let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
             trace!("Cache miss, creating cache for namespace {namespace}");
-            Arc::new(Cache::new(self.client_config.clone(), namespace))
+            Arc::new(Cache::new(self.config.clone(), namespace))
         });
         cache.clone()
     }
@@ -310,7 +310,7 @@ impl Client {
         let mut namespaces = self.namespaces.write().await;
         let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
             trace!("Cache miss, creating cache for namespace {namespace}");
-            Arc::new(Cache::new(self.client_config.clone(), namespace))
+            Arc::new(Cache::new(self.config.clone(), namespace))
         });
         cache.add_listener(listener).await;
     }
@@ -417,9 +417,9 @@ impl Client {
     ///
     /// A new Apollo client.
     #[wasm_bindgen(constructor)]
-    pub fn new(client_config: ClientConfig) -> Self {
+    pub fn new(config: ClientConfig) -> Self {
         Self {
-            client_config,
+            config,
             namespaces: Arc::new(RwLock::new(HashMap::new())),
             handle: None,
             running: Arc::new(RwLock::new(false)),
@@ -630,10 +630,12 @@ mod tests {
     #[tokio::test]
     async fn test_string_value() {
         setup();
-        let properties = match CLIENT_NO_SECRET.namespace("application").await.unwrap() {
-            namespace::Namespace::Properties(properties) => properties,
-            _ => panic!("Expected Properties namespace"),
+        let namespace::Namespace::Properties(properties) =
+            CLIENT_NO_SECRET.namespace("application").await.unwrap()
+        else {
+            panic!("Expected Properties namespace");
         };
+
         assert_eq!(
             properties.get_property::<String>("stringValue").await,
             Some("string value".to_string())

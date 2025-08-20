@@ -139,7 +139,6 @@ fn get_namespace_type(namespace: &str) -> NamespaceType {
             "json" => NamespaceType::Json,
             "yaml" | "yml" => NamespaceType::Yaml,
             "xml" => NamespaceType::Xml,
-            "txt" => NamespaceType::Text,
             _ => NamespaceType::Text,
         }
     }

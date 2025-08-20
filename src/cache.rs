@@ -43,7 +43,7 @@ use log::{debug, trace};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha1::Sha1;
-use std::sync::Arc;
+use std::{fmt::Write, sync::Arc};
 use url::{ParseError, Url};
 
 #[derive(Serialize, Deserialize)]
@@ -126,13 +126,13 @@ pub(crate) struct Cache {
     ///
     /// This prevents multiple threads from simultaneously attempting to
     /// read and parse the same cache file during initialization.
-    checking_cache: Arc<RwLock<bool>>,
+    checking: Arc<RwLock<bool>>,
 
     /// In-memory storage for the parsed configuration data.
     ///
     /// Contains the JSON representation of the configuration. `None` indicates
     /// that the cache has not been populated or a fetch operation failed.
-    memory_cache: Arc<RwLock<Option<Value>>>,
+    memory: Arc<RwLock<Option<Value>>>,
 
     /// Collection of event listeners for configuration change notifications.
     ///
@@ -163,10 +163,10 @@ impl Cache {
     pub(crate) fn new(client_config: ClientConfig, namespace: &str) -> Self {
         let mut file_name = namespace.to_string();
         if let Some(ip) = &client_config.ip {
-            file_name.push_str(&format!("_{ip}"));
+            let _ = write!(file_name, "_{ip}");
         }
         if let Some(label) = &client_config.label {
-            file_name.push_str(&format!("_{label}"));
+            let _ = write!(file_name, "_{label}");
         }
 
         cfg_if! {
@@ -182,8 +182,8 @@ impl Cache {
             namespace: namespace.to_string(),
 
             loading: Arc::new(RwLock::new(false)),
-            checking_cache: Arc::new(RwLock::new(false)),
-            memory_cache: Arc::new(RwLock::new(None)),
+            checking: Arc::new(RwLock::new(false)),
+            memory: Arc::new(RwLock::new(None)),
             listeners: Arc::new(RwLock::new(Vec::new())),
 
             #[cfg(not(target_arch = "wasm32"))]
@@ -227,14 +227,14 @@ impl Cache {
         debug!("Getting value for namesapce {}", self.namespace);
 
         // Check if the cache file exists
-        let mut checking_cache = self.checking_cache.write().await;
+        let mut checking_cache = self.checking.write().await;
         if *checking_cache {
             return Err(Error::AlreadyCheckingCache);
         }
         *checking_cache = true;
 
         // First we check memory cache
-        let memory_cache = self.memory_cache.read().await;
+        let memory_cache = self.memory.read().await;
         if let Some(value) = memory_cache.as_ref() {
             debug!(
                 "Memory cache found, using memory cache for namespace {}",
@@ -260,7 +260,9 @@ impl Cache {
                                 if #[cfg(not(target_arch = "wasm32"))] {
                                     if let Some(ttl) = self.client_config.cache_ttl {
                                         let age = Utc::now().timestamp() - cache_item.timestamp;
-                                        if age > ttl as i64 {
+                                        #[allow(clippy::cast_possible_wrap)]
+                                        let ttl = ttl as i64;
+                                        if age > ttl {
                                             is_stale = true;
                                             trace!("Cache for {} is stale.", self.namespace);
                                         }
@@ -270,7 +272,7 @@ impl Cache {
 
                             if !is_stale {
                                 trace!("Cache for {} is fresh, using it.", self.namespace);
-                                self.memory_cache.write().await.replace(cache_item.config);
+                                self.memory.write().await.replace(cache_item.config);
                                 needs_refresh = false;
                             }
                         } else {
@@ -284,7 +286,7 @@ impl Cache {
                 if needs_refresh {
                     trace!("Refreshing cache for namespace {}", self.namespace);
                     match self.refresh().await {
-                        Ok(_) => (),
+                        Ok(()) => (),
                         Err(e) => {
                             *checking_cache = false;
                             return Err(e);
@@ -293,7 +295,7 @@ impl Cache {
                 }
             } else {
                 match self.refresh().await {
-                    Ok(_) => (),
+                    Ok(()) => (),
                     Err(e) => {
                         *checking_cache = false;
                         return Err(e);
@@ -302,7 +304,7 @@ impl Cache {
             }
         }
 
-        let memory_cache = self.memory_cache.read().await;
+        let memory_cache = self.memory.read().await;
         if let Some(value) = memory_cache.as_ref() {
             *checking_cache = false;
             Ok(value.clone())
@@ -438,7 +440,7 @@ impl Cache {
                  // Create parent directories if they don't exist
                 if let Some(parent) = self.file_path.parent() {
                     match std::fs::create_dir_all(parent) {
-                        Ok(_) => (),
+                        Ok(()) => (),
                         Err(e) => {
                             *loading = false;
                             return Err(Error::Io(e));
@@ -460,7 +462,7 @@ impl Cache {
                 };
 
                 match std::fs::write(&self.file_path, cache_content) {
-                    Ok(_) => {
+                    Ok(()) => {
                         trace!("Wrote cache file {} for namespace {}", self.file_path.display(), self.namespace);
                     },
                     Err(e) => {
@@ -480,7 +482,7 @@ impl Cache {
         }
         drop(listeners); // Release read lock before acquiring write lock
 
-        self.memory_cache.write().await.replace(config);
+        self.memory.write().await.replace(config);
 
         trace!("Refreshed cache for namespace {}", self.namespace);
         *loading = false;
@@ -531,6 +533,8 @@ impl Cache {
     }
 }
 
+type HmacSha1 = Hmac<Sha1>;
+
 /// Generates a signature for Apollo API authentication using HMAC-SHA1.
 ///
 /// This function takes a timestamp, the request URL (or its path and query), and an Apollo secret key
@@ -563,12 +567,11 @@ pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Er
     };
     let mut path_and_query = String::from(u.path());
     if let Some(query) = u.query() {
-        path_and_query.push_str(&format!("?{query}"));
+        let _ = write!(path_and_query, "?{query}");
     }
     let input = format!("{timestamp}\n{path_and_query}");
     trace!("input for signing: {input}");
 
-    type HmacSha1 = Hmac<Sha1>;
     let mut mac = HmacSha1::new_from_slice(secret.as_bytes()).unwrap();
     mac.update(input.as_bytes());
     let result: [u8; 20] = mac.finalize().into_bytes().into();
@@ -587,7 +590,7 @@ mod tests {
     fn test_sign_with_path() {
         let url = "/configs/100004458/default/application?ip=10.0.0.1";
         let secret = "df23df3f59884980844ff3dada30fa97";
-        let signature = sign(1576478257344, url, secret).unwrap();
+        let signature = sign(1_576_478_257_344, url, secret).unwrap();
         assert_eq!(signature, "EoKyziXvKqzHgwx+ijDJwgVTDgE=");
     }
 
@@ -596,7 +599,7 @@ mod tests {
         setup();
         let url = "http://localhost:8080/configs/100004458/default/application?ip=10.0.0.1";
         let secret = "df23df3f59884980844ff3dada30fa97";
-        let signature = sign(1576478257344, url, secret).unwrap();
+        let signature = sign(1_576_478_257_344, url, secret).unwrap();
         assert_eq!(signature, "EoKyziXvKqzHgwx+ijDJwgVTDgE=");
     }
 }
