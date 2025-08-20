@@ -5,6 +5,141 @@ All notable changes to the apollo-rust-client project will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2025-08-20
+
+### ⚠️ BREAKING CHANGES
+
+- **Namespace Getter Methods**: All `get_*` methods in namespace types are now **synchronous** instead of async:
+
+  ```rust
+  // Before (0.5.x) - All methods were async
+  let value: Option<String> = properties.get_string("key").await;
+  let number: Option<i64> = properties.get_int("port").await;
+  let flag: Option<bool> = properties.get_bool("enabled").await;
+  let custom: Option<MyType> = properties.get_property("config").await;
+
+  // After (0.6.0) - All methods are now synchronous
+  let value: Option<String> = properties.get_string("key");
+  let number: Option<i64> = properties.get_int("port");
+  let flag: Option<bool> = properties.get_bool("enabled");
+  let custom: Option<MyType> = properties.get_property("config");
+  ```
+
+- **JSON and YAML Deserialization**: The `to_object<T>()` methods are now synchronous:
+
+  ```rust
+  // Before (0.5.x) - Methods were async
+  let config: DatabaseConfig = json_namespace.to_object().await?;
+  let settings: ServerConfig = yaml_namespace.to_object().await?;
+
+  // After (0.6.0) - Methods are now synchronous
+  let config: DatabaseConfig = json_namespace.to_object()?;
+  let settings: ServerConfig = yaml_namespace.to_object()?;
+  ```
+
+- **Function Visibility Changes**: Several internal functions have been made `pub(crate)` instead of public:
+
+  - `get_namespace()` function is now `pub(crate)` (was previously public)
+  - `Cache` struct is now `pub(crate)` (was previously public)
+  - This affects code that directly imported these types from the crate root
+
+- **Minor API Changes**:
+  - `Client::new()` constructor parameter renamed from `client_config` to `config`
+  - `Client` struct field renamed from `client_config` to `config`
+
+### Migration Guide
+
+To update your code from 0.5.x to 0.6.0:
+
+1. **Remove `.await` from all namespace getter methods** (This is the most important change):
+
+   ```rust
+   // Before (0.5.x) - All methods were async
+   let app_name = properties.get_string("app.name").await;
+   let port = properties.get_int("server.port").await;
+   let debug = properties.get_bool("debug.enabled").await;
+   let custom = properties.get_property::<MyType>("config").await;
+
+   // After (0.6.0) - All methods are now synchronous
+   let app_name = properties.get_string("app.name");
+   let port = properties.get_int("server.port");
+   let debug = properties.get_bool("debug.enabled");
+   let custom = properties.get_property::<MyType>("config");
+   ```
+
+2. **Remove `.await` from JSON/YAML deserialization**:
+
+   ```rust
+   // Before (0.5.x)
+   let config: DatabaseConfig = json_namespace.to_object().await?;
+   let settings: ServerConfig = yaml_namespace.to_object().await?;
+
+   // After (0.6.0)
+   let config: DatabaseConfig = json_namespace.to_object()?;
+   let settings: ServerConfig = yaml_namespace.to_object()?;
+   ```
+
+3. **Update Client Constructor Calls** (if you were using the old parameter name):
+
+   ```rust
+   // Before
+   let client = Client::new(client_config);
+
+   // After
+   let client = Client::new(config);
+   ```
+
+4. **Remove Direct Imports** (if you were importing internal types):
+
+   ```rust
+   // Before - These imports will no longer work
+   use apollo_rust_client::cache::Cache;
+   use apollo_rust_client::namespace::get_namespace;
+
+   // After - Use the public API instead
+   use apollo_rust_client::{Client, ClientConfig};
+   ```
+
+5. **Update Cargo.toml**:
+   ```toml
+   [dependencies]
+   apollo-rust-client = "0.6.0"
+   ```
+
+### Changed
+
+- **Code Quality Improvements**: Comprehensive lint fixes and code improvements across the entire codebase:
+  - Enhanced error handling and improved error types throughout the codebase
+  - Better async/await patterns and improved concurrency handling
+  - Refactored cache implementation with improved performance and reliability
+  - Enhanced namespace handling with better format detection and parsing
+  - Improved client configuration with better validation and error handling
+  - Updated all dependencies to latest stable versions for security and performance
+  - Enhanced documentation with better examples and clearer explanations
+  - Improved WebAssembly support with better memory management
+  - Better cross-platform compatibility and platform-specific optimizations
+
+### Technical Improvements
+
+- **Cache System**: Complete refactoring of the caching mechanism:
+  - Improved cache invalidation and refresh logic
+  - Better handling of concurrent cache operations
+  - Enhanced file cache management with improved error recovery
+  - Optimized memory usage and reduced allocations
+- **Namespace Handling**: Enhanced namespace format support:
+  - Improved JSON, YAML, and Properties format parsing
+  - Better error handling for malformed configurations
+  - Enhanced format detection and validation
+- **Client Configuration**: Improved configuration management:
+  - Better environment variable handling
+  - Enhanced validation and error reporting
+  - Improved platform-specific feature handling
+- **Documentation**: Comprehensive documentation updates:
+  - Updated all usage examples and code samples
+  - Enhanced multi-language documentation support
+  - Improved API documentation with better examples
+  - Better error handling guides and troubleshooting tips
+
 ## [0.5.3] - 2025-08-19
 
 ### Changed
@@ -38,6 +173,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Multi-language Support**: Updated documentation in English, Simplified Chinese, and Traditional Chinese
 - **Usage Examples**: Added examples showing how to configure and use the insecure HTTPS feature
 - **Security Warnings**: Added clear warnings about security implications of enabling insecure HTTPS
+
+## Version Bump Rationale
+
+This release is marked as **0.6.0** (minor version bump) instead of **0.5.4** (patch version) because it contains **breaking changes** that require code modifications when upgrading from 0.5.x:
+
+- **Major API Breaking Changes**: All namespace getter methods (`get_string`, `get_int`, `get_bool`, `get_property`) are now **synchronous** instead of async
+- **Deserialization Changes**: JSON and YAML `to_object<T>()` methods are now synchronous
+- **API Surface Changes**: Constructor parameter names and struct field names have changed
+- **Visibility Changes**: Internal types are no longer publicly accessible
+- **Major Refactoring**: Significant internal improvements that affect the public API surface
+
+The async-to-sync changes are the most significant breaking changes as they affect the core usage pattern of the library. Users upgrading from 0.5.x must remove `.await` calls from all getter methods. While the core functionality remains the same, these changes ensure better API design and internal organization. Users upgrading from 0.5.x should follow the migration guide above.
 
 ### Technical Improvements
 

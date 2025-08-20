@@ -75,6 +75,7 @@ The library automatically detects configuration formats based on namespace names
 - **[JavaScript Usage](JavaScript-Usage.md)** - WebAssembly usage in JavaScript environments
 - **[Error Handling](Error-Handling.md)** - Comprehensive error handling guide and best practices
 - **[WASM Memory Management](WASM-Memory-Management.md)** - Memory management for WebAssembly environments
+- **[Upgrade Guide](Upgrade-Guide.md)** - Upgrade between different versions
 
 ### Library Design & Architecture
 
@@ -162,9 +163,9 @@ config.free();
 
 ## Version Information
 
-**Current Version**: 0.5.3
+**Current Version**: 0.6.0
 
-### Recent Changes (v0.5.3)
+### Recent Changes (v0.6.0)
 
 - **Typed Namespaces**: Support for multiple configuration formats with automatic detection
 - **Event Listeners**: Real-time configuration change notifications

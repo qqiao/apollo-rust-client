@@ -37,18 +37,29 @@ use serde::de::DeserializeOwned;
 ///
 /// ```rust
 /// use apollo_rust_client::namespace::yaml::{Yaml, Error};
+/// use serde::{Deserialize, Serialize};
+/// use serde_json::json;
+///
+/// #[derive(Debug, Deserialize, Serialize)]
+/// struct MyType {
+///     name: String,
+///     value: i32,
+/// }
+///
+/// // Create a sample YAML namespace
+/// let yaml_data = json!({
+///     "content": "name: test\nvalue: 42"
+/// });
+/// let yaml_namespace = Yaml::try_from(yaml_data).unwrap();
 ///
 /// match yaml_namespace.to_object::<MyType>() {
 ///     Ok(config) => {
 ///         // Handle successful deserialization
+///         println!("Config: {:?}", config);
 ///     }
-///     Err(Error::DeserializeError(serde_error)) => {
+///     Err(serde_error) => {
 ///         // Handle YAML parsing errors
 ///         eprintln!("YAML parsing failed: {}", serde_error);
-///     }
-///     Err(e) => {
-///         // Handle other errors
-///         eprintln!("Error: {}", e);
 ///     }
 /// }
 /// ```
@@ -179,7 +190,7 @@ impl Yaml {
 /// use apollo_client::namespace::yaml::Yaml;
 ///
 /// let json_data = json!({"content": "name: MyApp\nversion: 1.0.0"});
-/// let yaml_namespace = Yaml::try_from(json_data)?;
+/// let yaml_namespace = Yaml::try_from(json_data).unwrap();
 /// ```
 impl TryFrom<serde_json::Value> for Yaml {
     type Error = crate::namespace::yaml::Error;

@@ -144,8 +144,8 @@ use apollo_rust_client::client_config::ClientConfig;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize from environment variables
-    let client_config = ClientConfig::from_env()?;
-    let mut client = Client::new(client_config);
+    let config = ClientConfig::from_env()?;
+    let mut client = Client::new(config);
 
     client.start().await?;
 
@@ -179,7 +179,7 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client_config = ClientConfig {
+    let config = ClientConfig {
         app_id: "your_app_id".to_string(),
         cluster: "default".to_string(),
         secret: None,
@@ -189,7 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ip: None,
         allow_insecure_https: None,
     };
-    let mut client = Client::new(client_config);
+    let mut client = Client::new(config);
 
     // Register an event listener before starting
     let listener: EventListener = Arc::new(|result| {

@@ -75,6 +75,7 @@
 - **[JavaScript 使用](JavaScript-Usage.md)** - JavaScript 环境中的 WebAssembly 使用
 - **[错误处理](Error-Handling.md)** - 全面的错误处理指南和最佳实践
 - **[WASM 内存管理](WASM-Memory-Management.md)** - WebAssembly 环境的内存管理
+- **[升级指南](Upgrade-Guide.md)** - 在不同版本之间升级
 
 ### 库设计与架构
 
@@ -162,9 +163,9 @@ config.free();
 
 ## 版本信息
 
-**当前版本**: 0.5.3
+**当前版本**: 0.6.0
 
-### 最新变更 (v0.5.3)
+### 最新变更 (v0.6.0)
 
 - **类型化命名空间**: 支持多种配置格式和自动检测
 - **事件监听器**: 实时配置变更通知
