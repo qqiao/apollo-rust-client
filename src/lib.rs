@@ -554,8 +554,6 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(not(target_arch = "wasm32"))]
-    use lazy_static::lazy_static;
 
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "wasm32")] {
@@ -567,8 +565,8 @@ mod tests {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    lazy_static! {
-        pub(crate) static ref CLIENT_NO_SECRET: Client = {
+    pub(crate) static CLIENT_NO_SECRET: std::sync::LazyLock<Client> =
+        std::sync::LazyLock::new(|| {
             let config = ClientConfig {
                 app_id: String::from("101010101"),
                 cluster: String::from("default"),
@@ -582,8 +580,11 @@ mod tests {
                 cache_ttl: None,
             };
             Client::new(config)
-        };
-        pub(crate) static ref CLIENT_WITH_SECRET: Client = {
+        });
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) static CLIENT_WITH_SECRET: std::sync::LazyLock<Client> =
+        std::sync::LazyLock::new(|| {
             let config = ClientConfig {
                 app_id: String::from("101010102"),
                 cluster: String::from("default"),
@@ -597,8 +598,11 @@ mod tests {
                 cache_ttl: None,
             };
             Client::new(config)
-        };
-        pub(crate) static ref CLIENT_WITH_GRAYSCALE_IP: Client = {
+        });
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) static CLIENT_WITH_GRAYSCALE_IP: std::sync::LazyLock<Client> =
+        std::sync::LazyLock::new(|| {
             let config = ClientConfig {
                 app_id: String::from("101010101"),
                 cluster: String::from("default"),
@@ -612,8 +616,11 @@ mod tests {
                 cache_ttl: None,
             };
             Client::new(config)
-        };
-        pub(crate) static ref CLIENT_WITH_GRAYSCALE_LABEL: Client = {
+        });
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) static CLIENT_WITH_GRAYSCALE_LABEL: std::sync::LazyLock<Client> =
+        std::sync::LazyLock::new(|| {
             let config = ClientConfig {
                 app_id: String::from("101010101"),
                 cluster: String::from("default"),
@@ -627,8 +634,7 @@ mod tests {
                 cache_ttl: None,
             };
             Client::new(config)
-        };
-    }
+        });
 
     pub(crate) fn setup() {
         cfg_if::cfg_if! {
