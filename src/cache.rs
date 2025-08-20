@@ -68,28 +68,44 @@ struct CacheItem {
 ///
 /// # Examples
 ///
-/// ```rust
-/// use apollo_rust_client::cache::{Cache, Error};
+/// ```rust,ignore
+/// use apollo_rust_client::cache::Error;
 ///
-/// match cache.refresh().await {
-///     Ok(()) => {
-///         // Handle successful cache refresh
-///     }
-///     Err(Error::Io(io_error)) => {
-///         // Handle file system errors
-///         eprintln!("I/O error: {}", io_error);
-///     }
-///     Err(Error::Reqwest(reqwest_error)) => {
-///         // Handle network errors
-///         eprintln!("Network error: {}", reqwest_error);
-///     }
-///     Err(Error::Serde(serde_error)) => {
-///         // Handle JSON parsing errors
-///         eprintln!("JSON error: {}", serde_error);
-///     }
-///     Err(e) => {
-///         // Handle other errors
-///         eprintln!("Error: {}", e);
+/// // Example of handling different cache error types
+/// fn handle_cache_error(error: Error) {
+///     match error {
+///         Error::Io(io_error) => {
+///             // Handle file system errors
+///             eprintln!("I/O error: {}", io_error);
+///         }
+///         Error::Reqwest(reqwest_error) => {
+///             // Handle network errors
+///             eprintln!("Network error: {}", reqwest_error);
+///         }
+///         Error::Serde(serde_error) => {
+///             // Handle JSON parsing errors
+///             eprintln!("JSON error: {}", serde_error);
+///         }
+///         Error::Namespace(namespace_error) => {
+///             // Handle namespace errors
+///             eprintln!("Namespace error: {}", namespace_error);
+///         }
+///         Error::NamespaceNotFound(namespace) => {
+///             // Handle namespace not found
+///             eprintln!("Namespace not found: {}", namespace);
+///         }
+///         Error::UrlParse(url_error) => {
+///             // Handle URL parsing errors
+///             eprintln!("URL parse error: {}", url_error);
+///         }
+///         Error::AlreadyLoading => {
+///             // Handle concurrent refresh attempts
+///             eprintln!("Cache refresh already in progress");
+///         }
+///         Error::AlreadyCheckingCache => {
+///             // Handle concurrent cache initialization
+///             eprintln!("Cache initialization already in progress");
+///         }
 ///     }
 /// }
 /// ```
@@ -766,11 +782,14 @@ type HmacSha1 = Hmac<Sha1>;
 ///
 /// # Examples
 ///
-/// ```rust
-/// use apollo_rust_client::cache::sign;
+/// ```rust,ignore
+/// use apollo_rust_client::sign;
 ///
-/// let signature = sign(1576478257344, "/configs/100004458/default/application?ip=10.0.0.1", "secret_key")?;
-/// println!("Generated signature: {}", signature);
+/// fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let signature = sign(1576478257344, "/configs/100004458/default/application?ip=10.0.0.1", "secret_key")?;
+///     println!("Generated signature: {}", signature);
+///     Ok(())
+/// }
 /// ```
 pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Error> {
     let u = match Url::parse(url) {

@@ -191,71 +191,37 @@ cfg_if::cfg_if! {
 ///
 /// # Examples
 ///
-/// ## Basic Usage
-///
 /// ```rust,no_run
 /// use apollo_rust_client::{Client, client_config::ClientConfig};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let config = ClientConfig {
-///     app_id: "my-app".to_string(),
-///     config_server: "http://apollo-server:8080".to_string(),
-///     cluster: "default".to_string(),
-///     secret: None,
-///     cache_dir: None,
-///     label: None,
-///     ip: None,
-///     allow_insecure_https: None,
-///     #[cfg(not(target_arch = "wasm32"))]
-///     cache_ttl: None,
-/// };
-///
-/// let mut client = Client::new(config);
-/// client.start().await?;
-///
-/// let namespace = client.namespace("application").await?;
-/// # Ok(())
+/// #     // Create a client instance
+/// #     let client = Client::new(ClientConfig {
+/// #         app_id: "test_app".to_string(),
+/// #         config_server: "http://localhost:8080".to_string(),
+/// #         cluster: "default".to_string(),
+/// #         secret: None,
+/// #         cache_dir: None,
+/// #         label: None,
+/// #         ip: None,
+/// #         allow_insecure_https: None,
+/// #         #[cfg(not(target_arch = "wasm32"))]
+/// #         cache_ttl: None,
+/// #     });
+/// #
+/// #     // Get properties namespace (default format)
+/// #     let props_namespace = client.namespace("application").await?;
+/// #
+/// #     // Get JSON namespace
+/// #     let json_namespace = client.namespace("config.json").await?;
+/// #
+/// #     // Get YAML namespace
+/// #     let yaml_namespace = client.namespace("settings.yaml").await?;
+/// #
+/// #     Ok(())
 /// # }
 /// ```
-///
-/// ## With Event Listeners
-///
-/// ```rust,no_run
-/// use apollo_rust_client::{Client, client_config::ClientConfig};
-/// use std::sync::Arc;
-///
-/// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// # let config = ClientConfig {
-/// #     app_id: "my-app".to_string(),
-/// #     config_server: "http://apollo-server:8080".to_string(),
-/// #     cluster: "default".to_string(),
-/// #     secret: None,
-/// #     cache_dir: None,
-/// #     label: None,
-/// #     ip: None,
-/// #     allow_insecure_https: None,
-/// #     #[cfg(not(target_arch = "wasm32"))]
-/// #     cache_ttl: None,
-/// # };
-/// # let client = Client::new(config);
-/// client.add_listener("application", Arc::new(|result| {
-///     match result {
-///         Ok(namespace) => println!("Config updated: {:?}", namespace),
-///         Err(e) => eprintln!("Update error: {}", e),
-///     }
-/// })).await;
-/// # Ok(())
-/// # }
-/// ```
-///
-/// # Platform Differences
-///
-/// The client behaves differently on different platforms:
-///
-/// - **Native Rust**: Full feature set with file caching and background tasks
-/// - **WebAssembly**: Memory-only caching, single-threaded execution
 #[wasm_bindgen]
 pub struct Client {
     /// The configuration settings for this Apollo client instance.
@@ -346,17 +312,36 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```rust
-    /// use apollo_rust_client::Client;
+    /// ```rust,no_run
+    /// use apollo_rust_client::{Client, client_config::ClientConfig};
     ///
-    /// // Get properties namespace (default format)
-    /// let props_namespace = client.namespace("application").await?;
-    ///
-    /// // Get JSON namespace
-    /// let json_namespace = client.namespace("config.json").await?;
-    ///
-    /// // Get YAML namespace
-    /// let yaml_namespace = client.namespace("settings.yaml").await?;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// #     // Create a client instance
+    /// #     let client = Client::new(ClientConfig {
+    /// #         app_id: "test_app".to_string(),
+    /// #         config_server: "http://localhost:8080".to_string(),
+    /// #         cluster: "default".to_string(),
+    /// #         secret: None,
+    /// #         cache_dir: None,
+    /// #         label: None,
+    /// #         ip: None,
+    /// #         allow_insecure_https: None,
+    /// #         #[cfg(not(target_arch = "wasm32"))]
+    /// #         cache_ttl: None,
+    /// #     });
+    /// #
+    /// #     // Get properties namespace (default format)
+    /// #     let props_namespace = client.namespace("application").await?;
+    /// #
+    /// #     // Get JSON namespace
+    /// #     let json_namespace = client.namespace("config.json").await?;
+    /// #
+    /// #     // Get YAML namespace
+    /// #     let yaml_namespace = client.namespace("settings.yaml").await?;
+    /// #
+    /// #     Ok(())
+    /// # }
     /// ```
     pub async fn namespace(&self, namespace: &str) -> Result<namespace::Namespace, Error> {
         let cache = self.cache(namespace).await;

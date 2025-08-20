@@ -37,18 +37,29 @@ use serde::de::DeserializeOwned;
 ///
 /// ```rust
 /// use apollo_rust_client::namespace::json::{Json, Error};
+/// use serde::{Deserialize, Serialize};
+/// use serde_json::json;
+///
+/// #[derive(Debug, Deserialize, Serialize)]
+/// struct MyType {
+///     name: String,
+///     value: i32,
+/// }
+///
+/// // Create a sample JSON namespace
+/// let json_data = json!({
+///     "content": r#"{"name": "test", "value": 42}"#
+/// });
+/// let json_namespace = Json::try_from(json_data).unwrap();
 ///
 /// match json_namespace.to_object::<MyType>() {
 ///     Ok(config) => {
 ///         // Handle successful deserialization
+///         println!("Config: {:?}", config);
 ///     }
-///     Err(Error::DeserializeError(serde_error)) => {
+///     Err(serde_error) => {
 ///         // Handle JSON parsing errors
 ///         eprintln!("JSON parsing failed: {}", serde_error);
-///     }
-///     Err(e) => {
-///         // Handle other errors
-///         eprintln!("Error: {}", e);
 ///     }
 /// }
 /// ```

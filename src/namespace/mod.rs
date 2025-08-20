@@ -45,31 +45,34 @@ pub mod yaml;
 /// # Examples
 ///
 /// ```rust
-/// use apollo_rust_client::namespace::{get_namespace, Error};
+/// use apollo_rust_client::namespace::{Namespace, Error};
+/// use serde_json::json;
 ///
-/// match get_namespace("config.json", json_value) {
-///     Ok(namespace) => {
-///         // Handle successful namespace creation
-///     }
-///     Err(Error::Json(json_error)) => {
-///         // Handle JSON-specific errors
-///         eprintln!("JSON error: {}", json_error);
-///     }
-///     Err(Error::Yaml(yaml_error)) => {
-///         // Handle YAML-specific errors
-///         eprintln!("YAML error: {}", yaml_error);
-///     }
-///     Err(Error::Text(text_error)) => {
-///         // Handle text-specific errors
-///         eprintln!("Text error: {}", text_error);
-///     }
-///     Err(Error::Xml(xml_error)) => {
-///         // Handle XML-specific errors (currently unsupported)
-///         eprintln!("XML error: {}", xml_error);
-///     }
-///     Err(e) => {
-///         // Handle other errors
-///         eprintln!("Error: {}", e);
+/// // Create a sample JSON value
+/// let json_value = json!({
+///     "content": r#"{"name": "test", "value": 42}"#
+/// });
+///
+/// // This would typically be done through the client, but for demonstration:
+/// // The error handling shows how different namespace errors are handled
+/// fn handle_namespace_error(error: Error) {
+///     match error {
+///         Error::Json(json_error) => {
+///             // Handle JSON-specific errors
+///             eprintln!("JSON error: {}", json_error);
+///         }
+///         Error::Yaml(yaml_error) => {
+///             // Handle YAML-specific errors
+///             eprintln!("YAML error: {}", yaml_error);
+///         }
+///         Error::Text(text_error) => {
+///             // Handle text-specific errors
+///             eprintln!("Text error: {}", text_error);
+///         }
+///         Error::Xml(xml_error) => {
+///             // Handle XML-specific errors (currently unsupported)
+///             eprintln!("XML error: {}", xml_error);
+///         }
 ///     }
 /// }
 /// ```

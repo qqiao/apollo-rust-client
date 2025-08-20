@@ -574,16 +574,78 @@ println!("Configuration loaded: {:?}", config);
 
 ### Upgrading from Previous Versions
 
-#### Version 0.4.x to 0.5.3
+#### Version 0.5.x to 0.6.0
 
-- No breaking changes in configuration structure
-- New optional fields are backward compatible
-- Environment variable names remain the same
+**Breaking Changes:**
+
+- **Namespace Getter Methods**: All `get_*` methods are now **synchronous** instead of async
+- **JSON/YAML Deserialization**: `to_object<T>()` methods are now synchronous
+- **API Changes**: Constructor parameter renamed from `client_config` to `config`
+
+**Migration Steps:**
+
+1. Remove `.await` from all namespace getter methods:
+
+   ```rust
+   // Before (0.5.x)
+   let value = properties.get_string("key").await;
+   let config = json_namespace.to_object().await?;
+
+   // After (0.6.0)
+   let value = properties.get_string("key");
+   let config = json_namespace.to_object()?;
+   ```
+
+2. Update constructor calls (if using old parameter name):
+
+   ```rust
+   // Before
+   let client = Client::new(client_config);
+
+   // After
+   let client = Client::new(config);
+   ```
+
+#### Version 0.4.x to 0.5.0
+
+**New Features Added:**
+
+- **Multiple Configuration Formats**: Support for JSON, YAML, and Text formats
+- **Cache TTL**: Time-to-live mechanism for cache expiration
+- **Enhanced Namespace System**: Unified namespace handling with format detection
+
+**New Configuration Fields:**
+
+- `cache_ttl: Option<u64>` - Cache expiration time in seconds (default: 600)
+- `APOLLO_CACHE_TTL` environment variable support
+
+**Migration Steps:**
+
+1. Update Cargo.toml to version 0.5.0:
+
+   ```toml
+   [dependencies]
+   apollo-rust-client = "0.5.0"
+   ```
+
+2. Add cache TTL configuration (optional):
+
+   ```rust
+   let config = ClientConfig {
+       // ... existing fields ...
+       cache_ttl: Some(300), // 5 minutes, or use APOLLO_CACHE_TTL env var
+   };
+   ```
+
+3. No code changes required - all new fields are optional and backward compatible
 
 #### Version 0.3.x to 0.4.0
 
+**Breaking Changes:**
+
 - `cache_dir` changed from `PathBuf` to `Option<String>`
-- Update any direct `PathBuf` usage to `String`
+
+**Migration Steps:**
 
 ```rust
 // Old (0.3.x)
