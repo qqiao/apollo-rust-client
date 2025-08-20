@@ -187,6 +187,7 @@ pub struct ClientConfig {
     /// This should be the base URL of your Apollo Configuration Center server,
     /// including the protocol (http/https) and port if necessary.
     /// Example: "http://apollo-server:8080"
+    #[allow(clippy::doc_markdown)]
     pub config_server: String,
 
     /// Optional secret key for authentication with the Apollo server.
@@ -238,11 +239,31 @@ impl From<Error> for JsValue {
 cfg_if! {
     if #[cfg(not(target_arch = "wasm32"))] {
         impl ClientConfig {
-            /// Create a new configuration from environment variables.
+            /// Creates a new `ClientConfig` by reading environment variables.
+            ///
+            /// This function loads configuration values from the following environment variables:
+            /// - `APP_ID` (required): The Apollo application ID.
+            /// - `APOLLO_ACCESS_KEY_SECRET` (optional): Secret key for authentication.
+            /// - `IDC` (optional): Cluster name. Defaults to `"default"` if not set.
+            /// - `APOLLO_CONFIG_SERVICE` (required): The Apollo config server URL.
+            /// - `APOLLO_LABEL` (optional): Comma-separated labels for grayscale release.
+            /// - `APOLLO_CACHE_DIR` (optional): Directory for local cache storage.
+            /// - `APOLLO_ALLOW_INSECURE_HTTPS` (optional): If set to `"true"`, allows insecure HTTPS.
+            /// - `APOLLO_CACHE_TTL` (optional): Cache time-to-live in seconds. Defaults to 600 if not set.
             ///
             /// # Returns
             ///
-            /// A new configuration instance.
+            /// * `Ok(ClientConfig)` if all required environment variables are present and valid.
+            /// * `Err(Error)` if a required environment variable is missing or invalid.
+            ///
+            /// # Errors
+            ///
+            /// This function will return an error if:
+            /// - The `APP_ID` environment variable is missing.
+            /// - The `APOLLO_CONFIG_SERVICE` environment variable is missing.
+            /// - Any environment variable that is expected to be a number (such as `APOLLO_CACHE_TTL`)
+            ///   cannot be parsed as the correct type.
+            /// - Any other required environment variable is missing or invalid.
             pub fn from_env() -> Result<Self, Error> {
                 let app_id =
                     std::env::var("APP_ID").map_err(|e| (Error::EnvVar(e, "APP_ID".to_string())))?;

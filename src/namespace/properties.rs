@@ -102,6 +102,7 @@ impl Properties {
     /// let timeout: Option<u32> = properties.get_property("timeout");
     /// let retries: Option<i32> = properties.get_property("retries");
     /// ```
+    #[must_use]
     pub fn get_property<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
         debug!("Getting property for key {key}");
 
@@ -138,6 +139,7 @@ impl Properties {
     /// let app_name = properties.get_string("app.name");
     /// assert_eq!(app_name, Some("MyApp".to_string()));
     /// ```
+    #[must_use]
     pub fn get_string(&self, key: &str) -> Option<String> {
         self.get_property::<String>(key)
     }
@@ -168,6 +170,7 @@ impl Properties {
     /// let port = properties.get_int("server.port");
     /// assert_eq!(port, Some(8080));
     /// ```
+    #[must_use]
     pub fn get_int(&self, key: &str) -> Option<i64> {
         self.get_property::<i64>(key)
     }
@@ -198,6 +201,7 @@ impl Properties {
     /// let timeout = properties.get_float("timeout.seconds");
     /// assert_eq!(timeout, Some(30.5));
     /// ```
+    #[must_use]
     pub fn get_float(&self, key: &str) -> Option<f64> {
         self.get_property::<f64>(key)
     }
@@ -229,6 +233,7 @@ impl Properties {
     /// let debug_enabled = properties.get_bool("debug.enabled");
     /// assert_eq!(debug_enabled, Some(true));
     /// ```
+    #[must_use]
     pub fn get_bool(&self, key: &str) -> Option<bool> {
         self.get_property::<bool>(key)
     }

@@ -461,6 +461,50 @@ impl Cache {
         *loading = true;
 
         trace!("Refreshing cache for namespace {}", self.namespace);
+
+        // Build the request URL
+        let url = self.build_request_url()?;
+        trace!("Url {} for namespace {}", url, self.namespace);
+
+        // Create HTTP client
+        let http_client = self.create_http_client();
+
+        // Build the HTTP request with authentication if needed
+        let client = self.build_http_request(&url, &http_client)?;
+
+        // Execute the request and get response
+        let response = self.execute_request(client).await?;
+
+        // Parse the response body
+        let config = self.parse_response(response).await?;
+        trace!("parsed config: {config:?}");
+
+        // Write to file cache (native targets only)
+        cfg_if! {
+            if #[cfg(not(target_arch = "wasm32"))] {
+                self.write_to_file_cache(&config)?;
+            }
+        }
+
+        // Notify listeners and update memory cache
+        self.update_cache_and_notify_listeners(config).await;
+
+        trace!("Refreshed cache for namespace {}", self.namespace);
+        *loading = false;
+
+        Ok(())
+    }
+
+    /// Builds the request URL for the Apollo configuration service.
+    ///
+    /// Constructs the URL with the base path, app ID, cluster, and namespace,
+    /// and adds optional query parameters for IP and label.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Url)` - The constructed URL
+    /// * `Err(Error::UrlParse)` - If URL parsing fails
+    fn build_request_url(&self) -> Result<Url, Error> {
         let url = format!(
             "{}/configfiles/json/{}/{}/{}",
             self.client_config.config_server,
@@ -471,11 +515,9 @@ impl Cache {
 
         let mut url = match Url::parse(&url) {
             Ok(u) => u,
-            Err(e) => {
-                *loading = false;
-                return Err(Error::UrlParse(e));
-            }
+            Err(e) => return Err(Error::UrlParse(e)),
         };
+
         if let Some(ip) = &self.client_config.ip {
             url.query_pairs_mut().append_pair("ip", ip);
         }
@@ -483,10 +525,19 @@ impl Cache {
             url.query_pairs_mut().append_pair("label", label);
         }
 
-        trace!("Url {} for namespace {}", url, self.namespace);
+        Ok(url)
+    }
 
-        // Create HTTP client with optional insecure HTTPS support
-        let http_client = if self.client_config.allow_insecure_https.unwrap_or(false) {
+    /// Creates an HTTP client with optional insecure HTTPS support.
+    ///
+    /// For native targets, allows insecure HTTPS if configured.
+    /// For WASM targets, always uses the default client.
+    ///
+    /// # Returns
+    ///
+    /// * `reqwest::Client` - The configured HTTP client
+    fn create_http_client(&self) -> reqwest::Client {
+        if self.client_config.allow_insecure_https.unwrap_or(false) {
             cfg_if! {
                 if #[cfg(not(target_arch = "wasm32"))] {
                     reqwest::Client::builder()
@@ -501,16 +552,33 @@ impl Cache {
             }
         } else {
             reqwest::Client::new()
-        };
+        }
+    }
 
+    /// Builds the HTTP request with optional authentication headers.
+    ///
+    /// If a secret is configured, adds timestamp and authorization headers
+    /// with HMAC-SHA1 signature.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The request URL
+    /// * `http_client` - The HTTP client to use
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(reqwest::RequestBuilder)` - The configured request builder
+    /// * `Err(Error)` - If signature generation fails
+    fn build_http_request(
+        &self,
+        url: &Url,
+        http_client: &reqwest::Client,
+    ) -> Result<reqwest::RequestBuilder, Error> {
         let mut client = http_client.get(url.as_str());
-        if self.client_config.secret.is_some() {
+
+        if let Some(secret) = &self.client_config.secret {
             let timestamp = Utc::now().timestamp_millis();
-            let signature = sign(
-                timestamp,
-                url.as_str(),
-                self.client_config.secret.as_ref().unwrap(),
-            )?;
+            let signature = sign(timestamp, url.as_str(), secret)?;
             client = client.header("timestamp", timestamp.to_string());
             client = client.header(
                 "Authorization",
@@ -518,73 +586,103 @@ impl Cache {
             );
         }
 
-        let response = match client.send().await {
-            Ok(r) => r,
-            Err(e) => {
-                *loading = false;
-                return Err(Error::Reqwest(e));
-            }
-        };
+        Ok(client)
+    }
 
+    /// Executes the HTTP request and returns the response.
+    ///
+    /// # Arguments
+    ///
+    /// * `client` - The configured request builder
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(reqwest::Response)` - The HTTP response
+    /// * `Err(Error::Reqwest)` - If the request fails
+    async fn execute_request(
+        &self,
+        client: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, Error> {
+        match client.send().await {
+            Ok(r) => Ok(r),
+            Err(e) => Err(Error::Reqwest(e)),
+        }
+    }
+
+    /// Parses the HTTP response body as JSON configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The HTTP response
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Value)` - The parsed configuration
+    /// * `Err(Error::Reqwest)` - If reading the response body fails
+    /// * `Err(Error::Serde)` - If JSON parsing fails
+    async fn parse_response(&self, response: reqwest::Response) -> Result<Value, Error> {
         let body: String = match response.text().await {
             Ok(b) => b,
-            Err(e) => {
-                *loading = false;
-                return Err(Error::Reqwest(e));
-            }
+            Err(e) => return Err(Error::Reqwest(e)),
         };
 
         trace!("Response body {} for namespace {}", body, self.namespace);
 
-        let config: Value = match serde_json::from_str(&body) {
-            Ok(c) => c,
+        match serde_json::from_str(&body) {
+            Ok(c) => Ok(c),
             Err(e) => {
-                *loading = false;
                 debug!("error parsing config: {e}");
-                return Err(Error::Serde(e));
-            }
-        };
-        trace!("parsed config: {config:?}");
-
-        cfg_if! {
-            if #[cfg(not(target_arch = "wasm32"))] {
-                debug!("writing cache file {}", self.file_path.display());
-                 // Create parent directories if they don't exist
-                if let Some(parent) = self.file_path.parent() {
-                    match std::fs::create_dir_all(parent) {
-                        Ok(()) => (),
-                        Err(e) => {
-                            *loading = false;
-                            return Err(Error::Io(e));
-                        }
-                    }
-                }
-
-                let cache_item = CacheItem {
-                    timestamp: Utc::now().timestamp(),
-                    config: config.clone(),
-                };
-
-                let cache_content = match serde_json::to_string(&cache_item) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        *loading = false;
-                        return Err(Error::Serde(e));
-                    }
-                };
-
-                match std::fs::write(&self.file_path, cache_content) {
-                    Ok(()) => {
-                        trace!("Wrote cache file {} for namespace {}", self.file_path.display(), self.namespace);
-                    },
-                    Err(e) => {
-                        *loading = false;
-                        return Err(Error::Io(e));
-                    }
-                }
+                Err(Error::Serde(e))
             }
         }
+    }
 
+    /// Writes the configuration to the file cache (native targets only).
+    ///
+    /// Creates parent directories if they don't exist and writes the cache item
+    /// with timestamp and configuration data.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The configuration to cache
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If caching succeeds
+    /// * `Err(Error::Io)` - If file operations fail
+    /// * `Err(Error::Serde)` - If serialization fails
+    #[cfg(not(target_arch = "wasm32"))]
+    fn write_to_file_cache(&self, config: &Value) -> Result<(), Error> {
+        debug!("writing cache file {}", self.file_path.display());
+
+        // Create parent directories if they don't exist
+        if let Some(parent) = self.file_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let cache_item = CacheItem {
+            timestamp: Utc::now().timestamp(),
+            config: config.clone(),
+        };
+
+        let cache_content = serde_json::to_string(&cache_item)?;
+
+        std::fs::write(&self.file_path, cache_content)?;
+        trace!(
+            "Wrote cache file {} for namespace {}",
+            self.file_path.display(),
+            self.namespace
+        );
+
+        Ok(())
+    }
+
+    /// Updates the memory cache and notifies all listeners.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - The new configuration to store
+    async fn update_cache_and_notify_listeners(&self, config: Value) {
         // Notify listeners with the new config
         let listeners = self.listeners.read().await;
         for listener in listeners.iter() {
@@ -594,12 +692,8 @@ impl Cache {
         }
         drop(listeners); // Release read lock before acquiring write lock
 
+        // Update memory cache
         self.memory.write().await.replace(config);
-
-        trace!("Refreshed cache for namespace {}", self.namespace);
-        *loading = false;
-
-        Ok(())
     }
 
     /// Adds an event listener to the cache.
