@@ -137,10 +137,8 @@ impl TryFrom<serde_json::Value> for Json {
     type Error = crate::namespace::json::Error;
 
     fn try_from(json_value: serde_json::Value) -> Result<Self, Self::Error> {
-        let content_string = match json_value.get("content") {
-            Some(serde_json::Value::String(s)) => s,
-            None => return Err(Error::ContentNotFound),
-            _ => return Err(Error::ContentNotFound),
+        let Some(serde_json::Value::String(content_string)) = json_value.get("content") else {
+            return Err(Error::ContentNotFound);
         };
         trace!("content_string: {content_string:?}");
         let value = serde_json::from_str(content_string.as_str())?;

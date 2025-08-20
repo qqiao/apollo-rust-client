@@ -57,14 +57,12 @@ use crate::namespace::Namespace;
 use async_std::sync::RwLock;
 use cache::Cache;
 use client_config::ClientConfig;
-use log::{debug, error, trace};
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use log::{error, trace};
+use std::{collections::HashMap, sync::Arc};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 cfg_if::cfg_if! {
-    if #[cfg(target_arch = "wasm32")] {
-        use wasm_bindgen_futures::spawn_local as spawn;
-    } else {
+    if #[cfg(not(target_arch = "wasm32"))] {
         use async_std::task::spawn as spawn;
     }
 }
@@ -345,37 +343,35 @@ impl Client {
 
         *running = true;
 
-        let running = self.running.clone();
-        let namespaces = self.namespaces.clone();
-
-        // Spawn a background thread to refresh caches
-        let _handle = spawn(async move {
-            loop {
-                let running = running.read().await;
-                if !*running {
-                    break;
-                }
-
-                let namespaces = namespaces.read().await;
-                // Refresh each namespace's cache
-                for (namespace, cache) in namespaces.iter() {
-                    if let Err(err) = cache.refresh().await {
-                        error!("Failed to refresh cache for namespace {namespace}: {err:?}");
-                    } else {
-                        debug!("Successfully refreshed cache for namespace {namespace}");
-                    }
-                }
-
-                // Sleep for 30 seconds before the next refresh
-                async_std::task::sleep(Duration::from_secs(30)).await;
-            }
-        });
-
         cfg_if::cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
                 self.handle = None;
             } else {
-                self.handle = Some(_handle);
+                let running = self.running.clone();
+                let namespaces = self.namespaces.clone();
+                // Spawn a background thread to refresh caches
+                let handle = spawn(async move {
+                    loop {
+                        let running = running.read().await;
+                        if !*running {
+                            break;
+                        }
+
+                        let namespaces = namespaces.read().await;
+                        // Refresh each namespace's cache
+                        for (namespace, cache) in namespaces.iter() {
+                            if let Err(err) = cache.refresh().await {
+                                error!("Failed to refresh cache for namespace {namespace}: {err:?}");
+                            } else {
+                                log::debug!("Successfully refreshed cache for namespace {namespace}");
+                            }
+                        }
+
+                        // Sleep for 30 seconds before the next refresh
+                        async_std::task::sleep(std::time::Duration::from_secs(30)).await;
+                    }
+                });
+                self.handle = Some(handle);
             }
         }
 
@@ -417,6 +413,7 @@ impl Client {
     ///
     /// A new Apollo client.
     #[wasm_bindgen(constructor)]
+    #[must_use]
     pub fn new(config: ClientConfig) -> Self {
         Self {
             config,
@@ -597,15 +594,13 @@ mod tests {
     #[tokio::test]
     async fn test_missing_value() {
         setup();
-        let properties = match CLIENT_NO_SECRET.namespace("application").await.unwrap() {
-            namespace::Namespace::Properties(properties) => properties,
-            _ => panic!("Expected Properties namespace"),
+        let namespace::Namespace::Properties(properties) =
+            CLIENT_NO_SECRET.namespace("application").await.unwrap()
+        else {
+            panic!("Expected Properties namespace");
         };
 
-        assert_eq!(
-            properties.get_property::<String>("missingValue").await,
-            None
-        );
+        assert_eq!(properties.get_property::<String>("missingValue"), None);
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -618,11 +613,11 @@ mod tests {
         match namespace {
             Ok(namespace) => match namespace {
                 namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_string("missingValue").await, None);
+                    assert_eq!(properties.get_string("missingValue"), None);
                 }
                 _ => panic!("Expected Properties namespace"),
             },
-            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
         }
     }
 
@@ -637,7 +632,7 @@ mod tests {
         };
 
         assert_eq!(
-            properties.get_property::<String>("stringValue").await,
+            properties.get_property::<String>("stringValue"),
             Some("string value".to_string())
         );
     }
@@ -653,13 +648,13 @@ mod tests {
             Ok(namespace) => match namespace {
                 namespace::Namespace::Properties(properties) => {
                     assert_eq!(
-                        properties.get_string("stringValue").await,
+                        properties.get_string("stringValue"),
                         Some("string value".to_string())
                     );
                 }
                 _ => panic!("Expected Properties namespace"),
             },
-            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
         }
     }
 
@@ -667,12 +662,13 @@ mod tests {
     #[tokio::test]
     async fn test_string_value_with_secret() {
         setup();
-        let properties = match CLIENT_WITH_SECRET.namespace("application").await.unwrap() {
-            namespace::Namespace::Properties(properties) => properties,
-            _ => panic!("Expected Properties namespace"),
+        let namespace::Namespace::Properties(properties) =
+            CLIENT_WITH_SECRET.namespace("application").await.unwrap()
+        else {
+            panic!("Expected Properties namespace");
         };
         assert_eq!(
-            properties.get_property::<String>("stringValue").await,
+            properties.get_property::<String>("stringValue"),
             Some("string value".to_string())
         );
     }
@@ -688,13 +684,13 @@ mod tests {
             Ok(namespace) => match namespace {
                 namespace::Namespace::Properties(properties) => {
                     assert_eq!(
-                        properties.get_string("stringValue").await,
+                        properties.get_string("stringValue"),
                         Some("string value".to_string())
                     );
                 }
                 _ => panic!("Expected Properties namespace"),
             },
-            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
         }
     }
 
@@ -702,11 +698,12 @@ mod tests {
     #[tokio::test]
     async fn test_int_value() {
         setup();
-        let properties = match CLIENT_NO_SECRET.namespace("application").await.unwrap() {
-            namespace::Namespace::Properties(properties) => properties,
-            _ => panic!("Expected Properties namespace"),
+        let namespace::Namespace::Properties(properties) =
+            CLIENT_NO_SECRET.namespace("application").await.unwrap()
+        else {
+            panic!("Expected Properties namespace");
         };
-        assert_eq!(properties.get_property::<i32>("intValue").await, Some(42));
+        assert_eq!(properties.get_property::<i32>("intValue"), Some(42));
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -719,11 +716,11 @@ mod tests {
         match namespace {
             Ok(namespace) => match namespace {
                 namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_int("intValue").await, Some(42));
+                    assert_eq!(properties.get_int("intValue"), Some(42));
                 }
                 _ => panic!("Expected Properties namespace"),
             },
-            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
         }
     }
 
@@ -731,11 +728,12 @@ mod tests {
     #[tokio::test]
     async fn test_int_value_with_secret() {
         setup();
-        let properties = match CLIENT_WITH_SECRET.namespace("application").await.unwrap() {
-            namespace::Namespace::Properties(properties) => properties,
-            _ => panic!("Expected Properties namespace"),
+        let namespace::Namespace::Properties(properties) =
+            CLIENT_WITH_SECRET.namespace("application").await.unwrap()
+        else {
+            panic!("Expected Properties namespace");
         };
-        assert_eq!(properties.get_property::<i32>("intValue").await, Some(42));
+        assert_eq!(properties.get_property::<i32>("intValue"), Some(42));
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -748,11 +746,11 @@ mod tests {
         match namespace {
             Ok(namespace) => match namespace {
                 namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_int("intValue").await, Some(42));
+                    assert_eq!(properties.get_int("intValue"), Some(42));
                 }
                 _ => panic!("Expected Properties namespace"),
             },
-            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
         }
     }
 
@@ -760,14 +758,12 @@ mod tests {
     #[tokio::test]
     async fn test_float_value() {
         setup();
-        let properties = match CLIENT_NO_SECRET.namespace("application").await.unwrap() {
-            namespace::Namespace::Properties(properties) => properties,
-            _ => panic!("Expected Properties namespace"),
+        let namespace::Namespace::Properties(properties) =
+            CLIENT_NO_SECRET.namespace("application").await.unwrap()
+        else {
+            panic!("Expected Properties namespace");
         };
-        assert_eq!(
-            properties.get_property::<f64>("floatValue").await,
-            Some(4.20)
-        );
+        assert_eq!(properties.get_property::<f64>("floatValue"), Some(4.20));
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -780,11 +776,11 @@ mod tests {
         match namespace {
             Ok(namespace) => match namespace {
                 namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_float("floatValue").await, Some(4.20));
+                    assert_eq!(properties.get_float("floatValue"), Some(4.20));
                 }
                 _ => panic!("Expected Properties namespace"),
             },
-            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
         }
     }
 
@@ -792,14 +788,12 @@ mod tests {
     #[tokio::test]
     async fn test_float_value_with_secret() {
         setup();
-        let properties = match CLIENT_WITH_SECRET.namespace("application").await.unwrap() {
-            namespace::Namespace::Properties(properties) => properties,
-            _ => panic!("Expected Properties namespace"),
+        let namespace::Namespace::Properties(properties) =
+            CLIENT_WITH_SECRET.namespace("application").await.unwrap()
+        else {
+            panic!("Expected Properties namespace");
         };
-        assert_eq!(
-            properties.get_property::<f64>("floatValue").await,
-            Some(4.20)
-        );
+        assert_eq!(properties.get_property::<f64>("floatValue"), Some(4.20));
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -812,11 +806,11 @@ mod tests {
         match namespace {
             Ok(namespace) => match namespace {
                 namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_float("floatValue").await, Some(4.20));
+                    assert_eq!(properties.get_float("floatValue"), Some(4.20));
                 }
                 _ => panic!("Expected Properties namespace"),
             },
-            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
         }
     }
 
@@ -824,14 +818,12 @@ mod tests {
     #[tokio::test]
     async fn test_bool_value() {
         setup();
-        let properties = match CLIENT_NO_SECRET.namespace("application").await.unwrap() {
-            namespace::Namespace::Properties(properties) => properties,
-            _ => panic!("Expected Properties namespace"),
+        let namespace::Namespace::Properties(properties) =
+            CLIENT_NO_SECRET.namespace("application").await.unwrap()
+        else {
+            panic!("Expected Properties namespace");
         };
-        assert_eq!(
-            properties.get_property::<bool>("boolValue").await,
-            Some(false)
-        );
+        assert_eq!(properties.get_property::<bool>("boolValue"), Some(false));
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -844,11 +836,11 @@ mod tests {
         match namespace {
             Ok(namespace) => match namespace {
                 namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("boolValue").await, Some(false));
+                    assert_eq!(properties.get_bool("boolValue"), Some(false));
                 }
                 _ => panic!("Expected Properties namespace"),
             },
-            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
         }
     }
 
@@ -856,14 +848,12 @@ mod tests {
     #[tokio::test]
     async fn test_bool_value_with_secret() {
         setup();
-        let properties = match CLIENT_WITH_SECRET.namespace("application").await.unwrap() {
-            namespace::Namespace::Properties(properties) => properties,
-            _ => panic!("Expected Properties namespace"),
+        let namespace::Namespace::Properties(properties) =
+            CLIENT_WITH_SECRET.namespace("application").await.unwrap()
+        else {
+            panic!("Expected Properties namespace");
         };
-        assert_eq!(
-            properties.get_property::<bool>("boolValue").await,
-            Some(false)
-        );
+        assert_eq!(properties.get_property::<bool>("boolValue"), Some(false));
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -876,11 +866,11 @@ mod tests {
         match namespace {
             Ok(namespace) => match namespace {
                 namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("boolValue").await, Some(false));
+                    assert_eq!(properties.get_bool("boolValue"), Some(false));
                 }
                 _ => panic!("Expected Properties namespace"),
             },
-            Err(e) => panic!("Expected Properties namespace, got error: {:?}", e),
+            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
         }
     }
 
@@ -888,24 +878,24 @@ mod tests {
     #[tokio::test]
     async fn test_bool_value_with_grayscale_ip() {
         setup();
-        let properties = match CLIENT_WITH_GRAYSCALE_IP
+        let namespace::Namespace::Properties(properties) = CLIENT_WITH_GRAYSCALE_IP
             .namespace("application")
             .await
             .unwrap()
-        {
-            namespace::Namespace::Properties(properties) => properties,
-            _ => panic!("Expected Properties namespace"),
+        else {
+            panic!("Expected Properties namespace");
         };
         assert_eq!(
-            properties.get_property::<bool>("grayScaleValue").await,
+            properties.get_property::<bool>("grayScaleValue"),
             Some(true)
         );
-        let properties = match CLIENT_NO_SECRET.namespace("application").await.unwrap() {
-            namespace::Namespace::Properties(properties) => properties,
-            _ => panic!("Expected Properties namespace"),
+        let namespace::Namespace::Properties(properties) =
+            CLIENT_NO_SECRET.namespace("application").await.unwrap()
+        else {
+            panic!("Expected Properties namespace");
         };
         assert_eq!(
-            properties.get_property::<bool>("grayScaleValue").await,
+            properties.get_property::<bool>("grayScaleValue"),
             Some(false)
         );
     }
@@ -920,7 +910,7 @@ mod tests {
         match namespace {
             Ok(namespace) => match namespace {
                 namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("grayScaleValue").await, Some(true));
+                    assert_eq!(properties.get_bool("grayScaleValue"), Some(true));
                 }
                 _ => panic!("Expected Properties namespace"),
             },
@@ -932,7 +922,7 @@ mod tests {
         match namespace {
             Ok(namespace) => match namespace {
                 namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("grayScaleValue").await, Some(false));
+                    assert_eq!(properties.get_bool("grayScaleValue"), Some(false));
                 }
                 _ => panic!("Expected Properties namespace"),
             },
@@ -944,24 +934,24 @@ mod tests {
     #[tokio::test]
     async fn test_bool_value_with_grayscale_label() {
         setup();
-        let properties = match CLIENT_WITH_GRAYSCALE_LABEL
+        let namespace::Namespace::Properties(properties) = CLIENT_WITH_GRAYSCALE_LABEL
             .namespace("application")
             .await
             .unwrap()
-        {
-            namespace::Namespace::Properties(properties) => properties,
-            _ => panic!("Expected Properties namespace"),
+        else {
+            panic!("Expected Properties namespace");
         };
         assert_eq!(
-            properties.get_property::<bool>("grayScaleValue").await,
+            properties.get_property::<bool>("grayScaleValue"),
             Some(true)
         );
-        let properties = match CLIENT_NO_SECRET.namespace("application").await.unwrap() {
-            namespace::Namespace::Properties(properties) => properties,
-            _ => panic!("Expected Properties namespace"),
+        let namespace::Namespace::Properties(properties) =
+            CLIENT_NO_SECRET.namespace("application").await.unwrap()
+        else {
+            panic!("Expected Properties namespace");
         };
         assert_eq!(
-            properties.get_property::<bool>("grayScaleValue").await,
+            properties.get_property::<bool>("grayScaleValue"),
             Some(false)
         );
     }
@@ -976,7 +966,7 @@ mod tests {
         match namespace {
             Ok(namespace) => match namespace {
                 namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("grayScaleValue").await, Some(true));
+                    assert_eq!(properties.get_bool("grayScaleValue"), Some(true));
                 }
                 _ => panic!("Expected Properties namespace"),
             },
@@ -988,7 +978,7 @@ mod tests {
         match namespace {
             Ok(namespace) => match namespace {
                 namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("grayScaleValue").await, Some(false));
+                    assert_eq!(properties.get_bool("grayScaleValue"), Some(false));
                 }
                 _ => panic!("Expected Properties namespace"),
             },
@@ -1111,7 +1101,7 @@ mod tests {
         // Perform a refresh. This should trigger the listener.
         // The test Apollo server (localhost:8071) should have some known config for "SampleApp" "application" namespace.
         match cache.refresh().await {
-            Ok(_) => log::debug!("Refresh successful for test_add_listener_and_notify_on_refresh"),
+            Ok(()) => log::debug!("Refresh successful for test_add_listener_and_notify_on_refresh"),
             Err(e) => panic!("Cache refresh failed during test: {e:?}"),
         }
 
@@ -1133,7 +1123,7 @@ mod tests {
             match value {
                 Namespace::Properties(properties) => {
                     assert_eq!(
-                        properties.get_string("stringValue").await,
+                        properties.get_string("stringValue"),
                         Some(String::from("string value")),
                         "Received config data does not match expected content for stringValue."
                     );
@@ -1212,7 +1202,7 @@ mod tests {
             match value {
                 namespace::Namespace::Properties(properties) => {
                     assert_eq!(
-                        properties.get_string("stringValue").await,
+                        properties.get_string("stringValue"),
                         Some("string value".to_string())
                     );
                 }

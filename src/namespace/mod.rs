@@ -131,7 +131,7 @@ enum NamespaceType {
 /// // get_namespace_type("readme.txt") -> NamespaceType::Text
 /// ```
 fn get_namespace_type(namespace: &str) -> NamespaceType {
-    let parts = namespace.split(".").collect::<Vec<&str>>();
+    let parts = namespace.split('.').collect::<Vec<&str>>();
     if parts.len() == 1 {
         NamespaceType::Properties
     } else {

@@ -104,7 +104,7 @@ impl Properties {
     /// let retries: Option<i32> = properties.get_property("retries").await;
     /// # }
     /// ```
-    pub async fn get_property<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
+    pub fn get_property<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
         debug!("Getting property for key {key}");
 
         let value = self.value.get(key)?;
@@ -142,8 +142,8 @@ impl Properties {
     /// assert_eq!(app_name, Some("MyApp".to_string()));
     /// # }
     /// ```
-    pub async fn get_string(&self, key: &str) -> Option<String> {
-        self.get_property::<String>(key).await
+    pub fn get_string(&self, key: &str) -> Option<String> {
+        self.get_property::<String>(key)
     }
 
     /// Get a property from the cache as an integer.
@@ -174,8 +174,8 @@ impl Properties {
     /// assert_eq!(port, Some(8080));
     /// # }
     /// ```
-    pub async fn get_int(&self, key: &str) -> Option<i64> {
-        self.get_property::<i64>(key).await
+    pub fn get_int(&self, key: &str) -> Option<i64> {
+        self.get_property::<i64>(key)
     }
 
     /// Get a property from the cache as a float.
@@ -206,8 +206,8 @@ impl Properties {
     /// assert_eq!(timeout, Some(30.5));
     /// # }
     /// ```
-    pub async fn get_float(&self, key: &str) -> Option<f64> {
-        self.get_property::<f64>(key).await
+    pub fn get_float(&self, key: &str) -> Option<f64> {
+        self.get_property::<f64>(key)
     }
 
     /// Get a property from the cache as a boolean.
@@ -239,8 +239,8 @@ impl Properties {
     /// assert_eq!(debug_enabled, Some(true));
     /// # }
     /// ```
-    pub async fn get_bool(&self, key: &str) -> Option<bool> {
-        self.get_property::<bool>(key).await
+    pub fn get_bool(&self, key: &str) -> Option<bool> {
+        self.get_property::<bool>(key)
     }
 }
 
