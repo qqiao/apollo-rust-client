@@ -1,17 +1,13 @@
 //! Properties namespace implementation for handling key-value configuration data.
 //!
-//! This module provides the `Properties` struct which wraps a `serde_json::Value` and
-//! provides methods for working with properties-style configuration data. Properties
-//! format is commonly used for application configuration where data is stored as
-//! simple key-value pairs.
+//! This module provides the `Properties` struct, which wraps a `serde_json::Value`,
+//! and provides methods for working with properties-style configuration data.
+//! Properties format is commonly used for application configuration where data
+//! is stored as simple key-value pairs.
 //!
-//! # Usage
-//!
-//! The `Properties` struct is typically created automatically by the namespace detection
-//! system when a namespace name has no file extension (defaulting to properties format),
-//! but can also be created directly from any `serde_json::Value`.
-//!
-//! # Supported Data Types
+//! The `Properties` struct is typically created automatically by the namespace
+//! detection system when a namespace name has no file extension (defaulting to
+//! properties format), but can also be created directly from any `serde_json::Value`.
 //!
 //! The properties implementation supports automatic parsing of the following types:
 //! - `String` - Text values
@@ -19,20 +15,13 @@
 //! - `f64` - Floating-point values
 //! - `bool` - Boolean values
 //!
-//! # Examples
+//! # Example: `.properties` file format
 //!
-//! ```ignore
-//! use serde_json::json;
-//! use apollo_client::namespace::properties::Properties;
-//!
-//! let props_data = json!({
-//!     "app.name": "MyApplication",
-//!     "app.version": "1.0.0",
-//!     "app.port": "8080",
-//!     "app.debug": "true"
-//! });
-//!
-//! let properties = Properties::from(props_data);
+//! ```properties
+//! app.name = MyApplication
+//! app.version = 1.0.0
+//! app.port = 8080
+//! app.debug = true
 //! ```
 
 use log::debug;
@@ -51,7 +40,7 @@ use wasm_bindgen::prelude::wasm_bindgen;
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```rust,ignore
 /// use serde_json::json;
 /// use apollo_client::namespace::properties::Properties;
 ///
@@ -62,6 +51,15 @@ use wasm_bindgen::prelude::wasm_bindgen;
 /// });
 ///
 /// let properties = Properties::from(props_data);
+///
+/// let host = properties.get_string("database.host");
+/// assert_eq!(host, Some("localhost".to_string()));
+///
+/// let port = properties.get_int("database.port");
+/// assert_eq!(port, Some(5432));
+///
+/// let ssl = properties.get_bool("database.ssl");
+/// assert_eq!(ssl, Some(true));
 /// ```
 #[wasm_bindgen]
 #[derive(Clone, Debug)]
@@ -92,7 +90,7 @@ impl Properties {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```rust,ignore
     /// use serde_json::json;
     /// use apollo_client::namespace::properties::Properties;
     ///
@@ -100,7 +98,10 @@ impl Properties {
     /// let properties = Properties::from(props_data);
     ///
     /// let timeout: Option<u32> = properties.get_property("timeout");
+    /// assert_eq!(timeout, Some(30));
+    ///
     /// let retries: Option<i32> = properties.get_property("retries");
+    /// assert_eq!(retries, Some(3));
     /// ```
     #[must_use]
     pub fn get_property<T: std::str::FromStr>(&self, key: &str) -> Option<T> {
@@ -129,7 +130,7 @@ impl Properties {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```rust,ignore
     /// use serde_json::json;
     /// use apollo_client::namespace::properties::Properties;
     ///
@@ -160,7 +161,7 @@ impl Properties {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```rust,ignore
     /// use serde_json::json;
     /// use apollo_client::namespace::properties::Properties;
     ///
@@ -191,7 +192,7 @@ impl Properties {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```rust,ignore
     /// use serde_json::json;
     /// use apollo_client::namespace::properties::Properties;
     ///
@@ -223,7 +224,7 @@ impl Properties {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```rust,ignore
     /// use serde_json::json;
     /// use apollo_client::namespace::properties::Properties;
     ///
@@ -248,7 +249,7 @@ impl Properties {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```rust,ignore
 /// use serde_json::json;
 /// use apollo_client::namespace::properties::Properties;
 ///
@@ -258,6 +259,12 @@ impl Properties {
 /// });
 ///
 /// let properties = Properties::from(props_data);
+///
+/// let app_name = properties.get_string("app.name");
+/// assert_eq!(app_name, Some("MyApp".to_string()));
+///
+/// let version = properties.get_string("app.version");
+/// assert_eq!(version, Some("1.0.0".to_string()));
 /// ```
 impl From<serde_json::Value> for Properties {
     fn from(value: serde_json::Value) -> Self {

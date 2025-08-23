@@ -201,7 +201,11 @@ The library automatically detects configuration formats based on namespace names
 
 - **Namespace**: `"application"`, `"config.properties"`
 - **Format**: Key-value pairs
-- **Example**: `{"app.name": "MyApp", "server.port": "8080"}`
+- **Example**:
+  ```properties
+  app.name = MyApp
+  server.port = 8080
+  ```
 
 ### JSON Format
 
