@@ -30,11 +30,11 @@
 //! and performance optimization.
 
 use crate::{
-    EventListener,
     client_config::ClientConfig,
     namespace::{self, get_namespace},
+    EventListener,
 };
-use async_std::sync::RwLock;
+use async_std::sync::{Mutex, RwLock};
 use base64::display::Base64Display;
 use cfg_if::cfg_if;
 use chrono::Utc;
@@ -98,14 +98,6 @@ struct CacheItem {
 ///             // Handle URL parsing errors
 ///             eprintln!("URL parse error: {}", url_error);
 ///         }
-///         Error::AlreadyLoading => {
-///             // Handle concurrent refresh attempts
-///             eprintln!("Cache refresh already in progress");
-///         }
-///         Error::AlreadyCheckingCache => {
-///             // Handle concurrent cache initialization
-///             eprintln!("Cache initialization already in progress");
-///         }
 ///     }
 /// }
 /// ```
@@ -153,22 +145,6 @@ pub enum Error {
     /// is malformed or cannot be parsed.
     #[error("Url parse error: {0}")]
     UrlParse(#[from] url::ParseError),
-
-    /// A refresh operation is already in progress.
-    ///
-    /// This error occurs when attempting to refresh a cache that is already
-    /// being refreshed by another operation. This prevents concurrent refresh
-    /// operations that could cause race conditions.
-    #[error("Already loading")]
-    AlreadyLoading,
-
-    /// A cache initialization check is already in progress.
-    ///
-    /// This error occurs when attempting to check or initialize a cache that
-    /// is already being processed by another operation. This prevents concurrent
-    /// cache initialization that could cause race conditions.
-    #[error("Already checking cache")]
-    AlreadyCheckingCache,
 }
 
 /// A cache instance for managing configuration data for a specific namespace.
@@ -215,13 +191,7 @@ pub(crate) struct Cache {
     ///
     /// When a refresh is in progress, other refresh attempts will return
     /// `Error::AlreadyLoading` to prevent redundant network requests.
-    loading: Arc<RwLock<bool>>,
-
-    /// Lock to prevent concurrent cache initialization (native targets only).
-    ///
-    /// This prevents multiple threads from simultaneously attempting to
-    /// read and parse the same cache file during initialization.
-    checking: Arc<RwLock<bool>>,
+    lock: Arc<Mutex<()>>,
 
     /// In-memory storage for the parsed configuration data.
     ///
@@ -275,9 +245,7 @@ impl Cache {
         Self {
             client_config,
             namespace: namespace.to_string(),
-
-            loading: Arc::new(RwLock::new(false)),
-            checking: Arc::new(RwLock::new(false)),
+            lock: Arc::new(Mutex::new(())),
             memory: Arc::new(RwLock::new(None)),
             listeners: Arc::new(RwLock::new(Vec::new())),
 
@@ -333,94 +301,13 @@ impl Cache {
     /// - URL construction fails
     /// - Namespace processing fails
     pub(crate) async fn get_value(&self) -> Result<Value, Error> {
-        debug!("Getting value for namesapce {}", self.namespace);
-
-        // Check if the cache file exists
-        let mut checking_cache = self.checking.write().await;
-        if *checking_cache {
-            return Err(Error::AlreadyCheckingCache);
-        }
-        *checking_cache = true;
-
-        // First we check memory cache
-        let memory_cache = self.memory.read().await;
-        if let Some(value) = memory_cache.as_ref() {
-            debug!(
-                "Memory cache found, using memory cache for namespace {}",
-                self.namespace
-            );
-            *checking_cache = false;
+        if let Some(value) = self.memory.read().await.as_ref() {
             return Ok(value.clone());
         }
-        drop(memory_cache);
-        debug!("No memory cache found");
 
-        cfg_if! {
-            if #[cfg(not(target_arch = "wasm32"))] {
-                let mut needs_refresh = true;
-                let file_path = self.file_path.clone();
-
-                if file_path.exists() {
-                    trace!("Cache file {} exists, attempting to use it.", file_path.display());
-                    if let Ok(file) = std::fs::File::open(&file_path) {
-                        if let Ok(cache_item) = serde_json::from_reader::<_, CacheItem>(file) {
-                            let mut is_stale = false;
-                            cfg_if::cfg_if! {
-                                if #[cfg(not(target_arch = "wasm32"))] {
-                                    if let Some(ttl) = self.client_config.cache_ttl {
-                                        let age = Utc::now().timestamp() - cache_item.timestamp;
-                                        #[allow(clippy::cast_possible_wrap)]
-                                        let ttl = ttl as i64;
-                                        if age > ttl {
-                                            is_stale = true;
-                                            trace!("Cache for {} is stale.", self.namespace);
-                                        }
-                                    }
-                                }
-                            }
-
-                            if !is_stale {
-                                trace!("Cache for {} is fresh, using it.", self.namespace);
-                                self.memory.write().await.replace(cache_item.config);
-                                needs_refresh = false;
-                            }
-                        } else {
-                            trace!("Failed to parse cache file, will refresh.");
-                        }
-                    } else {
-                        trace!("Failed to open cache file, will refresh.");
-                    }
-                }
-
-                if needs_refresh {
-                    trace!("Refreshing cache for namespace {}", self.namespace);
-                    match self.refresh().await {
-                        Ok(()) => (),
-                        Err(e) => {
-                            *checking_cache = false;
-                            return Err(e);
-                        }
-                    }
-                }
-            } else {
-                match self.refresh().await {
-                    Ok(()) => (),
-                    Err(e) => {
-                        *checking_cache = false;
-                        return Err(e);
-                    }
-                }
-            }
-        }
-
-        let memory_cache = self.memory.read().await;
-        if let Some(value) = memory_cache.as_ref() {
-            *checking_cache = false;
-            Ok(value.clone())
-        } else {
-            *checking_cache = false;
-            Err(Error::NamespaceNotFound(self.namespace.clone()))
-        }
+        let (config, listeners) = self.load_value().await?;
+        self.notify_listeners(&config, &listeners);
+        Ok(config)
     }
 
     /// Refreshes the cache by fetching the latest configuration from the Apollo server.
@@ -470,45 +357,76 @@ impl Cache {
     /// - File cache operations fail (native targets only)
     /// - Authentication signature generation fails
     pub(crate) async fn refresh(&self) -> Result<(), Error> {
-        let mut loading = self.loading.write().await;
-        if *loading {
-            return Err(Error::AlreadyLoading);
+        let (config, listeners) = self.load_value_from_remote().await?;
+        self.notify_listeners(&config, &listeners);
+        Ok(())
+    }
+
+    fn notify_listeners(&self, config: &Value, listeners: &[EventListener]) {
+        for listener in listeners {
+            listener(
+                get_namespace(&self.namespace, config.clone()).map_err(crate::Error::Namespace),
+            );
         }
-        *loading = true;
+    }
 
-        trace!("Refreshing cache for namespace {}", self.namespace);
+    async fn load_value(&self) -> Result<(Value, Vec<EventListener>), Error> {
+        let _guard = self.lock.lock().await;
 
-        // Build the request URL
+        if let Some(value) = self.memory.read().await.as_ref() {
+            return Ok((value.clone(), Vec::new()));
+        }
+
+        cfg_if! {
+            if #[cfg(not(target_arch = "wasm32"))] {
+                let file_path = self.file_path.clone();
+                if file_path.exists() {
+                    if let Ok(file) = std::fs::File::open(&file_path) {
+                        if let Ok(cache_item) = serde_json::from_reader::<_, CacheItem>(file) {
+                            let mut is_stale = false;
+                            if let Some(ttl) = self.client_config.cache_ttl {
+                                let age = Utc::now().timestamp() - cache_item.timestamp;
+                                #[allow(clippy::cast_possible_wrap)]
+                                if age > ttl as i64 {
+                                    is_stale = true;
+                                }
+                            }
+
+                            if !is_stale {
+                                self.memory.write().await.replace(cache_item.config.clone());
+                                return Ok((cache_item.config, Vec::new()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        self.load_value_from_remote_locked().await
+    }
+
+    async fn load_value_from_remote(&self) -> Result<(Value, Vec<EventListener>), Error> {
+        let _guard = self.lock.lock().await;
+        self.load_value_from_remote_locked().await
+    }
+
+    async fn load_value_from_remote_locked(&self) -> Result<(Value, Vec<EventListener>), Error> {
         let url = self.build_request_url()?;
-        trace!("Url {} for namespace {}", url, self.namespace);
-
-        // Create HTTP client
         let http_client = self.create_http_client();
-
-        // Build the HTTP request with authentication if needed
         let client = self.build_http_request(&url, &http_client)?;
-
-        // Execute the request and get response
         let response = self.execute_request(client).await?;
-
-        // Parse the response body
         let config = self.parse_response(response).await?;
-        trace!("parsed config: {config:?}");
 
-        // Write to file cache (native targets only)
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
                 self.write_to_file_cache(&config)?;
             }
         }
 
-        // Notify listeners and update memory cache
-        self.update_cache_and_notify_listeners(config).await;
+        self.memory.write().await.replace(config.clone());
+        let listeners = self.listeners.read().await.clone();
 
-        trace!("Refreshed cache for namespace {}", self.namespace);
-        *loading = false;
-
-        Ok(())
+        Ok((config, listeners))
     }
 
     /// Builds the request URL for the Apollo configuration service.
@@ -693,25 +611,6 @@ impl Cache {
         Ok(())
     }
 
-    /// Updates the memory cache and notifies all listeners.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - The new configuration to store
-    async fn update_cache_and_notify_listeners(&self, config: Value) {
-        // Notify listeners with the new config
-        let listeners = self.listeners.read().await;
-        for listener in listeners.iter() {
-            listener(
-                get_namespace(&self.namespace, config.clone()).map_err(crate::Error::Namespace),
-            );
-        }
-        drop(listeners); // Release read lock before acquiring write lock
-
-        // Update memory cache
-        self.memory.write().await.replace(config);
-    }
-
     /// Adds an event listener to the cache.
     ///
     /// Listeners are closures that will be called when the cache is successfully refreshed.
@@ -728,7 +627,7 @@ impl Cache {
     /// Listeners are called when the cache is successfully refreshed with new configuration,
     /// or when an error occurs during a refresh attempt.
     ///
-    /// # Arguments
+    // # Arguments
     ///
     /// * `listener` - The event listener to register. It must be an `Arc`-wrapped, thread-safe
     ///   closure (`Send + Sync`).
