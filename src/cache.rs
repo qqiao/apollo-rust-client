@@ -627,7 +627,7 @@ impl Cache {
     /// Listeners are called when the cache is successfully refreshed with new configuration,
     /// or when an error occurs during a refresh attempt.
     ///
-    // # Arguments
+    /// # Arguments
     ///
     /// * `listener` - The event listener to register. It must be an `Arc`-wrapped, thread-safe
     ///   closure (`Send + Sync`).
