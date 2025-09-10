@@ -221,7 +221,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_yaml_to_object() {
-        crate::tests::setup();
+        crate::setup();
         let yaml_namespace = crate::namespace::yaml::Yaml::try_from(serde_json::json!({
             "content": "host: \"localhost\"\nport: 8080\nrun: true"
         }))
@@ -240,7 +240,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_namespace_to_object() {
-        crate::tests::setup();
+        crate::setup();
         let namespace = crate::tests::CLIENT_NO_SECRET
             .namespace("application.yml")
             .await
