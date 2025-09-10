@@ -545,7 +545,31 @@ mod tests {
             use std::sync::Mutex;
         } else {
             use async_std::sync::Mutex;
-            use async_std::task::block_on;
+            use async_std::task::{self, block_on};
+        }
+    }
+
+    struct TempDir {
+        path: std::path::PathBuf,
+    }
+
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let path = std::env::temp_dir().join(name);
+            // Ignore errors if the directory already exists
+            let _ = std::fs::create_dir_all(&path);
+            Self { path }
+        }
+
+        fn path(&self) -> &std::path::Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            // Ignore errors, e.g. if the directory was already removed
+            let _ = std::fs::remove_dir_all(&self.path);
         }
     }
 
@@ -1251,5 +1275,59 @@ mod tests {
                 _ => panic!("Expected Properties namespace"),
             }
         }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_concurrent_namespace_hang_repro() {
+        use async_std::task;
+        setup();
+
+        let temp_dir = TempDir::new("apollo_hang_test");
+
+        let config = ClientConfig {
+            app_id: String::from("101010101"),
+            cluster: String::from("default"),
+            config_server: String::from("http://81.68.181.139:8080"),
+            secret: None,
+            cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()),
+            label: None,
+            ip: None,
+            allow_insecure_https: None,
+            cache_ttl: None,
+        };
+
+        let client = Arc::new(Client::new(config));
+        let client_in_listener = client.clone();
+
+        let listener_triggered = Arc::new(Mutex::new(false));
+        let listener_triggered_in_listener = listener_triggered.clone();
+
+        let listener: EventListener = Arc::new(move |_| {
+            let client_in_listener = client_in_listener.clone();
+            let listener_triggered_in_listener = listener_triggered_in_listener.clone();
+            task::spawn(async move {
+                let mut triggered = listener_triggered_in_listener.lock().await;
+                if *triggered {
+                    // Avoid infinite loops if the listener is called more than once.
+                    return;
+                }
+                *triggered = true;
+                drop(triggered);
+
+                // This is the recursive call that should no longer trigger a deadlock.
+                let _ = client_in_listener.namespace("application").await;
+            });
+        });
+
+        client.add_listener("application", listener).await;
+
+        let test_body = async {
+            let _ = client.namespace("application").await;
+        };
+
+        // The test should not hang. If it does, timeout will fail it.
+        let res = tokio::time::timeout(std::time::Duration::from_secs(10), test_body).await;
+        assert!(res.is_ok(), "Test timed out, which indicates a deadlock.");
     }
 }
