@@ -64,7 +64,6 @@ struct CacheItem {
 /// - **Serialization Errors**: JSON parsing and serialization failures
 /// - **Network Errors**: HTTP request failures and response parsing issues
 /// - **URL Errors**: Malformed URLs and parsing failures
-/// - **Concurrency Errors**: Race conditions during cache operations
 ///
 /// # Examples
 ///
@@ -169,11 +168,11 @@ pub enum Error {
 ///
 /// # Concurrency Control
 ///
-/// The cache uses several locks to ensure thread safety:
-/// - `loading`: Prevents concurrent refresh operations
-/// - `checking_cache`: Prevents concurrent cache initialization
-/// - `memory_cache`: Protects in-memory configuration data
-/// - `listeners`: Protects event listener collection
+/// The cache uses `async_std::sync::RwLock` to ensure thread-safety.
+/// The `memory` field is wrapped in an `Arc<RwLock<...>>` to allow multiple
+/// concurrent readers and exclusive writers. This prevents data races when
+/// accessing the cached configuration from multiple async tasks. The listeners
+/// are also protected by a `RwLock`.
 ///
 /// # Platform Differences
 ///
@@ -249,50 +248,31 @@ impl Cache {
 
     /// Get a configuration from the cache.
     ///
-    /// This method attempts to retrieve a configuration value associated with the given `key`.
-    /// The process involves several steps:
+    /// This method retrieves the configuration for the namespace. It implements a read-through
+    /// cache pattern with the following logic:
     ///
-    /// 1.  **In-Memory Cache Check**: It first checks an in-memory cache (`self.memory_cache`).
-    ///     If the value is found, it's returned immediately. `self.memory_cache` is protected by an `RwLock`
-    ///     to allow concurrent reads and exclusive writes.
+    /// 1.  It first attempts to read from the in-memory cache. If the cache is populated,
+    ///     it returns the configuration immediately. This read is non-blocking for other readers.
+    /// 2.  If the in-memory cache is empty, it acquires a write lock. It checks again if the cache
+    ///     was populated while waiting for the lock.
+    /// 3.  If the cache is still empty, it proceeds to load it, first from the file cache (on native targets)
+    ///     if it's not stale, otherwise by fetching from the remote Apollo server.
+    /// 4.  Once the configuration is fetched, it updates the in-memory cache and notifies any
+    ///     registered listeners.
     ///
-    /// 2.  **File-Based Cache Check (non-wasm32 targets only)**: If the value is not in the memory cache
-    ///     and the target architecture is not wasm32, it attempts to load the cache from a local file.
-    ///     The file path is determined by the `client_config` and namespace. If the file exists, its
-    ///     contents are parsed, and the in-memory cache is updated.
-    ///
-    /// 3.  **Refresh Operation**: If the value is not found in either the in-memory cache or the
-    ///     file-based cache (or if on wasm32 where file cache is not used), a `self.refresh()`
-    ///     operation is triggered to fetch the latest configuration from the Apollo server.
-    ///     The in-memory cache (and file cache on non-wasm32) will be updated by the `refresh` method.
-    ///
-    /// To prevent multiple concurrent attempts to initialize or check the cache from the file system
-    /// or via refresh, this method uses an `RwLock` named `self.checking_cache`.
-    /// If another task is already performing this check/initialization, the current task will return
-    /// `Err(Error::AlreadyCheckingCache)`. This indicates that a cache lookup or population is
-    /// already in progress, and the caller should typically retry shortly.
+    /// This entire process is thread-safe thanks to the `RwLock` on the `memory` field.
     ///
     /// # Returns
     ///
-    /// * `Ok(Value)` - The configuration value if successfully retrieved
-    /// * `Err(Error::AlreadyCheckingCache)` - If another cache operation is in progress
-    /// * `Err(Error::NamespaceNotFound)` - If the namespace cannot be found or initialized
-    /// * `Err(Error::Io)` - If file system operations fail (native targets only)
-    /// * `Err(Error::Serde)` - If cache file parsing fails (native targets only)
-    /// * `Err(Error::Reqwest)` - If network requests fail during refresh
-    /// * `Err(Error::UrlParse)` - If URL construction fails
-    /// * `Err(Error::Namespace)` - If namespace processing fails
+    /// * `Ok(Value)` - The configuration value if successfully retrieved.
+    /// * `Err(Error)` - An error if the configuration could not be retrieved. See the `Error`
+    ///   enum for possible variants.
     ///
     /// # Errors
     ///
-    /// This method will return an error if:
-    /// - Another cache operation is already in progress
-    /// - The namespace cannot be found or initialized
-    /// - File system operations fail (native targets only)
-    /// - Cache file parsing fails (native targets only)
-    /// - Network requests fail during refresh
-    /// - URL construction fails
-    /// - Namespace processing fails
+    /// This method can return various errors, such as I/O errors when reading the file cache,
+    /// network errors when fetching from the remote server, or parsing errors if the configuration
+    /// data is malformed.
     pub(crate) async fn get_value(&self) -> Result<Value, Error> {
         if let Some(value) = self.memory.read().await.as_ref() {
             return Ok(value.clone());
@@ -341,50 +321,22 @@ impl Cache {
 
     /// Refreshes the cache by fetching the latest configuration from the Apollo server.
     ///
-    /// This method performs the following steps to update the cache for the current namespace:
+    /// This method unconditionally fetches the latest configuration from the remote server,
+    /// updates the in-memory cache, writes to the file cache (on native targets), and
+    /// notifies all registered listeners.
     ///
-    /// 1.  **Construct URL**: It constructs the request URL for the Apollo configuration service
-    ///     based on `client_config` (server address, app ID, cluster) and the current namespace.
-    /// 2.  **Add Query Parameters**: If `client_config.ip` or `client_config.label` are set,
-    ///     they are added as query parameters (`ip` and `label` respectively) to the request URL.
-    ///     This is often used for grayscale release rules.
-    /// 3.  **Authentication Headers (if secret is present)**:
-    ///     *   If `client_config.secret` is provided, it generates a signature using the `sign` function.
-    ///     *   The current `timestamp` (in milliseconds) and an `Authorization` header
-    ///         (e.g., `Apollo <app_id>:<signature>`) are added to the HTTP request.
-    /// 4.  **Send HTTP GET Request**: It sends an HTTP GET request to the constructed URL.
-    /// 5.  **Update Caches**:
-    ///     *   On a successful response, the response body (JSON configuration) is parsed.
-    ///     *   For non-wasm32 targets, the fetched configuration is written to a local file cache
-    ///         (path determined by `client_config.cache_dir` and namespace details).
-    ///     *   The in-memory cache (`self.memory_cache`) is updated with the new configuration.
-    ///     *   Registered listeners are notified with the new configuration (`Ok(config)`)
-    ///         Currently, listeners are only notified on successful refresh.
-    ///
-    /// To prevent multiple concurrent refresh operations for the same cache instance, this method
-    /// uses an `RwLock` named `self.loading`. If another task is already refreshing this cache,
-    /// the current task will return `Err(Error::AlreadyLoading)`. This indicates that a refresh
-    /// is already in progress, and the caller should typically wait for the ongoing refresh to
-    /// complete rather than initiating a new one.
+    /// The method acquires a write lock on the in-memory cache, ensuring that no other
+    /// tasks can read or write to the cache while the refresh is in progress.
     ///
     /// # Returns
     ///
-    /// * `Ok(())` - If the cache was successfully refreshed
-    /// * `Err(Error::AlreadyLoading)` - If another refresh operation is already in progress
-    /// * `Err(Error::UrlParse)` - If URL construction fails
-    /// * `Err(Error::Reqwest)` - If the HTTP request fails
-    /// * `Err(Error::Serde)` - If the response body cannot be parsed as JSON
-    /// * `Err(Error::Io)` - If file cache operations fail (native targets only)
+    /// * `Ok(())` - If the cache was successfully refreshed.
+    /// * `Err(Error)` - An error if the refresh operation failed.
     ///
     /// # Errors
     ///
-    /// This method will return an error if:
-    /// - Another refresh operation is already in progress
-    /// - URL construction fails
-    /// - HTTP request fails (network issues, server errors, etc.)
-    /// - Response body cannot be parsed as JSON
-    /// - File cache operations fail (native targets only)
-    /// - Authentication signature generation fails
+    /// This method can return various errors, such as network errors, parsing errors,
+    /// or I/O errors when writing to the file cache.
     pub(crate) async fn refresh(&self) -> Result<(), Error> {
         let (config, listeners) = {
             let mut w_lock = self.memory.write().await;
