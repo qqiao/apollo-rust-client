@@ -5,4 +5,4 @@ rm -rf pkg
 wasm-pack build --target nodejs
 
 # build main
-cargo build --all
+cargo build --all --verbose
