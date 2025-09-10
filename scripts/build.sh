@@ -1,4 +1,7 @@
-#!/bin/sh
+#!/bin/bash
 
-rm -fr pkg
-cargo build --verbose && wasm-pack build --target nodejs
+# build wasm
+wasm-pack build --target nodejs
+
+# build main
+cargo build --all
