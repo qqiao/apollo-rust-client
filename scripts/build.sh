@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # build wasm
 wasm-pack build --target nodejs
