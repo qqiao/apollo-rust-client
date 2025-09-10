@@ -34,7 +34,7 @@ use crate::{
     namespace::{self, get_namespace},
     EventListener,
 };
-use async_std::sync::{Mutex, RwLock};
+use async_std::sync::RwLock;
 use base64::display::Base64Display;
 use cfg_if::cfg_if;
 use chrono::Utc;
@@ -187,12 +187,6 @@ pub(crate) struct Cache {
     /// The namespace name this cache instance manages.
     namespace: String,
 
-    /// Lock to prevent concurrent refresh operations.
-    ///
-    /// When a refresh is in progress, other refresh attempts will return
-    /// `Error::AlreadyLoading` to prevent redundant network requests.
-    lock: Arc<Mutex<()>>,
-
     /// In-memory storage for the parsed configuration data.
     ///
     /// Contains the JSON representation of the configuration. `None` indicates
@@ -245,7 +239,6 @@ impl Cache {
         Self {
             client_config,
             namespace: namespace.to_string(),
-            lock: Arc::new(Mutex::new(())),
             memory: Arc::new(RwLock::new(None)),
             listeners: Arc::new(RwLock::new(Vec::new())),
 
@@ -305,7 +298,43 @@ impl Cache {
             return Ok(value.clone());
         }
 
-        let (config, listeners) = self.load_value().await?;
+        let (config, listeners) = {
+            let mut w_lock = self.memory.write().await;
+            if let Some(value) = w_lock.as_ref() {
+                return Ok(value.clone());
+            }
+
+            cfg_if! {
+                if #[cfg(not(target_arch = "wasm32"))] {
+                    let file_path = self.file_path.clone();
+                    if file_path.exists() {
+                        if let Ok(file) = std::fs::File::open(&file_path) {
+                            if let Ok(cache_item) = serde_json::from_reader::<_, CacheItem>(file) {
+                                let mut is_stale = false;
+                                if let Some(ttl) = self.client_config.cache_ttl {
+                                    let age = Utc::now().timestamp() - cache_item.timestamp;
+                                    #[allow(clippy::cast_possible_wrap)]
+                                    if age > ttl as i64 {
+                                        is_stale = true;
+                                    }
+                                }
+
+                                if !is_stale {
+                                    w_lock.replace(cache_item.config.clone());
+                                    return Ok(cache_item.config);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            let config = self.fetch_remote_config().await?;
+            w_lock.replace(config.clone());
+            let listeners = self.listeners.read().await.clone();
+            (config, listeners)
+        };
+
         self.notify_listeners(&config, &listeners);
         Ok(config)
     }
@@ -357,7 +386,13 @@ impl Cache {
     /// - File cache operations fail (native targets only)
     /// - Authentication signature generation fails
     pub(crate) async fn refresh(&self) -> Result<(), Error> {
-        let (config, listeners) = self.load_value_from_remote().await?;
+        let (config, listeners) = {
+            let mut w_lock = self.memory.write().await;
+            let config = self.fetch_remote_config().await?;
+            w_lock.replace(config.clone());
+            let listeners = self.listeners.read().await.clone();
+            (config, listeners)
+        };
         self.notify_listeners(&config, &listeners);
         Ok(())
     }
@@ -370,47 +405,7 @@ impl Cache {
         }
     }
 
-    async fn load_value(&self) -> Result<(Value, Vec<EventListener>), Error> {
-        let _guard = self.lock.lock().await;
-
-        if let Some(value) = self.memory.read().await.as_ref() {
-            return Ok((value.clone(), Vec::new()));
-        }
-
-        cfg_if! {
-            if #[cfg(not(target_arch = "wasm32"))] {
-                let file_path = self.file_path.clone();
-                if file_path.exists() {
-                    if let Ok(file) = std::fs::File::open(&file_path) {
-                        if let Ok(cache_item) = serde_json::from_reader::<_, CacheItem>(file) {
-                            let mut is_stale = false;
-                            if let Some(ttl) = self.client_config.cache_ttl {
-                                let age = Utc::now().timestamp() - cache_item.timestamp;
-                                #[allow(clippy::cast_possible_wrap)]
-                                if age > ttl as i64 {
-                                    is_stale = true;
-                                }
-                            }
-
-                            if !is_stale {
-                                self.memory.write().await.replace(cache_item.config.clone());
-                                return Ok((cache_item.config, Vec::new()));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        self.load_value_from_remote_locked().await
-    }
-
-    async fn load_value_from_remote(&self) -> Result<(Value, Vec<EventListener>), Error> {
-        let _guard = self.lock.lock().await;
-        self.load_value_from_remote_locked().await
-    }
-
-    async fn load_value_from_remote_locked(&self) -> Result<(Value, Vec<EventListener>), Error> {
+    async fn fetch_remote_config(&self) -> Result<Value, Error> {
         let url = self.build_request_url()?;
         let http_client = self.create_http_client();
         let client = self.build_http_request(&url, &http_client)?;
@@ -423,10 +418,7 @@ impl Cache {
             }
         }
 
-        self.memory.write().await.replace(config.clone());
-        let listeners = self.listeners.read().await.clone();
-
-        Ok((config, listeners))
+        Ok(config)
     }
 
     /// Builds the request URL for the Apollo configuration service.
@@ -722,7 +714,44 @@ pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Er
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::setup; // Optional: for logging from JS side if needed directly, or if cache refresh panics
+    use crate::{client_config::ClientConfig, setup, TempDir};
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_concurrent_get_value() {
+        setup();
+        let temp_dir = TempDir::new("apollo_concurrent_get_test");
+
+        let config = ClientConfig {
+            app_id: String::from("101010101"),
+            cluster: String::from("default"),
+            config_server: String::from("http://81.68.181.139:8080"),
+            secret: None,
+            cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()),
+            label: None,
+            ip: None,
+            allow_insecure_https: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            cache_ttl: None,
+        };
+
+        let cache = Arc::new(Cache::new(config, "application"));
+
+        let mut handles = Vec::new();
+        for _ in 0..10 {
+            let cache = cache.clone();
+            let handle = tokio::spawn(async move { cache.get_value().await });
+            handles.push(handle);
+        }
+
+        let results = futures::future::join_all(handles).await;
+
+        let first_result = results[0].as_ref().unwrap().as_ref().unwrap();
+        for result in &results {
+            let result = result.as_ref().unwrap().as_ref().unwrap();
+            assert_eq!(result, first_result);
+        }
+    }
 
     #[test]
     fn test_sign_with_path() {

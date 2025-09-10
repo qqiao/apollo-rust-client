@@ -231,7 +231,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_json_to_object() {
-        crate::tests::setup();
+        crate::setup();
         let json_namespace = crate::namespace::json::Json::try_from(serde_json::json!({
             "content": "{\"host\": \"localhost\", \"port\": 8080, \"run\": true}"
         }))
@@ -250,7 +250,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_namespace_to_object() {
-        crate::tests::setup();
+        crate::setup();
         let namespace = crate::tests::CLIENT_NO_SECRET
             .namespace("application.json")
             .await

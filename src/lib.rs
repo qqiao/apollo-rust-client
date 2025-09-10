@@ -537,6 +537,45 @@ impl Client {
 }
 
 #[cfg(test)]
+pub(crate) struct TempDir {
+    path: std::path::PathBuf,
+}
+
+#[cfg(test)]
+impl TempDir {
+    pub(crate) fn new(name: &str) -> Self {
+        let path = std::env::temp_dir().join(name);
+        // Ignore errors if the directory already exists
+        let _ = std::fs::create_dir_all(&path);
+        Self { path }
+    }
+
+    pub(crate) fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+#[cfg(test)]
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        // Ignore errors, e.g. if the directory was already removed
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn setup() {
+    cfg_if::cfg_if! {
+        if #[cfg(target_arch = "wasm32")] {
+            let _ = wasm_logger::init(wasm_logger::Config::default());
+            console_error_panic_hook::set_once();
+        } else {
+            let _ = env_logger::builder().is_test(true).try_init();
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -545,31 +584,7 @@ mod tests {
             use std::sync::Mutex;
         } else {
             use async_std::sync::Mutex;
-            use async_std::task::{self, block_on};
-        }
-    }
-
-    struct TempDir {
-        path: std::path::PathBuf,
-    }
-
-    impl TempDir {
-        fn new(name: &str) -> Self {
-            let path = std::env::temp_dir().join(name);
-            // Ignore errors if the directory already exists
-            let _ = std::fs::create_dir_all(&path);
-            Self { path }
-        }
-
-        fn path(&self) -> &std::path::Path {
-            &self.path
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            // Ignore errors, e.g. if the directory was already removed
-            let _ = std::fs::remove_dir_all(&self.path);
+            use async_std::task::block_on;
         }
     }
 
@@ -644,17 +659,6 @@ mod tests {
             };
             Client::new(config)
         });
-
-    pub(crate) fn setup() {
-        cfg_if::cfg_if! {
-            if #[cfg(target_arch = "wasm32")] {
-                let _ = wasm_logger::init(wasm_logger::Config::default());
-                console_error_panic_hook::set_once();
-            } else {
-                let _ = env_logger::builder().is_test(true).try_init();
-            }
-        }
-    }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
