@@ -717,6 +717,7 @@ mod tests {
     use crate::{client_config::ClientConfig, setup, TempDir};
     use std::sync::Arc;
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_concurrent_get_value() {
         setup();
