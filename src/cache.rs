@@ -30,9 +30,9 @@
 //! and performance optimization.
 
 use crate::{
+    EventListener,
     client_config::ClientConfig,
     namespace::{self, get_namespace},
-    EventListener,
 };
 use async_std::sync::RwLock;
 use base64::display::Base64Display;
@@ -287,9 +287,9 @@ impl Cache {
             cfg_if! {
                 if #[cfg(not(target_arch = "wasm32"))] {
                     let file_path = self.file_path.clone();
-                    if file_path.exists() {
-                        if let Ok(file) = std::fs::File::open(&file_path) {
-                            if let Ok(cache_item) = serde_json::from_reader::<_, CacheItem>(file) {
+                    if file_path.exists()
+                        && let Ok(file) = std::fs::File::open(&file_path)
+                            && let Ok(cache_item) = serde_json::from_reader::<_, CacheItem>(file) {
                                 let mut is_stale = false;
                                 if let Some(ttl) = self.client_config.cache_ttl {
                                     let age = Utc::now().timestamp() - cache_item.timestamp;
@@ -304,8 +304,6 @@ impl Cache {
                                     return Ok(cache_item.config);
                                 }
                             }
-                        }
-                    }
                 }
             }
 
@@ -666,7 +664,7 @@ pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Er
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{client_config::ClientConfig, setup, TempDir};
+    use crate::{TempDir, client_config::ClientConfig, setup};
     use std::sync::Arc;
 
     #[cfg(not(target_arch = "wasm32"))]
