@@ -27,7 +27,7 @@ chrono = "0.4.42"
 wasm-bindgen = "0.2.101"
 url = "2.5.7"
 serde-wasm-bindgen = "0.6.5"
-serde = "1.0.219"
+serde = "1.0.225"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.7"
