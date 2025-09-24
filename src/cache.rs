@@ -294,24 +294,22 @@ impl Cache {
             return Ok(value.clone());
         }
 
-        // Second check: see if another thread is already loading
-        let should_load = {
+        // Second check: see if another thread is already loading, using a loop to avoid race conditions
+        let should_load = loop {
+            // Check if value is now in memory (could have been loaded while we waited)
+            if let Some(value) = self.memory.read().await.as_ref() {
+                return Ok(value.clone());
+            }
+
             let mut loading = self.loading.write().await;
             if *loading {
-                // Another thread is loading, wait for it to complete
+                // Another thread is loading, wait for it to complete and re-check
                 drop(loading);
                 self.loading_complete.notified().await;
-
-                // After notification, check if data is available
-                if let Some(value) = self.memory.read().await.as_ref() {
-                    return Ok(value.clone());
-                }
-                // If still None, we need to retry the loading process ourselves
-                // since the other thread may have failed or returned None legitimately
-                true
+                continue;
             } else {
                 *loading = true;
-                true
+                break true;
             }
         };
 
