@@ -327,7 +327,10 @@ impl Cache {
             result
         } else {
             // This should not happen, but handle gracefully
-            Err(Error::NamespaceNotFound(self.namespace.clone()))
+            Err(Error::Cache(format!(
+                "Unexpected state in get_value: loading flag was false but no value present for namespace '{}'",
+                self.namespace
+            )))
         }
     }
 
