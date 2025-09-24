@@ -295,7 +295,7 @@ impl Cache {
         }
 
         // Second check: see if another thread is already loading
-        {
+        let should_load = {
             let mut loading = self.loading.write().await;
             if *loading {
                 // Another thread is loading, wait for it to complete
@@ -306,23 +306,31 @@ impl Cache {
                 if let Some(value) = self.memory.read().await.as_ref() {
                     return Ok(value.clone());
                 }
-                // If still None, it means loading failed
-                return Err(Error::NamespaceNotFound(self.namespace.clone()));
+                // If still None, we need to retry the loading process ourselves
+                // since the other thread may have failed or returned None legitimately
+                true
+            } else {
+                *loading = true;
+                true
             }
-            *loading = true;
-        }
+        };
 
         // We're the loading thread, proceed with the fetch
-        let result = self.load_and_cache().await;
+        if should_load {
+            let result = self.load_and_cache().await;
 
-        // Always reset loading flag and notify waiting threads
-        {
-            let mut loading = self.loading.write().await;
-            *loading = false;
+            // Always reset loading flag and notify waiting threads
+            {
+                let mut loading = self.loading.write().await;
+                *loading = false;
+            }
+            self.loading_complete.notify_waiters();
+
+            result
+        } else {
+            // This should not happen, but handle gracefully
+            Err(Error::NamespaceNotFound(self.namespace.clone()))
         }
-        self.loading_complete.notify_waiters();
-
-        result
     }
 
     /// Internal method to load configuration and update cache.
@@ -405,8 +413,8 @@ impl Cache {
     }
 
     fn notify_listeners(&self, config: &Value, listeners: &[EventListener]) {
-        let listeners = listeners.to_vec(); // Clone the listeners to avoid lifetime issues
         for listener in listeners {
+            let listener = listener.clone(); // Clone each listener individually
             let config = config.clone();
             let namespace = self.namespace.clone();
 

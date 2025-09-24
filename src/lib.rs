@@ -492,33 +492,34 @@ impl Client {
     /// This method will return an error if:
     /// - Any of the specified namespaces fail to load
     /// - Cache operations fail during preloading
-    pub async fn preload(&self, namespaces: &[&str]) -> Result<(), Error> {
+    pub async fn preload(&self, namespaces: &[impl AsRef<str>]) -> Result<(), Error> {
         #[cfg(not(target_arch = "wasm32"))]
         let mut tasks = Vec::new();
 
         #[cfg(target_arch = "wasm32")]
         {
             for namespace in namespaces {
-                let cache = self.cache(namespace).await;
-                let _ = cache.get_value().await;
+                let cache = self.cache(namespace.as_ref()).await;
+                cache.get_value().await?;
             }
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
             for namespace in namespaces {
-                let cache = self.cache(namespace).await;
+                let cache = self.cache(namespace.as_ref()).await;
                 let task = tokio::spawn(async move { cache.get_value().await });
                 tasks.push(task);
             }
 
             // Wait for all preload tasks to complete
             for task in tasks {
-                task.await.map_err(|e| {
+                let result = task.await.map_err(|e| {
                     Error::Cache(cache::Error::Io(std::io::Error::other(format!(
                         "Preload task failed: {e}"
                     ))))
-                })??;
+                })?;
+                result?;
             }
         }
 
