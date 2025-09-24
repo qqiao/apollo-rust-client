@@ -266,15 +266,15 @@ cfg_if! {
             /// - Any other required environment variable is missing or invalid.
             pub fn from_env() -> Result<Self, Error> {
                 let app_id =
-                    std::env::var("APP_ID").map_err(|e| (Error::EnvVar(e, "APP_ID".to_string())))?;
+                    std::env::var("APP_ID").map_err(|e| Error::EnvVar(e, "APP_ID".to_string()))?;
                 let secret = std::env::var("APOLLO_ACCESS_KEY_SECRET")
-                    .map_err(|e| (Error::EnvVar(e, "APOLLO_ACCESS_KEY_SECRET".to_string())))
+                    .map_err(|e| Error::EnvVar(e, "APOLLO_ACCESS_KEY_SECRET".to_string()))
                     .ok();
                 let cluster = std::env::var("IDC").unwrap_or("default".to_string());
                 let config_server = std::env::var("APOLLO_CONFIG_SERVICE")
-                    .map_err(|e| (Error::EnvVar(e, "APOLLO_CONFIG_SERVICE".to_string())))?;
+                    .map_err(|e| Error::EnvVar(e, "APOLLO_CONFIG_SERVICE".to_string()))?;
                 let label = std::env::var("APOLLO_LABEL")
-                    .map_err(|e| (Error::EnvVar(e, "APOLLO_LABEL".to_string())))
+                    .map_err(|e| Error::EnvVar(e, "APOLLO_LABEL".to_string()))
                     .ok();
                 let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok();
                 let allow_insecure_https = std::env::var("APOLLO_ALLOW_INSECURE_HTTPS")
@@ -307,15 +307,15 @@ cfg_if! {
             /// A new configuration instance.
             pub fn from_env() -> Result<Self, Error> {
                 let app_id =
-                    std::env::var("APP_ID").map_err(|e| (Error::EnvVar(e, "APP_ID".to_string())))?;
+                    std::env::var("APP_ID").map_err(|e| Error::EnvVar(e, "APP_ID".to_string()))?;
                 let secret = std::env::var("APOLLO_ACCESS_KEY_SECRET")
-                    .map_err(|e| (Error::EnvVar(e, "APOLLO_ACCESS_KEY_SECRET".to_string())))
+                    .map_err(|e| Error::EnvVar(e, "APOLLO_ACCESS_KEY_SECRET".to_string()))
                     .ok();
                 let cluster = std::env::var("IDC").unwrap_or("default".to_string());
                 let config_server = std::env::var("APOLLO_CONFIG_SERVICE")
-                    .map_err(|e| (Error::EnvVar(e, "APOLLO_CONFIG_SERVICE".to_string())))?;
+                    .map_err(|e| Error::EnvVar(e, "APOLLO_CONFIG_SERVICE".to_string()))?;
                 let label = std::env::var("APOLLO_LABEL")
-                    .map_err(|e| (Error::EnvVar(e, "APOLLO_LABEL".to_string())))
+                    .map_err(|e| Error::EnvVar(e, "APOLLO_LABEL".to_string()))
                     .ok();
                 let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok();
                 let allow_insecure_https = std::env::var("APOLLO_ALLOW_INSECURE_HTTPS")

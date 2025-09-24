@@ -393,9 +393,14 @@ impl Client {
                             break;
                         }
 
-                        let namespaces = namespaces.read().await;
-                        // Refresh each namespace's cache
-                        for (namespace, cache) in namespaces.iter() {
+                        // Clone cache references before releasing the lock to prevent long-held locks
+                        let cache_refs = {
+                            let namespaces = namespaces.read().await;
+                            namespaces.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>()
+                        }; // Lock released here
+
+                        // Refresh each namespace's cache without holding the lock
+                        for (namespace, cache) in cache_refs {
                             if let Err(err) = cache.refresh().await {
                                 error!("Failed to refresh cache for namespace {namespace}: {err:?}");
                             } else {
@@ -434,6 +439,90 @@ impl Client {
                 }
             }
         }
+    }
+
+    /// Preloads critical namespaces during client initialization to reduce startup delays.
+    ///
+    /// This method fetches configuration for the specified namespaces in parallel,
+    /// which can significantly reduce the perceived startup time when these namespaces
+    /// are accessed later.
+    ///
+    /// # Arguments
+    ///
+    /// * `namespaces` - A slice of namespace names to preload
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if all namespaces were successfully preloaded
+    /// * `Err(Error)` if any namespace failed to load
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use apollo_rust_client::{Client, client_config::ClientConfig};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let config = ClientConfig {
+    ///     app_id: "my-app".to_string(),
+    ///     config_server: "http://apollo-server:8080".to_string(),
+    ///     cluster: "default".to_string(),
+    ///     secret: None,
+    ///     cache_dir: None,
+    ///     label: None,
+    ///     ip: None,
+    ///     allow_insecure_https: None,
+    ///     #[cfg(not(target_arch = "wasm32"))]
+    ///     cache_ttl: None,
+    /// };
+    ///
+    /// let mut client = Client::new(config);
+    ///
+    /// // Preload critical namespaces
+    /// client.preload(&["application", "database", "redis"]).await?;
+    ///
+    /// // Now accessing these namespaces will be much faster
+    /// let app_config = client.namespace("application").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// This method will return an error if:
+    /// - Any of the specified namespaces fail to load
+    /// - Cache operations fail during preloading
+    pub async fn preload(&self, namespaces: &[&str]) -> Result<(), Error> {
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut tasks = Vec::new();
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            for namespace in namespaces {
+                let cache = self.cache(namespace).await;
+                let _ = cache.get_value().await;
+            }
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            for namespace in namespaces {
+                let cache = self.cache(namespace).await;
+                let task = tokio::spawn(async move { cache.get_value().await });
+                tasks.push(task);
+            }
+
+            // Wait for all preload tasks to complete
+            for task in tasks {
+                task.await.map_err(|e| {
+                    Error::Cache(cache::Error::Io(std::io::Error::other(format!(
+                        "Preload task failed: {e}"
+                    ))))
+                })??;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -1175,6 +1264,16 @@ mod tests {
             Err(e) => panic!("Cache refresh failed during test: {e:?}"),
         }
 
+        // Give the async listener task time to complete
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                // For WASM, listeners are synchronous so no wait needed
+            } else {
+                // For native targets, use tokio sleep
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+
         // Check if the listener was called
         let called = *listener_called_flag.lock().await;
         assert!(called, "Listener was not called.");
@@ -1254,6 +1353,16 @@ mod tests {
         match cache.refresh().await {
             Ok(_) => web_sys::console::log_1(&"WASM Test: Refresh successful".into()), // web_sys::console for logging
             Err(e) => panic!("WASM Test: Cache refresh failed: {:?}", e),
+        }
+
+        // Give the async listener task time to complete
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                // For WASM, listeners are synchronous so no wait needed
+            } else {
+                // For native targets, use tokio sleep
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
         }
 
         // Verify Listener Was Called using our Rust listener

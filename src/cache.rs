@@ -198,6 +198,12 @@ pub(crate) struct Cache {
     /// to react to configuration changes in real-time.
     listeners: Arc<RwLock<Vec<EventListener>>>,
 
+    /// Flag indicating whether a fetch operation is currently in progress.
+    ///
+    /// This prevents multiple threads from simultaneously fetching the same
+    /// configuration data, which could cause duplicate network requests.
+    loading: Arc<RwLock<bool>>,
+
     /// Path to the local cache file (native targets only).
     ///
     /// On native targets, this specifies where the configuration should be
@@ -240,6 +246,7 @@ impl Cache {
             namespace: namespace.to_string(),
             memory: Arc::new(RwLock::new(None)),
             listeners: Arc::new(RwLock::new(Vec::new())),
+            loading: Arc::new(RwLock::new(false)),
 
             #[cfg(not(target_arch = "wasm32"))]
             file_path,
@@ -274,13 +281,31 @@ impl Cache {
     /// network errors when fetching from the remote server, or parsing errors if the configuration
     /// data is malformed.
     pub(crate) async fn get_value(&self) -> Result<Value, Error> {
+        // First check: fast path if data is already in memory
         if let Some(value) = self.memory.read().await.as_ref() {
             return Ok(value.clone());
         }
 
+        // Second check: see if another thread is already loading
+        {
+            let mut loading = self.loading.write().await;
+            if *loading {
+                // Another thread is loading, wait for it to complete
+                drop(loading);
+                while self.memory.read().await.is_none() {
+                    tokio::task::yield_now().await;
+                }
+                return Ok(self.memory.read().await.as_ref().unwrap().clone());
+            }
+            *loading = true;
+        }
+
+        // We're the loading thread, proceed with the fetch
         let (config, listeners) = {
             let mut w_lock = self.memory.write().await;
+            // Double-check: another thread might have loaded it while we were waiting
             if let Some(value) = w_lock.as_ref() {
+                *self.loading.write().await = false;
                 return Ok(value.clone());
             }
 
@@ -301,6 +326,7 @@ impl Cache {
 
                                 if !is_stale {
                                     w_lock.replace(cache_item.config.clone());
+                                    *self.loading.write().await = false;
                                     return Ok(cache_item.config);
                                 }
                             }
@@ -310,6 +336,7 @@ impl Cache {
             let config = self.fetch_remote_config().await?;
             w_lock.replace(config.clone());
             let listeners = self.listeners.read().await.clone();
+            *self.loading.write().await = false;
             (config, listeners)
         };
 
@@ -348,10 +375,26 @@ impl Cache {
     }
 
     fn notify_listeners(&self, config: &Value, listeners: &[EventListener]) {
+        let listeners = listeners.to_vec(); // Clone the listeners to avoid lifetime issues
         for listener in listeners {
-            listener(
-                get_namespace(&self.namespace, config.clone()).map_err(crate::Error::Namespace),
-            );
+            let config = config.clone();
+            let namespace = self.namespace.clone();
+
+            cfg_if::cfg_if! {
+                if #[cfg(target_arch = "wasm32")] {
+                    // For WASM, call listeners synchronously to avoid Send/Sync issues
+                    listener(
+                        get_namespace(&namespace, config).map_err(crate::Error::Namespace),
+                    );
+                } else {
+                    // For native targets, spawn listener notifications as separate tasks to prevent deadlocks
+                    tokio::spawn(async move {
+                        listener(
+                            get_namespace(&namespace, config).map_err(crate::Error::Namespace),
+                        );
+                    });
+                }
+            }
         }
     }
 
@@ -359,7 +402,25 @@ impl Cache {
         let url = self.build_request_url()?;
         let http_client = self.create_http_client();
         let client = self.build_http_request(&url, &http_client)?;
+
+        // Add timeout to prevent long pauses
+        #[cfg(target_arch = "wasm32")]
         let response = self.execute_request(client).await?;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let response = {
+            let timeout_duration = std::time::Duration::from_secs(10);
+            tokio::time::timeout(timeout_duration, self.execute_request(client))
+                .await
+                .map_err(|_| {
+                    let io_error = std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "Request timeout after 10 seconds",
+                    );
+                    Error::Io(io_error)
+                })??
+        };
+
         let config = self.parse_response(response).await?;
 
         cfg_if! {
