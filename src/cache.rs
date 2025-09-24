@@ -44,6 +44,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha1::Sha1;
 use std::{fmt::Write, sync::Arc};
+use tokio::sync::Notify;
 use url::{ParseError, Url};
 
 #[derive(Serialize, Deserialize)]
@@ -204,6 +205,12 @@ pub(crate) struct Cache {
     /// configuration data, which could cause duplicate network requests.
     loading: Arc<RwLock<bool>>,
 
+    /// Notification mechanism for waiting threads when loading completes.
+    ///
+    /// This allows threads to wait efficiently for loading completion instead
+    /// of using busy-wait loops.
+    loading_complete: Arc<Notify>,
+
     /// Path to the local cache file (native targets only).
     ///
     /// On native targets, this specifies where the configuration should be
@@ -247,6 +254,7 @@ impl Cache {
             memory: Arc::new(RwLock::new(None)),
             listeners: Arc::new(RwLock::new(Vec::new())),
             loading: Arc::new(RwLock::new(false)),
+            loading_complete: Arc::new(Notify::new()),
 
             #[cfg(not(target_arch = "wasm32"))]
             file_path,
@@ -292,54 +300,76 @@ impl Cache {
             if *loading {
                 // Another thread is loading, wait for it to complete
                 drop(loading);
-                while self.memory.read().await.is_none() {
-                    tokio::task::yield_now().await;
+                self.loading_complete.notified().await;
+
+                // After notification, check if data is available
+                if let Some(value) = self.memory.read().await.as_ref() {
+                    return Ok(value.clone());
                 }
-                return Ok(self.memory.read().await.as_ref().unwrap().clone());
+                // If still None, it means loading failed
+                return Err(Error::NamespaceNotFound(self.namespace.clone()));
             }
             *loading = true;
         }
 
         // We're the loading thread, proceed with the fetch
-        let (config, listeners) = {
-            let mut w_lock = self.memory.write().await;
-            // Double-check: another thread might have loaded it while we were waiting
-            if let Some(value) = w_lock.as_ref() {
-                *self.loading.write().await = false;
-                return Ok(value.clone());
-            }
+        let result = self.load_and_cache().await;
 
-            cfg_if! {
-                if #[cfg(not(target_arch = "wasm32"))] {
-                    let file_path = self.file_path.clone();
-                    if file_path.exists()
-                        && let Ok(file) = std::fs::File::open(&file_path)
-                            && let Ok(cache_item) = serde_json::from_reader::<_, CacheItem>(file) {
-                                let mut is_stale = false;
-                                if let Some(ttl) = self.client_config.cache_ttl {
-                                    let age = Utc::now().timestamp() - cache_item.timestamp;
-                                    #[allow(clippy::cast_possible_wrap)]
-                                    if age > ttl as i64 {
-                                        is_stale = true;
-                                    }
-                                }
+        // Always reset loading flag and notify waiting threads
+        {
+            let mut loading = self.loading.write().await;
+            *loading = false;
+        }
+        self.loading_complete.notify_waiters();
 
-                                if !is_stale {
-                                    w_lock.replace(cache_item.config.clone());
-                                    *self.loading.write().await = false;
-                                    return Ok(cache_item.config);
+        result
+    }
+
+    /// Internal method to load configuration and update cache.
+    ///
+    /// This method handles the actual loading logic with proper error handling
+    /// and ensures the loading flag is always reset.
+    async fn load_and_cache(&self) -> Result<Value, Error> {
+        let mut w_lock = self.memory.write().await;
+
+        // Double-check: another thread might have loaded it while we were waiting
+        if let Some(value) = w_lock.as_ref() {
+            return Ok(value.clone());
+        }
+
+        // Try to load from file cache first (native targets only)
+        cfg_if! {
+            if #[cfg(not(target_arch = "wasm32"))] {
+                let file_path = self.file_path.clone();
+                if file_path.exists()
+                    && let Ok(file) = std::fs::File::open(&file_path)
+                        && let Ok(cache_item) = serde_json::from_reader::<_, CacheItem>(file) {
+                            let mut is_stale = false;
+                            if let Some(ttl) = self.client_config.cache_ttl {
+                                let age = Utc::now().timestamp() - cache_item.timestamp;
+                                #[allow(clippy::cast_possible_wrap)]
+                                if age > ttl as i64 {
+                                    is_stale = true;
                                 }
                             }
-                }
+
+                            if !is_stale {
+                                w_lock.replace(cache_item.config.clone());
+                                let config = cache_item.config;
+                                let listeners = self.listeners.read().await.clone();
+                                drop(w_lock); // Release the lock before notifying listeners
+                                self.notify_listeners(&config, &listeners);
+                                return Ok(config);
+                            }
+                        }
             }
+        }
 
-            let config = self.fetch_remote_config().await?;
-            w_lock.replace(config.clone());
-            let listeners = self.listeners.read().await.clone();
-            *self.loading.write().await = false;
-            (config, listeners)
-        };
-
+        // Load from remote server
+        let config = self.fetch_remote_config().await?;
+        w_lock.replace(config.clone());
+        let listeners = self.listeners.read().await.clone();
+        drop(w_lock); // Release the lock before notifying listeners
         self.notify_listeners(&config, &listeners);
         Ok(config)
     }
