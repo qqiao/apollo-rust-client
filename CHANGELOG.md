@@ -4,6 +4,20 @@ All notable changes to the apollo-rust-client project will be documented in this
 
 ## [Unreleased]
 
+### Changed
+
+- **Performance Improvements**: Further optimized cache locking mechanism for better startup performance and reduced contention during concurrent namespace access.
+- **Dependency Updates**: Updated transitive dependencies to latest stable versions:
+  - `serde` updated from 1.0.225 to 1.0.226 (performance improvements for adjacently tagged enums)
+  - `serde_json` updated from 1.0.143 to 1.0.145
+  - `chrono` updated from 0.4.41 to 0.4.42
+  - `log` updated from 0.4.27 to 0.4.28
+
+### Fixed
+
+- **Concurrency Issues**: Fixed potential deadlocks in concurrent namespace access scenarios.
+- **Lock Contention**: Improved cache locking mechanism to reduce contention during high-concurrency scenarios.
+
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 

@@ -60,14 +60,14 @@ apollo-rust-client = "0.6.1"
 
 ```toml
 [dependencies]
-apollo-rust-client = "^0.6.1"  # Compatible with 0.6.x
+apollo-rust-client = "^0.6.2"  # Compatible with 0.6.x
 ```
 
 #### Specific Version
 
 ```toml
 [dependencies]
-apollo-rust-client = "=0.6.1"  # Exact version
+apollo-rust-client = "=0.6.2"  # Exact version
 ```
 
 ### Feature Flags
@@ -76,7 +76,7 @@ The library supports conditional compilation for different platforms:
 
 ```toml
 [dependencies]
-apollo-rust-client = { version = "0.6.1", features = ["default"] }
+apollo-rust-client = { version = "0.6.2", features = ["default"] }
 ```
 
 Available features:

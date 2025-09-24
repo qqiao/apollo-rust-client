@@ -29,7 +29,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.6.0"
+apollo-rust-client = "0.6.1"
 ```
 
 Alternatively, you can use `cargo add`:

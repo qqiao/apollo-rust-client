@@ -44,6 +44,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha1::Sha1;
 use std::{fmt::Write, sync::Arc};
+use tokio::sync::Notify;
 use url::{ParseError, Url};
 
 #[derive(Serialize, Deserialize)]
@@ -198,6 +199,18 @@ pub(crate) struct Cache {
     /// to react to configuration changes in real-time.
     listeners: Arc<RwLock<Vec<EventListener>>>,
 
+    /// Flag indicating whether a fetch operation is currently in progress.
+    ///
+    /// This prevents multiple threads from simultaneously fetching the same
+    /// configuration data, which could cause duplicate network requests.
+    loading: Arc<RwLock<bool>>,
+
+    /// Notification mechanism for waiting threads when loading completes.
+    ///
+    /// This allows threads to wait efficiently for loading completion instead
+    /// of using busy-wait loops.
+    loading_complete: Arc<Notify>,
+
     /// Path to the local cache file (native targets only).
     ///
     /// On native targets, this specifies where the configuration should be
@@ -240,6 +253,8 @@ impl Cache {
             namespace: namespace.to_string(),
             memory: Arc::new(RwLock::new(None)),
             listeners: Arc::new(RwLock::new(Vec::new())),
+            loading: Arc::new(RwLock::new(false)),
+            loading_complete: Arc::new(Notify::new()),
 
             #[cfg(not(target_arch = "wasm32"))]
             file_path,
@@ -274,45 +289,92 @@ impl Cache {
     /// network errors when fetching from the remote server, or parsing errors if the configuration
     /// data is malformed.
     pub(crate) async fn get_value(&self) -> Result<Value, Error> {
+        // First check: fast path if data is already in memory
         if let Some(value) = self.memory.read().await.as_ref() {
             return Ok(value.clone());
         }
 
-        let (config, listeners) = {
-            let mut w_lock = self.memory.write().await;
-            if let Some(value) = w_lock.as_ref() {
+        // Second check: see if another thread is already loading, using a loop to avoid race conditions
+        let should_load = loop {
+            // Check if value is now in memory (could have been loaded while we waited)
+            if let Some(value) = self.memory.read().await.as_ref() {
                 return Ok(value.clone());
             }
 
-            cfg_if! {
-                if #[cfg(not(target_arch = "wasm32"))] {
-                    let file_path = self.file_path.clone();
-                    if file_path.exists()
-                        && let Ok(file) = std::fs::File::open(&file_path)
-                            && let Ok(cache_item) = serde_json::from_reader::<_, CacheItem>(file) {
-                                let mut is_stale = false;
-                                if let Some(ttl) = self.client_config.cache_ttl {
-                                    let age = Utc::now().timestamp() - cache_item.timestamp;
-                                    #[allow(clippy::cast_possible_wrap)]
-                                    if age > ttl as i64 {
-                                        is_stale = true;
-                                    }
-                                }
-
-                                if !is_stale {
-                                    w_lock.replace(cache_item.config.clone());
-                                    return Ok(cache_item.config);
-                                }
-                            }
-                }
+            let mut loading = self.loading.write().await;
+            if *loading {
+                // Another thread is loading, wait for it to complete and re-check
+                drop(loading);
+                self.loading_complete.notified().await;
+            } else {
+                *loading = true;
+                break true;
             }
-
-            let config = self.fetch_remote_config().await?;
-            w_lock.replace(config.clone());
-            let listeners = self.listeners.read().await.clone();
-            (config, listeners)
         };
 
+        // We're the loading thread, proceed with the fetch
+        if should_load {
+            let result = self.load_and_cache().await;
+
+            // Always reset loading flag and notify waiting threads
+            {
+                let mut loading = self.loading.write().await;
+                *loading = false;
+            }
+            self.loading_complete.notify_waiters();
+
+            result
+        } else {
+            // This should not happen, but handle gracefully
+            Err(Error::NamespaceNotFound(self.namespace.clone()))
+        }
+    }
+
+    /// Internal method to load configuration and update cache.
+    ///
+    /// This method handles the actual loading logic with proper error handling
+    /// and ensures the loading flag is always reset.
+    async fn load_and_cache(&self) -> Result<Value, Error> {
+        let mut w_lock = self.memory.write().await;
+
+        // Double-check: another thread might have loaded it while we were waiting
+        if let Some(value) = w_lock.as_ref() {
+            return Ok(value.clone());
+        }
+
+        // Try to load from file cache first (native targets only)
+        cfg_if! {
+            if #[cfg(not(target_arch = "wasm32"))] {
+                let file_path = self.file_path.clone();
+                if file_path.exists()
+                    && let Ok(file) = std::fs::File::open(&file_path)
+                        && let Ok(cache_item) = serde_json::from_reader::<_, CacheItem>(file) {
+                            let mut is_stale = false;
+                            if let Some(ttl) = self.client_config.cache_ttl {
+                                let age = Utc::now().timestamp() - cache_item.timestamp;
+                                #[allow(clippy::cast_possible_wrap)]
+                                if age > ttl as i64 {
+                                    is_stale = true;
+                                }
+                            }
+
+                            if !is_stale {
+                                w_lock.replace(cache_item.config.clone());
+                                let config = cache_item.config;
+                                let listeners = self.listeners.read().await.clone();
+                                drop(w_lock); // Release the lock before notifying listeners
+                                self.notify_listeners(&config, &listeners);
+                                return Ok(config);
+                            }
+                        }
+            }
+        }
+
+        // Load from remote server
+        let config = self.fetch_remote_config().await?;
+        w_lock.replace(config.clone());
+        let listeners = self.listeners.read().await.clone();
+        drop(w_lock); // Release the lock before notifying listeners
         self.notify_listeners(&config, &listeners);
         Ok(config)
     }
@@ -349,9 +411,25 @@ impl Cache {
 
     fn notify_listeners(&self, config: &Value, listeners: &[EventListener]) {
         for listener in listeners {
-            listener(
-                get_namespace(&self.namespace, config.clone()).map_err(crate::Error::Namespace),
-            );
+            let listener = listener.clone(); // Clone each listener individually
+            let config = config.clone();
+            let namespace = self.namespace.clone();
+
+            cfg_if::cfg_if! {
+                if #[cfg(target_arch = "wasm32")] {
+                    // For WASM, call listeners synchronously to avoid Send/Sync issues
+                    listener(
+                        get_namespace(&namespace, config).map_err(crate::Error::Namespace),
+                    );
+                } else {
+                    // For native targets, spawn listener notifications as separate tasks to prevent deadlocks
+                    tokio::spawn(async move {
+                        listener(
+                            get_namespace(&namespace, config).map_err(crate::Error::Namespace),
+                        );
+                    });
+                }
+            }
         }
     }
 
@@ -359,7 +437,25 @@ impl Cache {
         let url = self.build_request_url()?;
         let http_client = self.create_http_client();
         let client = self.build_http_request(&url, &http_client)?;
+
+        // Add timeout to prevent long pauses
+        #[cfg(target_arch = "wasm32")]
         let response = self.execute_request(client).await?;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let response = {
+            let timeout_duration = std::time::Duration::from_secs(10);
+            tokio::time::timeout(timeout_duration, self.execute_request(client))
+                .await
+                .map_err(|_| {
+                    let io_error = std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "Request timeout after 10 seconds",
+                    );
+                    Error::Io(io_error)
+                })??
+        };
+
         let config = self.parse_response(response).await?;
 
         cfg_if! {
