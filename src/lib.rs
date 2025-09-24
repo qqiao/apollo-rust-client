@@ -394,9 +394,9 @@ impl Client {
                         }
 
                         // Clone cache references before releasing the lock to prevent long-held locks
-                        let cache_refs = {
+                        let cache_refs: Vec<_> = {
                             let namespaces = namespaces.read().await;
-                            namespaces.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>()
+                            namespaces.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
                         }; // Lock released here
 
                         // Refresh each namespace's cache without holding the lock

@@ -306,7 +306,6 @@ impl Cache {
                 // Another thread is loading, wait for it to complete and re-check
                 drop(loading);
                 self.loading_complete.notified().await;
-                continue;
             } else {
                 *loading = true;
                 break true;
@@ -327,10 +326,7 @@ impl Cache {
             result
         } else {
             // This should not happen, but handle gracefully
-            Err(Error::Cache(format!(
-                "Unexpected state in get_value: loading flag was false but no value present for namespace '{}'",
-                self.namespace
-            )))
+            Err(Error::NamespaceNotFound(self.namespace.clone()))
         }
     }
 
