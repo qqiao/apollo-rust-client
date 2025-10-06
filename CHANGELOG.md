@@ -4,6 +4,8 @@ All notable changes to the apollo-rust-client project will be documented in this
 
 ## [Unreleased]
 
+## [0.6.2] - 2025-10-06
+
 ### Changed
 
 - **Performance Improvements**: Further optimized cache locking mechanism for better startup performance and reduced contention during concurrent namespace access.

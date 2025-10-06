@@ -163,9 +163,9 @@ config.free();
 
 ## Version Information
 
-**Current Version**: 0.6.1
+**Current Version**: 0.6.2
 
-### Recent Changes (v0.6.1)
+### Recent Changes (v0.6.2)
 
 - **Typed Namespaces**: Support for multiple configuration formats with automatic detection
 - **Event Listeners**: Real-time configuration change notifications

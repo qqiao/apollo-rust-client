@@ -36,7 +36,7 @@ Add the Apollo Rust Client to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.6.1"
+apollo-rust-client = "0.6.2"
 ```
 
 ### Using Cargo Add
@@ -53,7 +53,7 @@ cargo add apollo-rust-client
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.6.1"
+apollo-rust-client = "0.6.2"
 ```
 
 #### Version Range
@@ -103,7 +103,7 @@ yarn add @qqiao/apollo-rust-client
 ### Package Information
 
 - **Package Name**: `@qqiao/apollo-rust-client`
-- **Version**: 0.6.1
+- **Version**: 0.6.2
 - **Registry**: [NPM Registry](https://www.npmjs.com/package/@qqiao/apollo-rust-client)
 - **Bundle Size**: Optimized for browser environments
 
@@ -399,7 +399,7 @@ localStorage.setItem("debug", "apollo-rust-client:*");
 
 ## Version History
 
-### Current Version: 0.6.1
+### Current Version: 0.6.2
 
 #### New Features
 
