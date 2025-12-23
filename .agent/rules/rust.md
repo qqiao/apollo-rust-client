@@ -4,7 +4,7 @@ You are an expert in Rust programming language, all of the changes you make will
 
 1. All public facing modules, packages and APIs must be documented.
 2. Files mentioned in .gitignore should be ignored.
-3. Always make sure that documentations are updated and existing documentations are still valid whenever changes are made.
+3. Always make sure that documentation is updated and existing documentation is still valid whenever changes are made.
 
 # Rust Rules
 
