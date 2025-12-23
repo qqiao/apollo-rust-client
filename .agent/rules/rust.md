@@ -9,5 +9,5 @@ You are an expert in Rust programming language, all of the changes you make will
 # Rust Rules
 
 1. Always use the latest stable version of Rust.
-2. Always use `cargo clippy` in place for `cargo check`.
+2. Always use `cargo clippy` in place of `cargo check`.
 3. For any dependency, always prefer pure Rust implementation over bindings to other languages. If one could not be found, always get the user's permission before proceeding.
