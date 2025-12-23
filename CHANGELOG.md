@@ -4,6 +4,14 @@ All notable changes to the apollo-rust-client project will be documented in this
 
 ## [Unreleased]
 
+### Added
+
+- **TLS Implementation Choice**: Added `rustls` feature flag to allow switching between native TLS (default) and Rustls. This is particularly useful for building on minimalistic images like Alpine where system TLS libraries might be missing or different.
+  - Default behavior remains unchanged (uses `native-tls`).
+  - To use `rustls`, disable default features and enable `rustls`.
+  - **Constraint**: On non-WASM targets, `native-tls` and `rustls` are mutually exclusive.
+  - **Constraint**: On WASM targets, only `native-tls` is supported.
+
 ## [0.6.2] - 2025-10-06
 
 ### Changed

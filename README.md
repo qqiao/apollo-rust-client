@@ -13,6 +13,7 @@ A robust Rust client for the Apollo Configuration Centre, with support for WebAs
 - **Automatic Format Detection**: Based on namespace file extensions
 - **Type-Safe Configuration Management**: Compile-time guarantees and runtime type conversion
 - **Cross-Platform Support**: Native Rust and WebAssembly targets
+- **TLS Support**: Switchable TLS implementations (native-tls by default, rustls via feature flag)
 - **Real-Time Updates**: Background polling with configurable intervals and event listeners
 - **Comprehensive Caching**: Multi-level caching with file persistence (native) and memory-only (WASM)
 - **Async/Await Support**: Full asynchronous API for non-blocking operations
@@ -31,6 +32,18 @@ Add the following to your `Cargo.toml`:
 [dependencies]
 apollo-rust-client = "0.6.2"
 ```
+
+If you prefer to use `rustls` instead of the system's native TLS (useful for minimal images like Alpine):
+
+```toml
+[dependencies]
+apollo-rust-client = { version = "0.6.2", default-features = false, features = ["rustls"] }
+```
+
+**Note on TLS Support:**
+
+- **Non-WASM Targets**: `native-tls` (enabled by default) and `rustls` are mutually exclusive. You must disable default features if you want to use `rustls`.
+- **WASM Targets**: Only `native-tls` (which uses the browser's fetch API) is supported. Enabling the `rustls` feature on WASM targets will result in a compile error.
 
 Alternatively, you can use `cargo add`:
 

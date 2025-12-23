@@ -61,6 +61,15 @@ use log::{error, trace};
 use std::{collections::HashMap, sync::Arc};
 use wasm_bindgen::prelude::wasm_bindgen;
 
+#[cfg(all(feature = "native-tls", feature = "rustls", not(target_arch = "wasm32")))]
+compile_error!(
+    "Features 'native-tls' and 'rustls' are mutually exclusive on non-WASM targets. \
+    Please disable default features and enable only one."
+);
+
+#[cfg(all(feature = "rustls", target_arch = "wasm32"))]
+compile_error!("Feature 'rustls' is not supported on WASM targets. Only native-tls (browser) is supported.");
+
 cfg_if::cfg_if! {
     if #[cfg(not(target_arch = "wasm32"))] {
         use async_std::task::spawn as spawn;
