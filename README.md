@@ -37,7 +37,7 @@ If you prefer to use `rustls` instead of the system's native TLS (useful for min
 
 ```toml
 [dependencies]
-apollo-rust-client = { version = "0.6.3", default-features = false, features = ["rustls"] }
+apollo-rust-client = { version = "0.6.2", default-features = false, features = ["rustls"] }
 ```
 
 Alternatively, you can use `cargo add`:
