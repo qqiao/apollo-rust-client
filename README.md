@@ -40,6 +40,11 @@ If you prefer to use `rustls` instead of the system's native TLS (useful for min
 apollo-rust-client = { version = "0.6.2", default-features = false, features = ["rustls"] }
 ```
 
+**Note on TLS Support:**
+
+- **Non-WASM Targets**: `native-tls` (enabled by default) and `rustls` are mutually exclusive. You must disable default features if you want to use `rustls`.
+- **WASM Targets**: Only `native-tls` (which uses the browser's fetch API) is supported. Enabling the `rustls` feature on WASM targets will result in a compile error.
+
 Alternatively, you can use `cargo add`:
 
 ```bash
