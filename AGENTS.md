@@ -1,0 +1,1 @@
+Please follow ALL rules as specified in directory @.agent/**/*.md
