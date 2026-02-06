@@ -218,6 +218,9 @@ pub(crate) struct Cache {
     /// targeting parameters (IP, labels) to ensure cache isolation.
     #[cfg(not(target_arch = "wasm32"))]
     file_path: std::path::PathBuf,
+
+    /// HTTP client for making network requests.
+    http_client: reqwest::Client,
 }
 
 impl Cache {
@@ -227,11 +230,16 @@ impl Cache {
     ///
     /// * `client_config` - The configuration for the Apollo client.
     /// * `namespace` - The namespace to get the cache for.
+    /// * `http_client` - The HTTP client to use for requests.
     ///
     /// # Returns
     ///
     /// A new cache for the given namespace.
-    pub(crate) fn new(client_config: ClientConfig, namespace: &str) -> Self {
+    pub(crate) fn new(
+        client_config: ClientConfig,
+        namespace: &str,
+        http_client: reqwest::Client,
+    ) -> Self {
         let mut file_name = namespace.to_string();
         if let Some(ip) = &client_config.ip {
             let _ = write!(file_name, "_{ip}");
@@ -258,6 +266,7 @@ impl Cache {
 
             #[cfg(not(target_arch = "wasm32"))]
             file_path,
+            http_client,
         }
     }
 
@@ -435,8 +444,7 @@ impl Cache {
 
     async fn fetch_remote_config(&self) -> Result<Value, Error> {
         let url = self.build_request_url()?;
-        let http_client = self.create_http_client();
-        let client = self.build_http_request(&url, &http_client)?;
+        let client = self.build_http_request(&url)?;
 
         // Add timeout to prevent long pauses
         #[cfg(target_arch = "wasm32")]
@@ -500,33 +508,6 @@ impl Cache {
         Ok(url)
     }
 
-    /// Creates an HTTP client with optional insecure HTTPS support.
-    ///
-    /// For native targets, allows insecure HTTPS if configured.
-    /// For WASM targets, always uses the default client.
-    ///
-    /// # Returns
-    ///
-    /// * `reqwest::Client` - The configured HTTP client
-    fn create_http_client(&self) -> reqwest::Client {
-        if self.client_config.allow_insecure_https.unwrap_or(false) {
-            cfg_if! {
-                if #[cfg(not(target_arch = "wasm32"))] {
-                    reqwest::Client::builder()
-                        .danger_accept_invalid_certs(true)
-                        .danger_accept_invalid_hostnames(true)
-                        .build()
-                        .unwrap_or_else(|_| reqwest::Client::new())
-                } else {
-                    // WASM target doesn't support these methods, use default client
-                    reqwest::Client::new()
-                }
-            }
-        } else {
-            reqwest::Client::new()
-        }
-    }
-
     /// Builds the HTTP request with optional authentication headers.
     ///
     /// If a secret is configured, adds timestamp and authorization headers
@@ -535,18 +516,13 @@ impl Cache {
     /// # Arguments
     ///
     /// * `url` - The request URL
-    /// * `http_client` - The HTTP client to use
     ///
     /// # Returns
     ///
     /// * `Ok(reqwest::RequestBuilder)` - The configured request builder
     /// * `Err(Error)` - If signature generation fails
-    fn build_http_request(
-        &self,
-        url: &Url,
-        http_client: &reqwest::Client,
-    ) -> Result<reqwest::RequestBuilder, Error> {
-        let mut client = http_client.get(url.as_str());
+    fn build_http_request(&self, url: &Url) -> Result<reqwest::RequestBuilder, Error> {
+        let mut client = self.http_client.get(url.as_str());
 
         if let Some(secret) = &self.client_config.secret {
             let timestamp = Utc::now().timestamp_millis();
@@ -782,7 +758,11 @@ mod tests {
             cache_ttl: None,
         };
 
-        let cache = Arc::new(Cache::new(config, "application"));
+        let cache = Arc::new(Cache::new(
+            config,
+            "application",
+            reqwest::Client::new(),
+        ));
 
         let mut handles = Vec::new();
         for _ in 0..10 {

@@ -258,6 +258,11 @@ pub struct Client {
     /// Wrapped in `Arc<RwLock<bool>>` for thread-safe shared access between the
     /// client and its background task. Used to coordinate task lifecycle management.
     running: Arc<RwLock<bool>>,
+
+    /// HTTP client for making network requests.
+    ///
+    /// Shared across all caches to allow connection pooling and reduce overhead.
+    http_client: reqwest::Client,
 }
 
 impl Client {
@@ -274,7 +279,11 @@ impl Client {
         let mut namespaces = self.namespaces.write().await;
         let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
             trace!("Cache miss, creating cache for namespace {namespace}");
-            Arc::new(Cache::new(self.config.clone(), namespace))
+            Arc::new(Cache::new(
+                self.config.clone(),
+                namespace,
+                self.http_client.clone(),
+            ))
         });
         cache.clone()
     }
@@ -283,7 +292,11 @@ impl Client {
         let mut namespaces = self.namespaces.write().await;
         let cache = namespaces.entry(namespace.to_string()).or_insert_with(|| {
             trace!("Cache miss, creating cache for namespace {namespace}");
-            Arc::new(Cache::new(self.config.clone(), namespace))
+            Arc::new(Cache::new(
+                self.config.clone(),
+                namespace,
+                self.http_client.clone(),
+            ))
         });
         cache.add_listener(listener).await;
     }
@@ -550,11 +563,28 @@ impl Client {
     #[wasm_bindgen(constructor)]
     #[must_use]
     pub fn new(config: ClientConfig) -> Self {
+        let http_client = if config.allow_insecure_https.unwrap_or(false) {
+            cfg_if::cfg_if! {
+                if #[cfg(not(target_arch = "wasm32"))] {
+                    reqwest::Client::builder()
+                        .danger_accept_invalid_certs(true)
+                        .danger_accept_invalid_hostnames(true)
+                        .build()
+                        .unwrap_or_else(|_| reqwest::Client::new())
+                } else {
+                    reqwest::Client::new()
+                }
+            }
+        } else {
+            reqwest::Client::new()
+        };
+
         Self {
             config,
             namespaces: Arc::new(RwLock::new(HashMap::new())),
             handle: None,
             running: Arc::new(RwLock::new(false)),
+            http_client,
         }
     }
 
