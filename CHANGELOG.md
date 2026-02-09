@@ -4,6 +4,12 @@ All notable changes to the apollo-rust-client project will be documented in this
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-02-09
+
+### Performance Improvements
+
+- **Connection Reuse**: Reuse `reqwest::Client` instance across requests to reduce connection overhead and improve performance.
+
 ## [0.6.3] - 2025-12-28
 
 ### Added

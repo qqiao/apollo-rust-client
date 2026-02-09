@@ -9,7 +9,7 @@
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.6.3"
+apollo-rust-client = "0.7.0"
 ```
 
 或者，您可以使用 `cargo add`：
