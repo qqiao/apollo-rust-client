@@ -76,13 +76,13 @@ The library supports conditional compilation for different platforms:
 
 ```toml
 [dependencies]
-apollo-rust-client = { version = "0.7.0", features = ["default"] }
+apollo-rust-client = { version = "0.7.0", features = ["native-tls"] }
 ```
 
 Available features:
 
-- `default`: Standard features for native Rust
-- `wasm`: WebAssembly-specific optimizations (automatically enabled for wasm32 targets)
+- `native-tls`: Standard features for native Rust (default)
+- `rustls`: Rustls support for native Rust (alternative to native-tls)
 
 ## WebAssembly Installation
 
