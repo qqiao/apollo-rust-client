@@ -163,15 +163,12 @@ config.free();
 
 ## Version Information
 
-**Current Version**: 0.6.3
+**Current Version**: 0.7.0
 
-### Recent Changes (v0.6.3)
+### Recent Changes (v0.7.0)
 
-- **Typed Namespaces**: Support for multiple configuration formats with automatic detection
-- **Event Listeners**: Real-time configuration change notifications
-- **Enhanced Error Handling**: Comprehensive error types and better error reporting
-- **WASM Improvements**: Better memory management and JavaScript interop
-- **Background Polling**: Configurable automatic configuration refresh
+- **Connection Reuse**: Reuse `reqwest::Client` instance across requests to reduce connection overhead and improve performance.
+- **Dependency Updates**: Updated dependencies to latest stable versions.
 
 ## Getting Help
 

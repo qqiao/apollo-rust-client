@@ -11,7 +11,7 @@ This guide covers installation and setup for the Apollo Rust Client across diffe
 
 #### Native Rust
 
-- **Rust Version**: 1.70.0 or later
+- **Rust Version**: 1.85.0 or later (required for Edition 2024)
 - **Operating Systems**: Linux, macOS, Windows
 - **Architecture**: x86_64, ARM64
 - **Dependencies**: Standard Rust toolchain
@@ -36,7 +36,7 @@ Add the Apollo Rust Client to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.6.3"
+apollo-rust-client = "0.7.0"
 ```
 
 ### Using Cargo Add
@@ -53,21 +53,21 @@ cargo add apollo-rust-client
 
 ```toml
 [dependencies]
-apollo-rust-client = "0.6.2"
+apollo-rust-client = "0.7.0"
 ```
 
 #### Version Range
 
 ```toml
 [dependencies]
-apollo-rust-client = "^0.6.3"  # Compatible with 0.6.x
+apollo-rust-client = "^0.7.0"  # Compatible with 0.7.x
 ```
 
 #### Specific Version
 
 ```toml
 [dependencies]
-apollo-rust-client = "=0.6.3"  # Exact version
+apollo-rust-client = "=0.7.0"  # Exact version
 ```
 
 ### Feature Flags
@@ -76,13 +76,13 @@ The library supports conditional compilation for different platforms:
 
 ```toml
 [dependencies]
-apollo-rust-client = { version = "0.6.3", features = ["default"] }
+apollo-rust-client = { version = "0.7.0", features = ["native-tls"] }
 ```
 
 Available features:
 
-- `default`: Standard features for native Rust
-- `wasm`: WebAssembly-specific optimizations (automatically enabled for wasm32 targets)
+- `native-tls`: Standard features for native Rust (default)
+- `rustls`: Rustls support for native Rust (alternative to native-tls)
 
 ## WebAssembly Installation
 
@@ -103,7 +103,7 @@ yarn add @qqiao/apollo-rust-client
 ### Package Information
 
 - **Package Name**: `@qqiao/apollo-rust-client`
-- **Version**: 0.6.3
+- **Version**: 0.7.0
 - **Registry**: [NPM Registry](https://www.npmjs.com/package/@qqiao/apollo-rust-client)
 - **Bundle Size**: Optimized for browser environments
 
@@ -399,7 +399,7 @@ localStorage.setItem("debug", "apollo-rust-client:*");
 
 ## Version History
 
-### Current Version: 0.6.3
+### Current Version: 0.7.0
 
 #### New Features
 
