@@ -11,7 +11,7 @@ This guide covers installation and setup for the Apollo Rust Client across diffe
 
 #### Native Rust
 
-- **Rust Version**: 1.70.0 or later
+- **Rust Version**: 1.85.0 or later (required for Edition 2024)
 - **Operating Systems**: Linux, macOS, Windows
 - **Architecture**: x86_64, ARM64
 - **Dependencies**: Standard Rust toolchain
