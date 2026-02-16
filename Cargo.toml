@@ -43,7 +43,7 @@ js-sys = "0.3.81"
 wasm-bindgen-futures = "0.4.54"
 
 [dev-dependencies]
-env_logger = "0.11.8"
+env_logger = "0.11.9"
 lazy_static = "1.5.0"
 tokio = { version = "1.49.0", features = ["macros"] }
 web-sys = { version = "0.3.81", features = ["Window", "console"] }
