@@ -14,7 +14,7 @@ crate-type = ["cdylib", "rlib"]
 async-std = { version = "1.13.2", features = ["tokio1"] }
 base64 = "0.22.1"
 cfg-if = "1.0.4"
-futures = "0.3.31"
+futures = "0.3.32"
 hmac = "0.12.1"
 log = "0.4.29"
 reqwest = { version = "0.12.28", default-features = false, features = ["http2", "json"] }
