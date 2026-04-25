@@ -38,7 +38,7 @@ use async_std::sync::RwLock;
 use base64::display::Base64Display;
 use cfg_if::cfg_if;
 use chrono::Utc;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use log::{debug, trace};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
