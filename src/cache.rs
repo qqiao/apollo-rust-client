@@ -21,7 +21,7 @@
 //! # Platform Differences
 //!
 //! - **Native Rust**: Full caching with file persistence and background refresh
-//! - **WebAssembly**: Memory-only caching optimized for browser environments
+//! - **WebAssembly**: Persistent caching using browser localStorage with in-memory fallback for Node.js environments
 //!
 //! # Examples
 //!
@@ -178,7 +178,7 @@ pub enum Error {
 /// # Platform Differences
 ///
 /// - **Native Rust**: Full feature set with file caching and background refresh
-/// - **WebAssembly**: Memory-only caching optimized for single-threaded execution
+/// - **WebAssembly**: Persistent caching using browser localStorage with in-memory fallback and single-threaded execution
 #[derive(Clone)]
 pub(crate) struct Cache {
     /// Client configuration containing server details and authentication.
@@ -198,6 +198,10 @@ pub(crate) struct Cache {
     /// Listeners are called when the cache is refreshed, allowing applications
     /// to react to configuration changes in real-time.
     listeners: Arc<RwLock<Vec<EventListener>>>,
+
+    /// The isolated cache key for WebAssembly localStorage persistence (wasm32 targets only).
+    #[cfg(target_arch = "wasm32")]
+    wasm_cache_key: String,
 
     /// Flag indicating whether a fetch operation is currently in progress.
     ///
@@ -248,11 +252,25 @@ impl Cache {
             let _ = write!(file_name, "_{label}");
         }
 
-        cfg_if! {
-            if #[cfg(not(target_arch = "wasm32"))] {
-                let file_path = client_config
-                    .get_cache_dir()
-                    .join(format!("{file_name}.cache.json"));
+        #[cfg(not(target_arch = "wasm32"))]
+        let file_path = client_config
+            .get_cache_dir()
+            .join(format!("{file_name}.cache.json"));
+
+        #[cfg(target_arch = "wasm32")]
+        let mut wasm_cache_key = format!(
+            "apollo_cache_{}_{}_{}",
+            client_config.app_id,
+            client_config.cluster,
+            namespace
+        );
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(ip) = &client_config.ip {
+                let _ = write!(wasm_cache_key, "_{ip}");
+            }
+            if let Some(label) = &client_config.label {
+                let _ = write!(wasm_cache_key, "_{label}");
             }
         }
 
@@ -266,6 +284,8 @@ impl Cache {
 
             #[cfg(not(target_arch = "wasm32"))]
             file_path,
+            #[cfg(target_arch = "wasm32")]
+            wasm_cache_key,
             http_client,
         }
     }
@@ -377,8 +397,7 @@ impl Cache {
                             }
                         }
             } else {
-                let cache_key = format!("apollo_cache_{}", self.namespace);
-                if let Some(cached_str) = load_from_local_storage(&cache_key) {
+                if let Some(cached_str) = load_from_local_storage(&self.wasm_cache_key) {
                     if let Ok(cache_item) = serde_json::from_str::<CacheItem>(&cached_str) {
                         w_lock.replace(cache_item.config.clone());
                         let config = cache_item.config;
@@ -482,13 +501,12 @@ impl Cache {
             if #[cfg(not(target_arch = "wasm32"))] {
                 self.write_to_file_cache(&config)?;
             } else {
-                let cache_key = format!("apollo_cache_{}", self.namespace);
                 let cache_item = CacheItem {
                     timestamp: chrono::Utc::now().timestamp(),
                     config: config.clone(),
                 };
                 if let Ok(cache_content) = serde_json::to_string(&cache_item) {
-                    let _ = save_to_local_storage(&cache_key, &cache_content);
+                    let _ = save_to_local_storage(&self.wasm_cache_key, &cache_content);
                 }
             }
         }
@@ -686,6 +704,12 @@ impl Cache {
     pub async fn add_listener(&self, listener: EventListener) {
         let mut listeners = self.listeners.write().await;
         listeners.push(listener);
+    }
+
+    /// Returns the WASM cache key (wasm32 targets only).
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn wasm_cache_key(&self) -> &str {
+        &self.wasm_cache_key
     }
 }
 

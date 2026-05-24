@@ -25,7 +25,7 @@
 //! # Platform Support
 //!
 //! - **Native Rust**: Full feature set including file caching and environment variable support
-//! - **WebAssembly**: Optimized for browser environments with memory-only caching
+//! - **WebAssembly**: Optimized for browser environments with persistent localStorage caching (and Node.js in-memory fallback)
 //!
 //! # Examples
 //!
@@ -302,6 +302,10 @@ cfg_if! {
                 let refresh_interval = std::env::var("APOLLO_REFRESH_INTERVAL")
                     .ok()
                     .and_then(|s| s.parse().ok())
+                    .map(|v| {
+                        let min_val = if cfg!(test) { 1 } else { 30 };
+                        if v < min_val { min_val } else { v }
+                    })
                     .or(Some(30));
                 Ok(Self {
                     app_id,

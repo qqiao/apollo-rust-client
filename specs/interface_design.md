@@ -82,10 +82,10 @@ fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Error>;
 ### 1.3 Testing Mock Server (Docker Compose / WireMock)
 To decouple the test suite from external, remote Apollo servers (such as the now retired CTrip Apollo community demo server), the client repository includes a standard local Docker Mock Server setup using WireMock.
 
-- **Docker Service Orchestration**: Defined in the [docker-compose.yml](file:///Users/q/workspace/apollo-rust-client/docker-compose.yml) in the root directory.
-- **WireMock Stub Mappings**: Stored as JSON definitions under [tests/wiremock/mappings/](file:///Users/q/workspace/apollo-rust-client/tests/wiremock/mappings/).
+- **Docker Service Orchestration**: Defined in the [docker-compose.yml](../docker-compose.yml) in the root directory.
+- **WireMock Stub Mappings**: Stored as JSON definitions under [tests/wiremock/mappings/](../tests/wiremock/mappings/).
 - **Dynamic Config Routing**: Test clients read the server destination from the `APOLLO_TEST_SERVER` environment variable, falling back to `http://localhost:8080` (where the local WireMock Docker container is mapped).
-- **Self-Managed Test Lifecycle**: The [scripts/test.sh](file:///Users/q/workspace/apollo-rust-client/scripts/test.sh) script automatically starts the WireMock Docker container before testing (`docker compose up -d`), waits for the server to be fully responsive, executes the test suite, and reliably tears down all containers on completion using a shell `trap` handler. This keeps the GitHub Actions workflow extremely simple and requires zero manual container management by local developers.
+- **Self-Managed Test Lifecycle**: The [scripts/test.sh](../scripts/test.sh) script automatically starts the WireMock Docker container before testing (`docker compose up -d`), waits for the server to be fully responsive, executes the test suite, and reliably tears down all containers on completion using a shell `trap` handler. This keeps the GitHub Actions workflow extremely simple and requires zero manual container management by local developers.
 
 ---
 

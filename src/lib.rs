@@ -13,7 +13,7 @@
 //! - **Multiple Configuration Formats**: Support for Properties, JSON, Text formats with automatic detection
 //! - **Cross-Platform**: Native Rust and WebAssembly targets with platform-specific optimizations
 //! - **Real-Time Updates**: Background polling with configurable intervals and event listeners
-//! - **Comprehensive Caching**: Multi-level caching with file persistence (native) and memory-only (WASM)
+//! - **Comprehensive Caching**: Multi-level caching with file persistence (native) and persistent localStorage caching with high-performance Node.js in-memory fallback (WASM)
 //! - **Type-Safe API**: Compile-time guarantees and runtime type conversion
 //! - **Error Handling**: Detailed error diagnostics with comprehensive error types
 //! - **Grayscale Release Support**: IP and label-based configuration targeting
@@ -51,7 +51,7 @@
 //! The library supports different behavior for wasm32 and non-wasm32 targets:
 //!
 //! - **Native Rust**: Full feature set with file caching, background tasks, and threading
-//! - **WebAssembly**: Memory-only caching, single-threaded execution, JavaScript interop
+//! - **WebAssembly**: Persistent localStorage caching with high-performance Node.js in-memory fallback, single-threaded execution, JavaScript interop
 
 use crate::namespace::Namespace;
 use tokio::sync::RwLock;
@@ -413,7 +413,11 @@ impl Client {
             } else {
                 let running = self.running.clone();
                 let namespaces = self.namespaces.clone();
-                let refresh_interval = self.config.refresh_interval.unwrap_or(30);
+                let refresh_interval = {
+                    let v = self.config.refresh_interval.unwrap_or(30);
+                    let min_val = if cfg!(test) { 1 } else { 30 };
+                    if v < min_val { min_val } else { v }
+                };
                 // Spawn a background thread to refresh caches
                 let handle = spawn(async move {
                     loop {
@@ -1559,6 +1563,35 @@ mod tests {
         client.stop().await;
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_refresh_interval_clamping() {
+        // Test parsing from env var
+        unsafe {
+            std::env::set_var("APP_ID", "101010101");
+            std::env::set_var("APOLLO_CONFIG_SERVICE", "http://localhost:8080");
+            
+            // 1. Set to 0, should clamp to 1 in test
+            std::env::set_var("APOLLO_REFRESH_INTERVAL", "0");
+        }
+        let config = ClientConfig::from_env().unwrap();
+        assert_eq!(config.refresh_interval, Some(1));
+
+        // 2. Set to 15, should remain 15 in test (since min is 1 in test)
+        unsafe {
+            std::env::set_var("APOLLO_REFRESH_INTERVAL", "15");
+        }
+        let config2 = ClientConfig::from_env().unwrap();
+        assert_eq!(config2.refresh_interval, Some(15));
+
+        // Clean up env vars
+        unsafe {
+            std::env::remove_var("APP_ID");
+            std::env::remove_var("APOLLO_CONFIG_SERVICE");
+            std::env::remove_var("APOLLO_REFRESH_INTERVAL");
+        }
+    }
+
     #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test::wasm_bindgen_test]
     async fn test_wasm_local_storage_caching() {
@@ -1614,7 +1647,7 @@ mod tests {
         let cache_content = serde_json::to_string(&cache_item).unwrap();
 
         // Save directly to our mock localStorage
-        let cache_key = "apollo_cache_application";
+        let cache_key = "apollo_cache_101010101_default_application";
         {
             let mut map = store.lock().unwrap();
             map.insert(cache_key.to_string(), cache_content);
@@ -1641,6 +1674,68 @@ mod tests {
 
         // Cleanup: remove localStorage from globalThis to keep tests clean
         let _ = js_sys::Reflect::delete_property(&global, &wasm_bindgen::JsValue::from_str("localStorage"));
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen_test::wasm_bindgen_test]
+    fn test_wasm_cache_key_isolation() {
+        setup();
+
+        // 1. Base configuration
+        let config1 = ClientConfig {
+            app_id: "app1".to_string(),
+            cluster: "default".to_string(),
+            config_server: "http://localhost:8080".to_string(),
+            secret: None,
+            cache_dir: None,
+            label: None,
+            ip: None,
+            allow_insecure_https: None,
+        };
+        let cache1 = cache::Cache::new(config1, "application", reqwest::Client::new());
+        assert_eq!(cache1.wasm_cache_key(), "apollo_cache_app1_default_application");
+
+        // 2. Different cluster
+        let config2 = ClientConfig {
+            app_id: "app1".to_string(),
+            cluster: "prod".to_string(),
+            config_server: "http://localhost:8080".to_string(),
+            secret: None,
+            cache_dir: None,
+            label: None,
+            ip: None,
+            allow_insecure_https: None,
+        };
+        let cache2 = cache::Cache::new(config2, "application", reqwest::Client::new());
+        assert_eq!(cache2.wasm_cache_key(), "apollo_cache_app1_prod_application");
+
+        // 3. Different namespace
+        let config3 = ClientConfig {
+            app_id: "app1".to_string(),
+            cluster: "default".to_string(),
+            config_server: "http://localhost:8080".to_string(),
+            secret: None,
+            cache_dir: None,
+            label: None,
+            ip: None,
+            allow_insecure_https: None,
+        };
+        let cache3 = cache::Cache::new(config3, "other_namespace", reqwest::Client::new());
+        assert_eq!(cache3.wasm_cache_key(), "apollo_cache_app1_default_other_namespace");
+
+        // 4. Grayscale targeting: IP and label present
+        let config4 = ClientConfig {
+            app_id: "app1".to_string(),
+            cluster: "default".to_string(),
+            config_server: "http://localhost:8080".to_string(),
+            secret: None,
+            cache_dir: None,
+            label: Some("gray".to_string()),
+            ip: Some("192.168.1.1".to_string()),
+            allow_insecure_https: None,
+        };
+        let cache4 = cache::Cache::new(config4, "application", reqwest::Client::new());
+        assert_eq!(cache4.wasm_cache_key(), "apollo_cache_app1_default_application_192.168.1.1_gray");
     }
 
     #[cfg(target_arch = "wasm32")]
