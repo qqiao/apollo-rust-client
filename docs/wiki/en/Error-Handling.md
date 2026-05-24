@@ -15,13 +15,11 @@ The Apollo Rust client provides comprehensive error handling through Rust's `Res
 
 ### Cache Errors
 
-- **`AlreadyLoading`**: Concurrent refresh attempts on the same cache
-- **`AlreadyCheckingCache`**: Concurrent cache initialization attempts
-- **`NamespaceNotFound`**: Requested namespace doesn't exist on the server
-- **`Reqwest`**: Network communication errors with Apollo server
-- **`UrlParse`**: Invalid URL format in configuration
-- **`Serde`**: JSON parsing and serialization errors
-- **`Io`**: File system operations (native targets only)
+- **NamespaceNotFound**: Requested namespace doesn't exist on the server
+- **Reqwest**: Network communication errors with Apollo server
+- **UrlParse**: Invalid URL format in configuration
+- **Serde**: JSON parsing and serialization errors
+- **Io**: File system operations (native targets only)
 
 ### Namespace Errors
 
@@ -43,7 +41,7 @@ async fn get_config() -> Result<String, Error> {
 
     match namespace {
         apollo_rust_client::namespace::Namespace::Properties(props) => {
-            Ok(props.get_string("app.name").await.unwrap_or_default())
+            Ok(props.get_string("app.name").unwrap_or_default())
         }
         _ => Ok(String::new())
     }
@@ -78,7 +76,7 @@ async fn get_config_with_fallback() -> String {
         Ok(namespace) => {
             match namespace {
                 apollo_rust_client::namespace::Namespace::Properties(props) => {
-                    props.get_string("app.name").await.unwrap_or_else(|| "DefaultApp".to_string())
+                    props.get_string("app.name").unwrap_or_else(|| "DefaultApp".to_string())
                 }
                 _ => "DefaultApp".to_string()
             }
@@ -94,7 +92,7 @@ async fn get_config_with_fallback() -> String {
 // Pattern 1: Using try-catch with async/await
 async function getConfig() {
   let client = null;
-  let cache = null;
+  let properties = null;
 
   try {
     const clientConfig = new ClientConfig(
@@ -105,8 +103,8 @@ async function getConfig() {
     client = new Client(clientConfig);
     await client.start();
 
-    cache = await client.namespace("application");
-    const value = await cache.get_string("app.name");
+    properties = await client.namespace("application");
+    const value = properties.get_string("app.name");
 
     return value || "DefaultApp";
   } catch (error) {
@@ -114,7 +112,7 @@ async function getConfig() {
     return "DefaultApp";
   } finally {
     // Always cleanup WASM objects
-    if (cache) cache.free();
+    if (properties) properties.free();
     if (client) client.free();
   }
 }
@@ -131,9 +129,9 @@ function getConfigWithPromise() {
   return client
     .start()
     .then(() => client.namespace("application"))
-    .then((cache) => {
-      const result = cache.get_string("app.name");
-      cache.free();
+    .then((properties) => {
+      const result = properties.get_string("app.name");
+      properties.free();
       return result;
     })
     .catch((error) => {

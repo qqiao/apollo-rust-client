@@ -21,9 +21,9 @@ The library supports various configuration formats with automatic detection:
 ```rust
 match namespace {
     Namespace::Properties(props) => {
-        let app_name = props.get_string("app.name").await;
-        let port = props.get_int("server.port").await;
-        let debug = props.get_bool("debug.enabled").await;
+        let app_name = props.get_string("app.name");
+        let port = props.get_int("server.port");
+        let debug = props.get_bool("debug.enabled");
     }
     _ => {}
 }
@@ -147,7 +147,7 @@ let text = client.namespace("readme.txt").await?;
 
 #### Threading and Concurrency
 
-- Background refresh tasks using `async_std::task::spawn`
+- Background refresh tasks using `tokio::spawn`
 - Thread-safe operations with `Arc<RwLock<T>>`
 - Concurrent namespace access
 - Non-blocking operations
@@ -156,7 +156,7 @@ let text = client.namespace("readme.txt").await?;
 
 #### Browser Optimization
 
-- Memory-only caching optimized for browser environments
+- Persistent caching using browser `localStorage` with in-memory fallback for Node.js
 - Single-threaded execution with `spawn_local` for tasks
 - JavaScript interop with automatic type conversion
 - Explicit memory management with `free()` methods
@@ -197,9 +197,6 @@ client.start().await?;
 
 // Stop background refresh
 client.stop().await;
-
-// Manual refresh of specific cache
-cache.refresh().await?;
 ```
 
 ### Event Listeners
@@ -227,8 +224,8 @@ client.add_listener("application", Arc::new(|result| {
 ```
 
 ```javascript
-// JavaScript event listener
-await cache.add_listener((data, error) => {
+// JavaScript event listener (registered on the client instance)
+await client.add_listener("application", (data, error) => {
   if (error) {
     console.error("Update error:", error);
   } else {

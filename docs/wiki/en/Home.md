@@ -105,7 +105,7 @@ let namespace = client.namespace("application").await?;
 // Handle different formats
 match namespace {
     Namespace::Properties(props) => {
-        let value = props.get_string("key").await;
+        let value = props.get_string("key");
     }
     Namespace::Json(json) => {
         let config: MyConfig = json.to_object()?;
@@ -135,12 +135,12 @@ const client = new Client(config);
 // Start background refresh
 await client.start();
 
-// Get cache and retrieve values
-const cache = await client.namespace("application");
-const value = await cache.get_string("key");
+// Get properties namespace (exposed to JS as synchronous getters)
+const properties = await client.namespace("application");
+const value = properties.get_string("key");
 
-// Always free memory in WASM
-cache.free();
+// Always free memory of Properties, Client, and ClientConfig in WASM
+properties.free();
 client.free();
 config.free();
 ```

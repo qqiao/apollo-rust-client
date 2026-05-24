@@ -29,18 +29,18 @@ The client exports standard JavaScript classes to enable integration within Node
 - **Methods**:
   - `start(): Promise<void>`: Spawns the async listener refresh loop (WASM).
   - `stop(): Promise<void>`: Stops the background loop.
-  - `namespace(namespace: string): Promise<Cache>`: Retrieves a Javascript reference to the `Cache` object.
+  - `namespace(namespace: string): Promise<any>`: Retrieves the Javascript representation of the `Namespace` variant (`Properties` class, raw JSON object, YAML string, or raw text string).
   - `add_listener(namespace: string, callback: (data: any, error: string | null) => void): Promise<void>`: Registers an observer callback.
 
-#### Class `Cache` (JavaScript API)
+#### Class `Properties` (JavaScript API)
 - **Methods**:
-  - `get_string(key: string): string | null`
-  - `get_int(key: string): number | null`
-  - `get_float(key: string): number | null`
-  - `get_bool(key: string): boolean | null`
+  - `get_string(key: string): string | null` (synchronous)
+  - `get_int(key: string): number | null` (synchronous)
+  - `get_float(key: string): number | null` (synchronous)
+  - `get_bool(key: string): boolean | null` (synchronous)
 
 > [!WARNING]
-> **Manual Memory Management**: JS runtimes must call `.free()` on all instances of `ClientConfig`, `Client`, and `Cache` created from WASM once they are out of scope. If ignored, the underlying memory allocated in the WebAssembly heap will leak.
+> **Manual Memory Management**: JS runtimes must call `.free()` on all instances of `ClientConfig`, `Client`, and `Properties` (when returned from `namespace()`) created from WASM once they are out of scope. If ignored, the underlying memory allocated in the WebAssembly heap will leak. Other returned namespace formats (such as raw JSON objects, YAML strings, or raw text) are standard JavaScript values/objects managed automatically by JavaScript garbage collection and do not need to be freed manually.
 
 ---
 

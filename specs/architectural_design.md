@@ -61,10 +61,10 @@ To support highly disparate computing models, the client implements platform-spe
 | :--- | :--- | :--- |
 | **Concurrency Model** | Multi-threaded asynchronous execution (futures/tokio). | Single-threaded synchronous/asynchronous execution loop (Web API/Promise). |
 | **Task Spawning** | Spawns background OS tasks via `tokio::spawn`. | Uses single-threaded `wasm_bindgen_futures::spawn_local`. |
-| **Caching Tier** | Multi-level cache: Memory + Persistent Local Storage (disk). | Single-level cache: In-Memory cache only. |
+| **Caching Tier** | Multi-level cache: Memory + Persistent Local Storage (disk). | Memory + Persistent Local Storage (browser localStorage). |
 | **Listener Dispatch** | Spawns separate task thread (`tokio::spawn`) to prevent deadlocks. | Invokes synchronously via `js_sys::Function::call2`. |
-| **Configuration Retrieval** | Client returns a strongly-typed `Namespace` enum to Rust code. | Client returns raw `Cache` instance directly to JS. |
-| **Resource Cleanup** | Managed automatically by Rust's RAII drop implementation. | Requires JavaScript context to call `.free()` manually on WASM objects. |
+| **Configuration Retrieval** | Client returns a strongly-typed `Namespace` enum to Rust code. | Client returns JS-wrapped Namespace representation (Properties class, raw JSON object, or YAML/Text string) to JS. |
+| **Resource Cleanup** | Managed automatically by Rust's RAII drop implementation. | Requires JavaScript context to call `.free()` manually on WASM class instances (ClientConfig, Client, Properties). |
 
 ---
 
@@ -79,7 +79,7 @@ Depending on target compilation flags, the public client API undergoes interface
 // Native Rust Compilation: Returns strongly typed Enum Namespace
 pub async fn namespace(&self, namespace: &str) -> Result<namespace::Namespace, Error>;
 
-// WebAssembly Compilation: Returns raw Javascript-wrapped Cache class
+// WebAssembly Compilation: Returns JS-wrapped Namespace representation (e.g. Properties class, raw JSON/YAML object, or raw text)
 #[wasm_bindgen(js_name = "namespace")]
 pub async fn namespace_wasm(&self, namespace: &str) -> Result<wasm_bindgen::JsValue, Error>;
 ```
@@ -119,4 +119,5 @@ For WASM targets:
 1. JavaScript invokes `let client = new Client(config);`.
 2. The JS runtime allocates heap spaces inside the WASM linear memory layout.
 3. Network requests use standard `fetch` APIs bridged through `reqwest` WASM capabilities.
-4. **Memory Lifespans**: Because Javascript garbage collection does not clean up Rust allocated structures directly, calling `client.free()` manually from the JS context triggers memory deallocation on the WASM heap to prevent serious browser memory leaks.
+4. **Persistent Cache**: If running in a browser, fetched configurations are saved to `localStorage` under the key `apollo_cache_{app_id}_{cluster}_{namespace}` to avoid cold-start fetches on page refresh.
+5. **Memory Lifespans**: Because Javascript garbage collection does not clean up Rust-allocated structures directly, calling `.free()` manually on the returned `Client`, `ClientConfig`, or `Properties` objects from JS triggers memory deallocation on the WASM heap to prevent browser memory leaks. Raw JSON/YAML/Text configurations do not need manual freeing as they are returned as standard JS objects/values.

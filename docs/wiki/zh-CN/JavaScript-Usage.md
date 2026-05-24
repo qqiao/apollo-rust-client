@@ -20,7 +20,6 @@ async function main() {
   clientConfig.secret = "your_apollo_secret"; // 示例：如果您的 Apollo 命名空间需要密钥
   // clientConfig.label = "your_instance_label"; // 用于灰度发布
   // clientConfig.ip = "client_ip_address"; // 用于灰度发布
-  // clientConfig.cache_dir = "/custom/cache/path"; // 注意：cache_dir 在浏览器环境中不太常用
 
   const client = new Client(clientConfig);
 
@@ -56,4 +55,4 @@ async function main() {
 main().catch(console.error);
 ```
 
-如果需要，可以在构造 `clientConfig` 实例后直接设置 `secret`、`label`、`ip` 和 `cache_dir` 等属性。由于文件系统限制，`cache_dir` 通常不在浏览器环境中使用。
+如果需要，可以在构造 `clientConfig` 实例后直接设置 `secret`、`label` 和 `ip` 等属性。在浏览器 WASM 环境中，已自动支持浏览器本地的 `localStorage` 缓存以防止冷启动。

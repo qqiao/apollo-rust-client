@@ -14,12 +14,12 @@ The `Cache` struct is responsible for managing the configuration for a single Ap
   The name of the Apollo namespace this cache instance is responsible for (e.g., "application", "config.json").
 
 - **`loading: Arc<RwLock<bool>>`**:
-  A flag to prevent concurrent `refresh()` operations on the same `Cache` instance. If a refresh is already in progress, other calls to `refresh()` will return `Error::AlreadyLoading`.
+  A flag to coordinate concurrent network fetches and prevent duplicate requests.
 
-- **`checking_cache: Arc<RwLock<bool>>`**:
-  _(Non-WASM only)_ A flag to prevent concurrent cache initialization operations. This prevents multiple concurrent attempts to read and parse the same file cache.
+- **`loading_complete: Arc<Notify>`**:
+  A notification trigger used to unblock waiting threads once loading succeeds.
 
-- **`memory_cache: Arc<RwLock<Option<serde_json::Value>>>`**:
+- **`memory: Arc<RwLock<Option<serde_json::Value>>>`**:
   An in-memory store of the parsed configuration for the namespace.
 
   - `serde_json::Value`: The raw configuration data as JSON
@@ -30,10 +30,16 @@ The `Cache` struct is responsible for managing the configuration for a single Ap
   A collection of event listeners that will be notified when the cache is refreshed.
 
   - For native targets: `Arc<dyn Fn(Result<Namespace, Error>) + Send + Sync>`
-  - For WASM targets: `Arc<dyn Fn(Result<serde_json::Value, Error>)>`
+  - For WASM targets: `Arc<dyn Fn(Result<Namespace, Error>)>`
+
+- **`wasm_cache_key: String`**:
+  _(WASM only)_ The isolated storage key used in local storage.
 
 - **`file_path: std::path::PathBuf`**:
   _(Non-WASM only)_ The full path to the local file where this namespace's configuration is cached. It's typically constructed as `{cache_dir}/{app_id}_{cluster}_{namespace}.cache.json`.
+
+- **`http_client: reqwest::Client`**:
+  Reused HTTP worker client instance.
 
 ## Core Methods & Logic
 
@@ -49,67 +55,56 @@ Creates a new cache instance for a specific namespace.
 
 Retrieves the raw configuration value for the namespace. This method:
 
-1. **Checks concurrent access**: Acquires `checking_cache` lock to prevent concurrent operations
-2. **Memory cache check**: First checks if data is available in `memory_cache`
-3. **File cache check** (non-WASM): Attempts to load from file if memory cache is empty
-4. **Refresh operation**: Triggers `refresh()` if no cached data is available
-5. **Returns value**: Returns the cached JSON value or an error
+1. **Fast-path check**: Reads the `memory` cache directly using a read lock.
+2. **Double-Checked Locking (DCL)**: If empty, tries to acquire the write lock on `loading`. If another thread is already fetching (`*loading == true`), it drops the lock and waits on `loading_complete.notified().await`.
+3. **Loader Fetch**: The loader thread proceeds to fetch:
+   - Loads from local file (Native) or `localStorage` (WASM) if available and not stale.
+   - Otherwise, fetches from remote Apollo server.
+4. **Cache populate**: Populates `memory`, saves to persistent cache, and wakes up all waiters via `loading_complete.notify_waiters()`.
 
 ### `refresh(&self) -> Result<(), Error>`
 
 Fetches the latest configuration from the Apollo server and updates caches:
 
-1. **Concurrency control**: Acquires `loading` lock to prevent concurrent refreshes
-2. **URL construction**: Builds the Apollo server request URL with namespace and query parameters
-3. **Authentication**: Adds HMAC-SHA1 signature if `secret` is configured
-4. **HTTP request**: Sends GET request to Apollo server
-5. **Cache updates**:
-   - Updates file cache (non-WASM only)
-   - Updates memory cache
-   - Notifies all registered event listeners
-6. **Error handling**: Proper cleanup of locks on failure
+1. **Memory Lock**: Acquires the write lock on `memory` to perform the update.
+2. **Network request**: Sends a GET request to the Apollo server.
+3. **Cache updates**: Replaces the memory cache and writes back to the active persistent cache (disk/localStorage).
+4. **Release & Notify**: Drops the memory lock and triggers all registered event listeners.
 
 ### `add_listener(&self, listener: EventListener)`
 
 Registers an event listener for configuration changes.
 
-- **Native targets**: Listener receives `Result<Namespace, Error>`
-- **WASM targets**: Listener receives `Result<serde_json::Value, Error>`
-- Listeners are called when `refresh()` successfully updates the configuration
+- Listeners are called when `refresh()` successfully updates the configuration.
 
-## Platform-Specific Methods
+### WASM properties format delegation
 
-### WASM-Only Methods
+The `Cache` struct itself is not exposed directly to JavaScript. Instead, the JS binding returns a mapped `Namespace` variant. For the Properties format, this is returned as the JS `Properties` class, which exposes synchronous property getters:
 
-These methods are only available on WASM targets and provide direct property access:
-
-- **`get_string(&self, key: &str) -> Option<String>`**:
+- **`get_string(key: &str) -> Option<String>`**:
   Retrieves a string property from the configuration.
 
-- **`get_int(&self, key: &str) -> Option<i64>`**:
+- **`get_int(key: &str) -> Option<i64>`**:
   Retrieves an integer property from the configuration.
 
-- **`get_float(&self, key: &str) -> Option<f64>`**:
+- **`get_float(key: &str) -> Option<f64>`**:
   Retrieves a float property from the configuration.
 
-- **`get_bool(&self, key: &str) -> Option<bool>`**:
+- **`get_bool(key: &str) -> Option<bool>`**:
   Retrieves a boolean property from the configuration.
 
-- **`add_listener_wasm(&self, js_listener: JsFunction)`**:
-  Registers a JavaScript function as an event listener. The function receives `(error, data)` parameters.
+### Event Listeners registration
+
+Event listeners are registered at the `Client` level using `client.add_listener(namespace, callback)` on WASM targets.
 
 ### Native-Only Methods
 
-- **File-based caching**: Automatic persistence of configuration to disk
-- **Background refresh**: Integration with client-level background refresh tasks
-- **Thread safety**: Full `Send + Sync` compliance for multi-threaded environments
-
-## Error Handling
+- **File-based caching**: Automatic persistence of configuration to disk.
+- **Background refresh**: Integration with client-level background refresh tasks.
+- **Thread safety**: Full `Send + Sync` compliance for multi-threaded environments.
 
 The `Cache` can return the following errors:
 
-- **`AlreadyLoading`**: Concurrent refresh attempts
-- **`AlreadyCheckingCache`**: Concurrent cache initialization attempts
 - **`NamespaceNotFound`**: Namespace doesn't exist on Apollo server
 - **`Reqwest`**: Network communication errors
 - **`UrlParse`**: Invalid URL construction
@@ -126,14 +121,15 @@ let listener = Arc::new(|result: Result<Namespace, Error>| {
         Ok(namespace) => {
             match namespace {
                 Namespace::Properties(props) => {
-                    // Handle properties update
+                    let value = props.get_string("key");
                 }
                 Namespace::Json(json) => {
-                    // Handle JSON update
+                    let config: MyConfig = json.to_object().unwrap();
                 }
                 Namespace::Text(text) => {
-                    // Handle text update
+                    println!("Content: {}", text);
                 }
+                _ => {}
             }
         }
         Err(e) => {
@@ -141,18 +137,18 @@ let listener = Arc::new(|result: Result<Namespace, Error>| {
         }
     }
 });
-cache.add_listener(listener).await;
+client.add_listener("application", listener).await;
 ```
 
 ### WASM (JavaScript)
 
 ```javascript
-await cache.add_listener((data, error) => {
+await client.add_listener("application", (data, error) => {
   if (error) {
     console.error("Configuration update error:", error);
   } else {
     console.log("Configuration updated:", data);
-    // data is the raw JSON configuration object
+    // data is a Properties instance for Properties format, or raw JS object/string for JSON/YAML/Text formats
   }
 });
 ```
@@ -167,9 +163,8 @@ await cache.add_listener((data, error) => {
 
 ### WASM
 
-- **Critical**: Must call `free()` on cache instances when done
-- Event listeners are automatically cleaned up when cache is freed
-- Memory-only caching (no file system access)
+- **Critical**: Must call `.free()` on `Client`, `ClientConfig`, and returned `Properties` class instances when done.
+- Raw JSON, YAML, and Text configurations do not need manual freeing as they are standard JS values.
 
 ## Performance Considerations
 

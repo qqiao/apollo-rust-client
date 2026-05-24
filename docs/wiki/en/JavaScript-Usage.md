@@ -29,43 +29,40 @@ async function main() {
   // This is a non-blocking operation.
   await client.start();
 
-  // Get configuration for the "application" namespace
-  const cache = await client.namespace("application");
-
-  // Example: Retrieve a string property
-  const stringVal = cache.get_string("some_key");
+  // Get properties namespace (exposed as JS class Properties)
+  const properties = await client.namespace("application");
+ 
+  // Example: Retrieve properties synchronously
+  const stringVal = properties.get_string("some_key");
   if (stringVal !== undefined) {
     console.log("Property 'some_key':", stringVal);
   } else {
     console.log("Property 'some_key' not found.");
   }
-
-  // Example: Retrieve an integer property
-  const intVal = cache.get_int("meaningOfLife");
+ 
+  const intVal = properties.get_int("meaningOfLife");
   if (intVal !== undefined) {
     console.log("Property 'meaningOfLife':", intVal);
   } else {
     console.log("Property 'meaningOfLife' not found or not an integer.");
   }
-
-  // Example: Retrieve a float property
-  const floatVal = cache.get_float("pi");
+ 
+  const floatVal = properties.get_float("pi");
   if (floatVal !== undefined) {
     console.log("Property 'pi':", floatVal);
   } else {
     console.log("Property 'pi' not found or not a float.");
   }
-
-  // Example: Retrieve a boolean property
-  const boolVal = cache.get_bool("debug_enabled");
+ 
+  const boolVal = properties.get_bool("debug_enabled");
   if (boolVal !== undefined) {
     console.log("Property 'debug_enabled':", boolVal);
   } else {
     console.log("Property 'debug_enabled' not found or not a boolean.");
   }
-
+ 
   // IMPORTANT: Release Rust memory for WASM objects when they are no longer needed
-  cache.free();
+  properties.free();
   client.free();
   clientConfig.free();
 }
@@ -88,29 +85,27 @@ async function main() {
   );
 
   const client = new Client(clientConfig);
-  const cache = await client.namespace("application");
-
-  // Register an event listener
-  await cache.add_listener((data, error) => {
+ 
+  // Register an event listener (at the client level)
+  await client.add_listener("application", (data, error) => {
     if (error) {
       console.error("Configuration update error:", error);
     } else {
       console.log("Configuration updated:", data);
-
-      // You can access specific properties from the updated data
-      if (data && data.some_key) {
-        console.log("Updated some_key:", data.some_key);
+ 
+      // data is a Properties instance for Properties format, or raw JS object/string for JSON/YAML/Text formats
+      if (data && typeof data.get_string === "function") {
+        console.log("Updated some_key:", data.get_string("some_key"));
       }
     }
   });
-
+ 
   // Start background polling to trigger updates
   await client.start();
-
+ 
   // Your application logic here
-
+ 
   // Cleanup
-  cache.free();
   client.free();
   clientConfig.free();
 }
@@ -134,24 +129,21 @@ async function main() {
 
   const client = new Client(clientConfig);
 
-  // Properties namespace (default format)
-  const propsCache = await client.namespace("application");
-  const stringValue = propsCache.get_string("app.name");
+  // Properties namespace (default format) - Returns Properties class
+  const props = await client.namespace("application");
+  const stringValue = props.get_string("app.name");
   console.log("App name:", stringValue);
-
-  // JSON namespace (detected by .json extension)
-  const jsonCache = await client.namespace("config.json");
-  // JSON namespaces in WASM currently return raw configuration data
-  // You can access properties directly from the cache methods
-
-  // Text namespace (detected by .txt extension)
-  const textCache = await client.namespace("readme.txt");
-  // Text namespaces contain plain text content
-
-  // Cleanup
-  propsCache.free();
-  jsonCache.free();
-  textCache.free();
+ 
+  // JSON namespace (detected by .json extension) - Returns raw JS object
+  const jsonConfig = await client.namespace("config.json");
+  console.log("Database Host:", jsonConfig.database?.host);
+ 
+  // Text namespace (detected by .txt extension) - Returns raw JS string
+  const textContent = await client.namespace("readme.txt");
+  console.log("Readme length:", textContent.length);
+ 
+  // Cleanup - Only Properties class instance needs to be freed
+  props.free();
   client.free();
   clientConfig.free();
 }
@@ -181,9 +173,9 @@ async function main() {
     client = new Client(clientConfig);
     await client.start();
 
-    cache = await client.namespace("application");
-
-    const value = cache.get_string("some_key");
+    properties = await client.namespace("application");
+ 
+    const value = properties.get_string("some_key");
     if (value !== undefined) {
       console.log("Retrieved value:", value);
     }
@@ -191,7 +183,7 @@ async function main() {
     console.error("Apollo client error:", error);
   } finally {
     // Always cleanup WASM objects
-    if (cache) cache.free();
+    if (properties) properties.free();
     if (client) client.free();
     if (clientConfig) clientConfig.free();
   }
@@ -208,10 +200,10 @@ main().catch(console.error);
 // These objects need to be freed:
 clientConfig.free(); // ClientConfig instances
 client.free(); // Client instances
-cache.free(); // Cache instances (returned by client.namespace())
+properties.free(); // Properties instances (returned by client.namespace() for properties format)
 ```
 
-The `free()` method releases the memory allocated by Rust on the WebAssembly heap. Failure to call `free()` will result in memory leaks in your application.
+The `free()` method releases the memory allocated by Rust on the WebAssembly heap. Other formats (like JSON, YAML, or Text) are returned as raw JS objects or strings, and do not need to be freed manually.
 
 ## Configuration Options
 

@@ -4,6 +4,17 @@ All notable changes to the apollo-rust-client project will be documented in this
 
 ## [Unreleased]
 
+### Documentation
+
+- **Comprehensive Verification & Alignment**: Systematically audited and aligned all software specifications (`specs/`) and user/design wikis (`docs/wiki/`) with the v0.7.0 codebase:
+  - Corrected all usage examples (both Rust and JavaScript/WASM) to utilize synchronous property getters instead of outdated asynchronous ones.
+  - Aligned WebAssembly return signatures: corrected the claim that `client.namespace()` returns a `Cache` class, documenting that it returns the JS-wrapped representation of the `Namespace` enum (such as `Properties` or a raw JS object).
+  - Clarified WASM memory cleanup: specified that only WASM class instances (`Client`, `ClientConfig`, `Properties`) need manual memory management (`.free()`), whereas raw JSON, YAML, or Text configurations are returned as standard JS values/objects managed automatically by JS garbage collection.
+  - Documented browser `localStorage` persistent caching on WebAssembly targets (using the correct isolated `apollo_cache_{app_id}_{cluster}_{namespace}` key).
+  - Corrected WebAssembly event listener registration to the `Client` level (`add_listener`) instead of the non-existent `Cache` level.
+  - Aligned native execution parameters to accurately reference `tokio::spawn` background task management instead of `async-std`.
+  - Added upgrade guidelines for `v0.7.0` (detailing TCP connection reuse and native custom `reqwest::Client` injection).
+
 ## [0.7.0] - 2026-02-09
 
 ### Performance Improvements

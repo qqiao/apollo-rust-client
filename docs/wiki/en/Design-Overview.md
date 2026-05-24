@@ -22,8 +22,7 @@ The library is built around a few core modules/structs:
 
   - Fetching configuration data from the Apollo server.
   - Storing the configuration in an in-memory cache.
-  - For non-WASM targets, it also handles a file-based cache to persist configuration and reduce network requests.
-  - Providing methods to retrieve individual configuration properties (WASM targets).
+  - For non-WASM targets, it handles a file-based cache to persist configurations. For browser WASM targets, it persists configuration in `localStorage` to avoid cold starts.
   - Managing event listeners for configuration change notifications.
 
 - **`Namespace`**: This enum represents different types of configuration data formats:
@@ -72,15 +71,15 @@ The library is built around a few core modules/structs:
 
     - `client.namespace("application").await`:
       - The `Client` looks up or creates a `Cache` for the "application" namespace.
-      - Returns the `Cache` instance directly for property access.
-      - The `Cache` will check its in-memory store first.
-      - If not found, it will trigger a `refresh()` operation to fetch from the Apollo server.
-      - File-based caching is not available in WASM environments.
+      - Returns the JS-wrapped Namespace representation (the `Properties` class instance) for properties format.
+      - The `Cache` checks its in-memory store first.
+      - If empty, it checks browser `localStorage` persistent cache.
+      - If still not found, it triggers a remote fetch from the Apollo server.
 
 5.  **Event Listener System**:
-    - Both `Client` (native targets) and `Cache` (all targets) support event listeners.
+    - Both `Client` (all targets) and `Cache` (internally) support event listeners.
     - Listeners are notified when configuration changes are detected.
-    - For WASM targets, JavaScript functions can be registered as listeners.
+    - For WASM targets, JavaScript functions can be registered as listeners at the `Client` level.
     - Native targets use Rust closures wrapped in `Arc` for thread safety.
 
 ## API Differences Between Targets
@@ -94,9 +93,9 @@ The library is built around a few core modules/structs:
 
 ### WASM Targets
 
-- Returns `Cache` instance directly from `client.namespace()`
-- Memory-only caching
-- Event listeners at cache level with JavaScript interop
+- Returns JS-wrapped Namespace representation (e.g. `Properties` class or raw JS object) from `client.namespace()`
+- Persistent browser `localStorage` caching or Node.js in-memory caching
+- Event listeners at client level with JavaScript interop
 - Single-threaded execution model
 
 ## Configuration Formats
@@ -109,8 +108,8 @@ The library supports multiple configuration formats with automatic detection:
 // Detected for: "application", "config.properties"
 match namespace {
     Namespace::Properties(props) => {
-        let value = props.get_string("app.name").await?;
-        let port = props.get_int("server.port").await?;
+        let value = props.get_string("app.name");
+        let port = props.get_int("server.port");
     }
     _ => {}
 }
@@ -145,7 +144,7 @@ match namespace {
 The library uses a comprehensive error handling system:
 
 - **Client errors**: `AlreadyRunning`, `Namespace`, `Cache`
-- **Cache errors**: `AlreadyLoading`, `AlreadyCheckingCache`, `NamespaceNotFound`, `Reqwest`, `UrlParse`, `Serde`, `Io`
+- **Cache errors**: `NamespaceNotFound`, `Reqwest`, `UrlParse`, `Serde`, `Io`
 - **Namespace errors**: `Json`, `ContentNotFound`, `DeserializeError`
 
 All errors implement the standard `Error` trait and provide detailed error messages for debugging and monitoring.

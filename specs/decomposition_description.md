@@ -76,11 +76,13 @@ Handles retrieving, updating, and holding configuration data for a single namesp
   - `namespace: String`: The namespace name.
   - `memory: Arc<RwLock<Option<serde_json::Value>>>`: Active in-memory JSON document cache.
   - `listeners: Arc<RwLock<Vec<EventListener>>>`: Observers notified on successful cache refresh.
+  - `wasm_cache_key: String` (WASM-only): The unique key used for browser localStorage.
   - `loading: Arc<RwLock<bool>>`: Safety lock preventing parallel network requests for the same namespace.
   - `loading_complete: Arc<Notify>`: Trigger notifying threads waiting for current active remote fetches.
   - `file_path: PathBuf` (Native-only): Dedicated storage path on disk.
+  - `http_client: reqwest::Client`: Reused HTTP client instance.
 - **Key Methods**:
-  - `get_value(&self) -> Result<Value, Error>`: Executes double-check locking read flow (Memory -> Local Disk -> Remote Server).
+  - `get_value(&self) -> Result<Value, Error>`: Executes double-check locking read flow (Memory -> Local Disk (Native) / localStorage (WASM) -> Remote Server).
   - `refresh(&self) -> Result<(), Error>`: Forces remote synchronization by pulling from Apollo HTTP endpoint.
   - `notify_listeners(&self, config: &Value, listeners: &[EventListener])`: Distributes updated configuration values. Spawns tokio async tasks natively or triggers synchronously in WASM.
 
