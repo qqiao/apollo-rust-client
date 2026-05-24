@@ -27,20 +27,11 @@ The client exports standard JavaScript classes to enable integration within Node
   constructor(config: ClientConfig);
   ```
 - **Methods**:
-  - `start(): Promise<void>`: Spawns the async listener refresh loop (WASM).
-  - `stop(): Promise<void>`: Stops the background loop.
-  - `namespace(namespace: string): Promise<Cache>`: Retrieves a Javascript reference to the `Cache` object.
+  - `namespace(namespace: string): Promise<any>`: Fetches and returns parsed namespace content (e.g. properties/json/yaml) as a JS value.
   - `add_listener(namespace: string, callback: (data: any, error: string | null) => void): Promise<void>`: Registers an observer callback.
 
-#### Class `Cache` (JavaScript API)
-- **Methods**:
-  - `get_string(key: string): string | null`
-  - `get_int(key: string): number | null`
-  - `get_float(key: string): number | null`
-  - `get_bool(key: string): boolean | null`
-
 > [!WARNING]
-> **Manual Memory Management**: JS runtimes must call `.free()` on all instances of `ClientConfig`, `Client`, and `Cache` created from WASM once they are out of scope. If ignored, the underlying memory allocated in the WebAssembly heap will leak.
+> **Manual Memory Management**: JS runtimes must call `.free()` on all `ClientConfig` and `Client` instances created from WASM once they are out of scope. If ignored, the underlying memory allocated in the WebAssembly heap will leak.
 
 ---
 

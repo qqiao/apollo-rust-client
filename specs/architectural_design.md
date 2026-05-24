@@ -61,9 +61,9 @@ To support highly disparate computing models, the client implements platform-spe
 | :--- | :--- | :--- |
 | **Concurrency Model** | Multi-threaded asynchronous execution (futures/tokio). | Single-threaded synchronous/asynchronous execution loop (Web API/Promise). |
 | **Task Spawning** | Spawns background OS tasks via `tokio::spawn`. | Uses single-threaded `wasm_bindgen_futures::spawn_local`. |
-| **Caching Tier** | Multi-level cache: Memory + Persistent Local Storage (disk). | Single-level cache: In-Memory cache only. |
+| **Caching Tier** | Multi-level cache: Memory + Persistent Local Storage (disk). | Multi-level cache: Memory + `localStorage` (when available in JS runtime); falls back to memory-only when unavailable. |
 | **Listener Dispatch** | Spawns separate task thread (`tokio::spawn`) to prevent deadlocks. | Invokes synchronously via `js_sys::Function::call2`. |
-| **Configuration Retrieval** | Client returns a strongly-typed `Namespace` enum to Rust code. | Client returns raw `Cache` instance directly to JS. |
+| **Configuration Retrieval** | Client returns a strongly-typed `Namespace` enum to Rust code. | Client resolves to parsed namespace data as `JsValue` for JS consumers. |
 | **Resource Cleanup** | Managed automatically by Rust's RAII drop implementation. | Requires JavaScript context to call `.free()` manually on WASM objects. |
 
 ---
@@ -79,7 +79,7 @@ Depending on target compilation flags, the public client API undergoes interface
 // Native Rust Compilation: Returns strongly typed Enum Namespace
 pub async fn namespace(&self, namespace: &str) -> Result<namespace::Namespace, Error>;
 
-// WebAssembly Compilation: Returns raw Javascript-wrapped Cache class
+// WebAssembly Compilation: Returns parsed namespace data as JsValue
 #[wasm_bindgen(js_name = "namespace")]
 pub async fn namespace_wasm(&self, namespace: &str) -> Result<wasm_bindgen::JsValue, Error>;
 ```
