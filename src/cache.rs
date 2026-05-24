@@ -376,6 +376,18 @@ impl Cache {
                                 return Ok(config);
                             }
                         }
+            } else {
+                let cache_key = format!("apollo_cache_{}", self.namespace);
+                if let Some(cached_str) = load_from_local_storage(&cache_key) {
+                    if let Ok(cache_item) = serde_json::from_str::<CacheItem>(&cached_str) {
+                        w_lock.replace(cache_item.config.clone());
+                        let config = cache_item.config;
+                        let listeners = self.listeners.read().await.clone();
+                        drop(w_lock); // Release the lock before notifying listeners
+                        self.notify_listeners(&config, &listeners);
+                        return Ok(config);
+                    }
+                }
             }
         }
 
@@ -469,6 +481,15 @@ impl Cache {
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
                 self.write_to_file_cache(&config)?;
+            } else {
+                let cache_key = format!("apollo_cache_{}", self.namespace);
+                let cache_item = CacheItem {
+                    timestamp: chrono::Utc::now().timestamp(),
+                    config: config.clone(),
+                };
+                if let Ok(cache_content) = serde_json::to_string(&cache_item) {
+                    let _ = save_to_local_storage(&cache_key, &cache_content);
+                }
             }
         }
 
@@ -733,6 +754,39 @@ pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Er
     Ok(code.to_string())
 }
 
+#[cfg(target_arch = "wasm32")]
+fn load_from_local_storage(key: &str) -> Option<String> {
+    let global = js_sys::global();
+    let storage = js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("localStorage")).ok()?;
+    if storage.is_undefined() || storage.is_null() {
+        return None;
+    }
+    let get_item_fn = js_sys::Reflect::get(&storage, &wasm_bindgen::JsValue::from_str("getItem")).ok()?;
+    if get_item_fn.is_function() {
+        let args = js_sys::Array::of1(&wasm_bindgen::JsValue::from_str(key));
+        let result = js_sys::Reflect::apply(&get_item_fn.into(), &storage, &args).ok()?;
+        if !result.is_null() && !result.is_undefined() {
+            return result.as_string();
+        }
+    }
+    None
+}
+
+#[cfg(target_arch = "wasm32")]
+fn save_to_local_storage(key: &str, value: &str) -> Option<()> {
+    let global = js_sys::global();
+    let storage = js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("localStorage")).ok()?;
+    if storage.is_undefined() || storage.is_null() {
+        return None;
+    }
+    let set_item_fn = js_sys::Reflect::get(&storage, &wasm_bindgen::JsValue::from_str("setItem")).ok()?;
+    if set_item_fn.is_function() {
+        let args = js_sys::Array::of2(&wasm_bindgen::JsValue::from_str(key), &wasm_bindgen::JsValue::from_str(value));
+        let _ = js_sys::Reflect::apply(&set_item_fn.into(), &storage, &args).ok()?;
+    }
+    Some(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -758,6 +812,8 @@ mod tests {
             cache_ttl: None,
             #[cfg(not(target_arch = "wasm32"))]
             refresh_interval: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            http_client: None,
         };
 
         let cache = Arc::new(Cache::new(

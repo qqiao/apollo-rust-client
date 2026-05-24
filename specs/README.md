@@ -13,7 +13,7 @@ The purpose of this Software Design Description (SDD) is to detail the design sp
 The `apollo-rust-client` is designed to:
 - Establish secure authentication and fetch real-time and static configurations from Apollo Configuration servers.
 - Handle multiple configuration formats including `Properties`, `JSON`, `YAML`, and plain `Text`.
-- Provide multi-level caching strategies, optimizing native architectures with persistent disk caching and WASM targets with memory-only operations.
+- Provide multi-level caching strategies, optimizing native targets with disk-based persistence and WebAssembly targets with browser localStorage caching and serverless memory-only fallbacks.
 - Support real-time updates via background polling worker threads and an asynchronous observer (event-listener) mechanism.
 - Expose direct bindings to JS/TS runtimes through WebAssembly bindings managed by `wasm-bindgen`.
 

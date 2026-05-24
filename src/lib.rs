@@ -157,7 +157,13 @@ pub enum Error {
 
 impl From<Error> for wasm_bindgen::JsValue {
     fn from(error: Error) -> Self {
-        error.to_string().into()
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                js_sys::Error::new(&error.to_string()).into()
+            } else {
+                error.to_string().into()
+            }
+        }
     }
 }
 
@@ -564,20 +570,30 @@ impl Client {
     #[wasm_bindgen(constructor)]
     #[must_use]
     pub fn new(config: ClientConfig) -> Self {
-        let http_client = if config.allow_insecure_https.unwrap_or(false) {
+        let http_client = {
             cfg_if::cfg_if! {
                 if #[cfg(not(target_arch = "wasm32"))] {
-                    reqwest::Client::builder()
-                        .danger_accept_invalid_certs(true)
-                        .danger_accept_invalid_hostnames(true)
-                        .build()
-                        .unwrap_or_else(|_| reqwest::Client::new())
+                    if let Some(custom_client) = config.http_client.clone() {
+                        custom_client
+                    } else if config.allow_insecure_https.unwrap_or(false) {
+                        reqwest::Client::builder()
+                            .danger_accept_invalid_certs(true)
+                            .danger_accept_invalid_hostnames(true)
+                            .build()
+                            .unwrap_or_else(|_| reqwest::Client::new())
+                    } else {
+                        reqwest::Client::new()
+                    }
                 } else {
+                    if config.allow_insecure_https.unwrap_or(false) {
+                        log::warn!(
+                            "allow_insecure_https is silently ignored on wasm32 targets \
+                            because SSL/TLS cert validation is strictly controlled by the browser sandbox environment."
+                        );
+                    }
                     reqwest::Client::new()
                 }
             }
-        } else {
-            reqwest::Client::new()
         };
 
         Self {
@@ -715,6 +731,10 @@ mod tests {
         std::env::var("APOLLO_TEST_SERVER").unwrap_or_else(|_| String::from("http://localhost:8080"))
     }
 
+    fn test_cache_dir() -> String {
+        std::env::temp_dir().join("apollo").to_string_lossy().to_string()
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) static CLIENT_NO_SECRET: std::sync::LazyLock<Client> =
         std::sync::LazyLock::new(|| {
@@ -724,13 +744,15 @@ mod tests {
                 config_server: test_server_url(),
                 label: None,
                 secret: None,
-                cache_dir: Some(String::from("/tmp/apollo")),
+                cache_dir: Some(test_cache_dir()),
                 ip: None,
                 allow_insecure_https: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 cache_ttl: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 refresh_interval: None,
+                #[cfg(not(target_arch = "wasm32"))]
+                http_client: None,
             };
             Client::new(config)
         });
@@ -744,13 +766,15 @@ mod tests {
                 config_server: test_server_url(),
                 label: None,
                 secret: Some(String::from("53bf47631db540ac9700f0020d2192c8")),
-                cache_dir: Some(String::from("/tmp/apollo")),
+                cache_dir: Some(test_cache_dir()),
                 ip: None,
                 allow_insecure_https: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 cache_ttl: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 refresh_interval: None,
+                #[cfg(not(target_arch = "wasm32"))]
+                http_client: None,
             };
             Client::new(config)
         });
@@ -764,13 +788,15 @@ mod tests {
                 config_server: test_server_url(),
                 label: None,
                 secret: None,
-                cache_dir: Some(String::from("/tmp/apollo")),
+                cache_dir: Some(test_cache_dir()),
                 ip: Some(String::from("1.2.3.4")),
                 allow_insecure_https: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 cache_ttl: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 refresh_interval: None,
+                #[cfg(not(target_arch = "wasm32"))]
+                http_client: None,
             };
             Client::new(config)
         });
@@ -784,13 +810,15 @@ mod tests {
                 config_server: test_server_url(),
                 label: Some(String::from("GrayScale")),
                 secret: None,
-                cache_dir: Some(String::from("/tmp/apollo")),
+                cache_dir: Some(test_cache_dir()),
                 ip: None,
                 allow_insecure_https: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 cache_ttl: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 refresh_interval: None,
+                #[cfg(not(target_arch = "wasm32"))]
+                http_client: None,
             };
             Client::new(config)
         });
@@ -1260,13 +1288,15 @@ mod tests {
         let listener_called_flag = Arc::new(Mutex::new(false));
         let received_config_data = Arc::new(Mutex::new(None::<Namespace>));
 
+        let temp_dir = TempDir::new("apollo_listener_test");
+
         // ClientConfig similar to CLIENT_NO_SECRET from lib.rs tests
         // Using the same external test server and app_id as tests in lib.rs
         let config = ClientConfig {
             config_server: test_server_url(), // Use external test server
             app_id: "101010101".to_string(), // Use existing app_id from lib.rs tests
             cluster: "default".to_string(),
-            cache_dir: Some(String::from("/tmp/apollo")), // Use a writable directory
+            cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()), // Use a writable directory
             secret: None,
             label: None,
             ip: None,
@@ -1275,6 +1305,8 @@ mod tests {
             cache_ttl: None,
             #[cfg(not(target_arch = "wasm32"))]
             refresh_interval: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            http_client: None,
         };
 
         let client = Client::new(config);
@@ -1455,6 +1487,7 @@ mod tests {
             allow_insecure_https: None,
             cache_ttl: None,
             refresh_interval: None,
+            http_client: None,
         };
 
         let client = Arc::new(Client::new(config));
@@ -1510,6 +1543,7 @@ mod tests {
             allow_insecure_https: None,
             cache_ttl: None,
             refresh_interval: Some(1), // 1 second interval for fast testing
+            http_client: None,
         };
 
         let mut client = Client::new(config);
@@ -1524,4 +1558,146 @@ mod tests {
 
         client.stop().await;
     }
+
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen_test::wasm_bindgen_test]
+    async fn test_wasm_local_storage_caching() {
+        use wasm_bindgen::prelude::Closure;
+        setup();
+
+        // 1. Setup mock localStorage backed by a Rust HashMap
+        let store = Arc::new(Mutex::new(HashMap::<String, String>::new()));
+        
+        let store_clone1 = store.clone();
+        let get_item = Closure::wrap(Box::new(move |key: String| -> wasm_bindgen::JsValue {
+            let map = store_clone1.lock().unwrap();
+            if let Some(val) = map.get(&key) {
+                wasm_bindgen::JsValue::from_str(val)
+            } else {
+                wasm_bindgen::JsValue::NULL
+            }
+        }) as Box<dyn Fn(String) -> wasm_bindgen::JsValue>);
+        
+        let store_clone2 = store.clone();
+        let set_item = Closure::wrap(Box::new(move |key: String, value: String| {
+            let mut map = store_clone2.lock().unwrap();
+            map.insert(key, value);
+        }) as Box<dyn Fn(String, String)>);
+        
+        let mock_storage = js_sys::Object::new();
+        js_sys::Reflect::set(&mock_storage, &wasm_bindgen::JsValue::from_str("getItem"), get_item.as_ref()).unwrap();
+        js_sys::Reflect::set(&mock_storage, &wasm_bindgen::JsValue::from_str("setItem"), set_item.as_ref()).unwrap();
+        
+        // Inject mock_storage into globalThis
+        let global = js_sys::global();
+        js_sys::Reflect::set(&global, &wasm_bindgen::JsValue::from_str("localStorage"), &mock_storage).unwrap();
+
+        // 2. Setup ClientConfig and cache key
+        let config = ClientConfig {
+            app_id: "101010101".to_string(),
+            cluster: "default".to_string(),
+            config_server: "http://localhost:8080".to_string(),
+            secret: None,
+            cache_dir: None,
+            label: None,
+            ip: None,
+            allow_insecure_https: None,
+        };
+
+        // Construct mock config data in cache format directly using JSON value
+        let cache_item = serde_json::json!({
+            "timestamp": chrono::Utc::now().timestamp(),
+            "config": {
+                "stringValue": "localstorage value"
+            }
+        });
+        let cache_content = serde_json::to_string(&cache_item).unwrap();
+
+        // Save directly to our mock localStorage
+        let cache_key = "apollo_cache_application";
+        {
+            let mut map = store.lock().unwrap();
+            map.insert(cache_key.to_string(), cache_content);
+        }
+
+        // 3. Construct Cache and invoke load_and_cache via get_value()
+        let cache = cache::Cache::new(
+            config,
+            "application",
+            reqwest::Client::new(),
+        );
+
+        // Retrieve cache. Should hit Tier 2 (mock localStorage) and return the data!
+        let value = cache.get_value().await.unwrap();
+        assert_eq!(
+            value.get("stringValue").and_then(|v| v.as_str()),
+            Some("localstorage value"),
+            "Cache failed to load configuration from mocked local storage"
+        );
+
+        // Keep Closures alive until the end of the test
+        get_item.into_js_value();
+        set_item.into_js_value();
+
+        // Cleanup: remove localStorage from globalThis to keep tests clean
+        let _ = js_sys::Reflect::delete_property(&global, &wasm_bindgen::JsValue::from_str("localStorage"));
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen_test::wasm_bindgen_test]
+    fn test_wasm_allow_insecure_https_warning() {
+        setup();
+
+        let config = ClientConfig {
+            app_id: "101010101".to_string(),
+            cluster: "default".to_string(),
+            config_server: "http://localhost:8080".to_string(),
+            secret: None,
+            cache_dir: None,
+            label: None,
+            ip: None,
+            allow_insecure_https: Some(true),
+        };
+
+        // Construct client. This will trigger the log::warn! call.
+        let _client = Client::new(config);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_custom_http_client_injection() {
+        setup();
+        // Create a custom reqwest::Client with an extremely short timeout of 1ms
+        let custom_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(1))
+            .build()
+            .unwrap();
+
+        let temp_dir = TempDir::new("apollo_custom_http_test");
+
+        let config = ClientConfig {
+            config_server: test_server_url(),
+            app_id: "101010101".to_string(),
+            cluster: "default".to_string(),
+            cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()),
+            secret: None,
+            label: None,
+            ip: None,
+            allow_insecure_https: None,
+            cache_ttl: None,
+            refresh_interval: None,
+            http_client: Some(custom_client),
+        };
+
+        let client = Client::new(config);
+
+        // Fetching namespace should fail because of the 1ms timeout!
+        let result = client.namespace("application").await;
+        assert!(result.is_err(), "Expected request to fail due to custom injected HTTP client timeout");
+
+        // Verify the error represents a timeout or request failure
+        let err_str = result.err().unwrap().to_string();
+        assert!(err_str.contains("timeout") || err_str.contains("error") || err_str.contains("reqwest"), "Expected error to mention timeout or request failure, got: {err_str}");
+    }
 }
+

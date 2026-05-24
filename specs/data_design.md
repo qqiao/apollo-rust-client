@@ -56,15 +56,15 @@ The caching layer operates as an asynchronous read-through cache using three dis
 - Non-blocking reads: Multiple threads can concurrently read configurations via read locks without blocking each other.
 - Thread-safe updates: Exclusive write locks are acquired only when modifying cached values.
 
-### Tier 2: Local Disk Cache (Native Only)
-- Located at `{cache_dir}/{app_id}_{cluster}_{namespace}.cache.json`.
-- Serves as backup if the memory cache is empty (e.g., during application startup).
-- If the file exists, the client parses it and checks the file age: `age = current_timestamp - file_timestamp`. If `age <= cache_ttl`, the data is loaded into memory and returned. If the data is stale, the client falls back to Tier 3.
+### Tier 2: Persistent Local Cache (Native / WebAssembly)
+- **Native Targets**: Located at `{cache_dir}/{app_id}_{cluster}_{namespace}.cache.json`. Serves as backup if the memory cache is empty. If the file exists, the client parses it and checks the file age against `cache_ttl` to determine staleness.
+- **WebAssembly Targets (Browser)**: Utilizes the browser's global `localStorage` wrapper to store configurations as JSON strings under the key `apollo_cache_{namespace}`. Eliminates cold-start fetch latencies upon page refreshes or route changes.
+- **WebAssembly Targets (Node.js)**: Safely and silently falls back to Tier 1 in-memory caching if no browser `localStorage` is found at runtime, ensuring complete cross-platform execution compatibility without crashes.
 
 ### Tier 3: Remote Server Fetch
 - Reaches out to Apollo Server via HTTPS.
-- Triggered if Tiers 1 and 2 are empty or if local files are stale.
-- On success, the response updates the memory cache and writes to the disk cache.
+- Triggered if Tiers 1 and 2 are empty or if local persistent caches are stale/not found.
+- On success, the response updates the memory cache and writes back to the active persistent cache (on-disk file or browser `localStorage`).
 
 ---
 

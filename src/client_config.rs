@@ -236,6 +236,13 @@ pub struct ClientConfig {
     /// This field is not available on WebAssembly targets as background refresh is not supported.
     #[cfg(not(target_arch = "wasm32"))]
     pub refresh_interval: Option<u64>,
+
+    /// A pre-configured `reqwest::Client` (native targets only) to allow custom HTTP pools, proxies, headers, or tracers.
+    ///
+    /// If not specified, defaults to standard client construction.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[wasm_bindgen(skip)]
+    pub http_client: Option<reqwest::Client>,
 }
 
 impl From<Error> for JsValue {
@@ -307,6 +314,7 @@ cfg_if! {
                     allow_insecure_https,
                     cache_ttl,
                     refresh_interval,
+                    http_client: None,
                 })
             }
         }

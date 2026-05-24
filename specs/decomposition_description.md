@@ -40,7 +40,8 @@ Encapsulates all server connectivity settings, credentials, local file path para
   - `refresh_interval: Option<u64>` (Optional, Native-only): Refresh interval in seconds for the background cache refresh loop. Defaults to 30.
   - `label: Option<String>` (Optional): Metadata tag for canary releases.
   - `ip: Option<String>` (Optional): Client node IP address for grayscale routing.
-  - `allow_insecure_https: Option<bool>` (Optional): Cert bypass flag for development testing.
+  - `allow_insecure_https: Option<bool>` (Optional): Cert bypass flag for development testing. On WebAssembly (`wasm32`) targets, this is ignored and triggers a warning log because SSL/TLS validation is strictly controlled by the browser sandbox environment.
+  - `http_client: Option<reqwest::Client>` (Optional, Native-only): Injected custom HTTP client instance containing pre-configured corporate proxies, custom request headers, or tracing interceptors. Skip in WASM.
 - **Key Methods**:
   - `from_env() -> Result<Self, Error>`: Instantiates configuration by pulling matching environment variables.
   - `get_cache_dir() -> PathBuf`: Computes the actual folder path for cached files.

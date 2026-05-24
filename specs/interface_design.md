@@ -114,7 +114,7 @@ sequenceDiagram
         Cache->>Cache: Lock memory writer
         Cache->>Net: GET /configfiles/json/...
         Net-->>Cache: JSON Response
-        Cache->>Cache: Write file cache (Native-only)
+        Cache->>Cache: Write persistent cache (Native file / WASM localStorage)
         Cache->>Cache: Update in-memory cache
         Cache-->>User: Trigger Registered Observers (Events)
         Cache->>Cache: Unlock memory writer
