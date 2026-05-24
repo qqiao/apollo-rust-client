@@ -61,9 +61,9 @@ To support highly disparate computing models, the client implements platform-spe
 | :--- | :--- | :--- |
 | **Concurrency Model** | Multi-threaded asynchronous execution (futures/tokio). | Single-threaded synchronous/asynchronous execution loop (Web API/Promise). |
 | **Task Spawning** | Spawns background OS tasks via `tokio::spawn`. | Uses single-threaded `wasm_bindgen_futures::spawn_local`. |
-| **Caching Tier** | Multi-level cache: Memory + Persistent Local Storage (disk). | Memory + Persistent Local Storage (browser localStorage). |
+| **Caching Tier** | Multi-level cache: Memory + Persistent Local Storage (disk). | Multi-level cache: Memory + `localStorage` (when available in JS runtime); falls back to memory-only when unavailable. |
 | **Listener Dispatch** | Spawns separate task thread (`tokio::spawn`) to prevent deadlocks. | Invokes synchronously via `js_sys::Function::call2`. |
-| **Configuration Retrieval** | Client returns a strongly-typed `Namespace` enum to Rust code. | Client returns JS-wrapped Namespace representation (Properties class, raw JSON object, or YAML/Text string) to JS. |
+| **Configuration Retrieval** | Client returns a strongly-typed `Namespace` enum to Rust code. | Client returns JS-wrapped Namespace representation (Properties class, raw JSON object, or YAML/Text string) as `JsValue` to JS. |
 | **Resource Cleanup** | Managed automatically by Rust's RAII drop implementation. | Requires JavaScript context to call `.free()` manually on WASM class instances (ClientConfig, Client, Properties). |
 
 ---
@@ -79,7 +79,7 @@ Depending on target compilation flags, the public client API undergoes interface
 // Native Rust Compilation: Returns strongly typed Enum Namespace
 pub async fn namespace(&self, namespace: &str) -> Result<namespace::Namespace, Error>;
 
-// WebAssembly Compilation: Returns JS-wrapped Namespace representation (e.g. Properties class, raw JSON/YAML object, or raw text)
+// WebAssembly Compilation: Returns parsed namespace data as JsValue (e.g. Properties class instance, raw JSON object, YAML string, or raw text)
 #[wasm_bindgen(js_name = "namespace")]
 pub async fn namespace_wasm(&self, namespace: &str) -> Result<wasm_bindgen::JsValue, Error>;
 ```

@@ -58,7 +58,7 @@ The caching layer operates as an asynchronous read-through cache using three dis
 
 ### Tier 2: Persistent Local Cache (Native / WebAssembly)
 - **Native Targets**: Located at `{cache_dir}/{app_id}_{cluster}_{namespace}.cache.json`. Serves as backup if the memory cache is empty. If the file exists, the client parses it and checks the file age against `cache_ttl` to determine staleness.
-- **WebAssembly Targets (Browser)**: Utilizes the browser's global `localStorage` wrapper to store configurations as JSON strings under the key `apollo_cache_{app_id}_{cluster}_{namespace}` (optionally with client IP or labels appended). Eliminates cold-start fetch latencies upon page refreshes or route changes.
+- **WebAssembly Targets (Browser)**: Utilizes the browser's global `localStorage` wrapper to store configurations as JSON strings under an isolated key: `apollo_cache_{app_id}_{cluster}_{namespace}[_{ip}][_{label}]`. This avoids collisions across applications, clusters, and grayscale targeting while still eliminating cold-start fetch latencies upon page refreshes or route changes.
 - **WebAssembly Targets (Node.js)**: Safely and silently falls back to Tier 1 in-memory caching if no browser `localStorage` is found at runtime, ensuring complete cross-platform execution compatibility without crashes.
 
 ### Tier 3: Remote Server Fetch
