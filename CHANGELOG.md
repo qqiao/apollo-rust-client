@@ -4,6 +4,12 @@ All notable changes to the apollo-rust-client project will be documented in this
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-25
+
+### Performance Improvements
+
+- **Connection Reuse**: Reuse `reqwest::Client` instance across requests to reduce connection overhead and improve performance.
+
 ### Documentation
 
 - **Comprehensive Verification & Alignment**: Systematically audited and aligned all software specifications (`specs/`) and user/design wikis (`docs/wiki/`) with the v0.7.0 codebase:
@@ -14,12 +20,6 @@ All notable changes to the apollo-rust-client project will be documented in this
   - Corrected WebAssembly event listener registration to the `Client` level (`add_listener`) instead of the non-existent `Cache` level.
   - Aligned native execution parameters to accurately reference `tokio::spawn` background task management instead of `async-std`.
   - Added upgrade guidelines for `v0.7.0` (detailing TCP connection reuse and native custom `reqwest::Client` injection).
-
-## [0.7.0] - 2026-02-09
-
-### Performance Improvements
-
-- **Connection Reuse**: Reuse `reqwest::Client` instance across requests to reduce connection overhead and improve performance.
 
 ## [0.6.3] - 2025-12-28
 
