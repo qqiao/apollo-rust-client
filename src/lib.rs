@@ -54,7 +54,7 @@
 //! - **WebAssembly**: Memory-only caching, single-threaded execution, JavaScript interop
 
 use crate::namespace::Namespace;
-use async_std::sync::RwLock;
+use tokio::sync::RwLock;
 use cache::Cache;
 use client_config::ClientConfig;
 use log::{error, trace};
@@ -72,7 +72,7 @@ compile_error!("Feature 'rustls' is not supported on WASM targets. Only native-t
 
 cfg_if::cfg_if! {
     if #[cfg(not(target_arch = "wasm32"))] {
-        use async_std::task::spawn as spawn;
+        use tokio::spawn as spawn;
     }
 }
 
@@ -251,7 +251,7 @@ pub struct Client {
     /// On non-wasm32 targets, this holds a `JoinHandle` to the spawned background task
     /// that periodically refreshes all namespace caches. On wasm32 targets, this is
     /// always `None` as task management differs in single-threaded environments.
-    handle: Option<async_std::task::JoinHandle<()>>,
+    handle: Option<tokio::task::JoinHandle<()>>,
 
     /// Flag indicating whether the background refresh task is active.
     ///
@@ -373,7 +373,7 @@ impl Client {
 
     /// Starts a background task that periodically refreshes all registered namespace caches.
     ///
-    /// This method spawns an asynchronous task using `async_std::task::spawn` on native targets
+    /// This method spawns an asynchronous task using `tokio::spawn` on native targets
     /// or `wasm_bindgen_futures::spawn_local` on wasm32 targets. The task loops indefinitely
     /// (until `stop` is called or the client is dropped) and performs the following actions
     /// in each iteration:
@@ -431,7 +431,7 @@ impl Client {
                         }
 
                         // Sleep for 30 seconds before the next refresh
-                        async_std::task::sleep(std::time::Duration::from_secs(30)).await;
+                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                     }
                 });
                 self.handle = Some(handle);
@@ -447,7 +447,7 @@ impl Client {
     /// to terminate its refresh loop.
     ///
     /// On non-wasm32 targets, it also attempts to explicitly cancel the spawned task
-    /// by calling `cancel()` on its `JoinHandle` if it exists. This helps to ensure
+    /// by calling `abort()` on its `JoinHandle` if it exists. This helps to ensure
     /// that the task is properly cleaned up. On wasm32 targets, there is no direct
     /// handle to cancel, so setting the `running` flag is the primary mechanism for stopping.
     pub async fn stop(&mut self) {
@@ -457,7 +457,7 @@ impl Client {
         cfg_if::cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
                 if let Some(handle) = self.handle.take() {
-                    handle.cancel().await;
+                    handle.abort();
                 }
             }
         }
@@ -708,13 +708,10 @@ pub(crate) fn setup() {
 mod tests {
     use super::*;
 
-    cfg_if::cfg_if! {
-        if #[cfg(target_arch = "wasm32")] {
-            use std::sync::Mutex;
-        } else {
-            use async_std::sync::Mutex;
-            use async_std::task::block_on;
-        }
+    use std::sync::Mutex;
+
+    fn test_server_url() -> String {
+        std::env::var("APOLLO_TEST_SERVER").unwrap_or_else(|_| String::from("http://localhost:8080"))
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -723,7 +720,7 @@ mod tests {
             let config = ClientConfig {
                 app_id: String::from("101010101"),
                 cluster: String::from("default"),
-                config_server: String::from("http://81.68.181.139:8080"),
+                config_server: test_server_url(),
                 label: None,
                 secret: None,
                 cache_dir: Some(String::from("/tmp/apollo")),
@@ -741,7 +738,7 @@ mod tests {
             let config = ClientConfig {
                 app_id: String::from("101010102"),
                 cluster: String::from("default"),
-                config_server: String::from("http://81.68.181.139:8080"),
+                config_server: test_server_url(),
                 label: None,
                 secret: Some(String::from("53bf47631db540ac9700f0020d2192c8")),
                 cache_dir: Some(String::from("/tmp/apollo")),
@@ -759,7 +756,7 @@ mod tests {
             let config = ClientConfig {
                 app_id: String::from("101010101"),
                 cluster: String::from("default"),
-                config_server: String::from("http://81.68.181.139:8080"),
+                config_server: test_server_url(),
                 label: None,
                 secret: None,
                 cache_dir: Some(String::from("/tmp/apollo")),
@@ -777,7 +774,7 @@ mod tests {
             let config = ClientConfig {
                 app_id: String::from("101010101"),
                 cluster: String::from("default"),
-                config_server: String::from("http://81.68.181.139:8080"),
+                config_server: test_server_url(),
                 label: Some(String::from("GrayScale")),
                 secret: None,
                 cache_dir: Some(String::from("/tmp/apollo")),
@@ -1190,7 +1187,7 @@ mod tests {
         let config = ClientConfig {
             app_id: String::from("101010101"),
             cluster: String::from("default"),
-            config_server: String::from("http://81.68.181.139:8080"),
+            config_server: test_server_url(),
             label: None,
             secret: None,
             cache_dir: None,
@@ -1205,7 +1202,7 @@ mod tests {
         let config = ClientConfig {
             app_id: String::from("101010102"),
             cluster: String::from("default"),
-            config_server: String::from("http://81.68.181.139:8080"),
+            config_server: test_server_url(),
             label: None,
             secret: Some(String::from("53bf47631db540ac9700f0020d2192c8")),
             cache_dir: None,
@@ -1220,7 +1217,7 @@ mod tests {
         let config = ClientConfig {
             app_id: String::from("101010101"),
             cluster: String::from("default"),
-            config_server: String::from("http://81.68.181.139:8080"),
+            config_server: test_server_url(),
             label: None,
             secret: None,
             cache_dir: None,
@@ -1235,7 +1232,7 @@ mod tests {
         let config = ClientConfig {
             app_id: String::from("101010101"),
             cluster: String::from("default"),
-            config_server: String::from("http://81.68.181.139:8080"),
+            config_server: test_server_url(),
             label: Some(String::from("GrayScale")),
             secret: None,
             cache_dir: None,
@@ -1257,7 +1254,7 @@ mod tests {
         // ClientConfig similar to CLIENT_NO_SECRET from lib.rs tests
         // Using the same external test server and app_id as tests in lib.rs
         let config = ClientConfig {
-            config_server: "http://81.68.181.139:8080".to_string(), // Use external test server
+            config_server: test_server_url(), // Use external test server
             app_id: "101010101".to_string(), // Use existing app_id from lib.rs tests
             cluster: "default".to_string(),
             cache_dir: Some(String::from("/tmp/apollo")), // Use a writable directory
@@ -1276,12 +1273,12 @@ mod tests {
         let data_clone = received_config_data.clone();
 
         let listener: EventListener = Arc::new(move |result| {
-            let mut called_guard = block_on(flag_clone.lock());
+            let mut called_guard = flag_clone.lock().unwrap();
             *called_guard = true;
             if let Ok(config_value) = result {
                 match config_value {
                     Namespace::Properties(_) => {
-                        let mut data_guard = block_on(data_clone.lock());
+                        let mut data_guard = data_clone.lock().unwrap();
                         *data_guard = Some(config_value.clone());
                     }
                     _ => {
@@ -1315,11 +1312,11 @@ mod tests {
         }
 
         // Check if the listener was called
-        let called = *listener_called_flag.lock().await;
+        let called = *listener_called_flag.lock().unwrap();
         assert!(called, "Listener was not called.");
 
         // Check if config data was received
-        let config_data_guard = received_config_data.lock().await;
+        let config_data_guard = received_config_data.lock().unwrap();
         assert!(
             config_data_guard.is_some(),
             "Listener did not receive config data."
@@ -1433,7 +1430,6 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_concurrent_namespace_hang_repro() {
-        use async_std::task;
         setup();
 
         let temp_dir = TempDir::new("apollo_hang_test");
@@ -1441,7 +1437,7 @@ mod tests {
         let config = ClientConfig {
             app_id: String::from("101010101"),
             cluster: String::from("default"),
-            config_server: String::from("http://81.68.181.139:8080"),
+            config_server: test_server_url(),
             secret: None,
             cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()),
             label: None,
@@ -1459,14 +1455,15 @@ mod tests {
         let listener: EventListener = Arc::new(move |_| {
             let client_in_listener = client_in_listener.clone();
             let listener_triggered_in_listener = listener_triggered_in_listener.clone();
-            task::spawn(async move {
-                let mut triggered = listener_triggered_in_listener.lock().await;
-                if *triggered {
-                    // Avoid infinite loops if the listener is called more than once.
-                    return;
+            tokio::spawn(async move {
+                {
+                    let mut triggered = listener_triggered_in_listener.lock().unwrap();
+                    if *triggered {
+                        // Avoid infinite loops if the listener is called more than once.
+                        return;
+                    }
+                    *triggered = true;
                 }
-                *triggered = true;
-                drop(triggered);
 
                 // This is the recursive call that should no longer trigger a deadlock.
                 let _ = client_in_listener.namespace("application").await;

@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPath": "/configfiles/json/101010101/default/application.yml"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "content": "host: \"localhost\"\nport: 8080\nrun: true"
+    }
+  },
+  "priority": 5
+}

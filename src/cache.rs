@@ -34,7 +34,7 @@ use crate::{
     client_config::ClientConfig,
     namespace::{self, get_namespace},
 };
-use async_std::sync::RwLock;
+use tokio::sync::RwLock;
 use base64::display::Base64Display;
 use cfg_if::cfg_if;
 use chrono::Utc;
@@ -169,7 +169,7 @@ pub enum Error {
 ///
 /// # Concurrency Control
 ///
-/// The cache uses `async_std::sync::RwLock` to ensure thread-safety.
+/// The cache uses `tokio::sync::RwLock` to ensure thread-safety.
 /// The `memory` field is wrapped in an `Arc<RwLock<...>>` to allow multiple
 /// concurrent readers and exclusive writers. This prevents data races when
 /// accessing the cached configuration from multiple async tasks. The listeners
@@ -748,7 +748,7 @@ mod tests {
         let config = ClientConfig {
             app_id: String::from("101010101"),
             cluster: String::from("default"),
-            config_server: String::from("http://81.68.181.139:8080"),
+            config_server: std::env::var("APOLLO_TEST_SERVER").unwrap_or_else(|_| String::from("http://localhost:8080")),
             secret: None,
             cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()),
             label: None,
