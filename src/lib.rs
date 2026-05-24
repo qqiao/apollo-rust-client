@@ -407,6 +407,7 @@ impl Client {
             } else {
                 let running = self.running.clone();
                 let namespaces = self.namespaces.clone();
+                let refresh_interval = self.config.refresh_interval.unwrap_or(30);
                 // Spawn a background thread to refresh caches
                 let handle = spawn(async move {
                     loop {
@@ -430,8 +431,8 @@ impl Client {
                             }
                         }
 
-                        // Sleep for 30 seconds before the next refresh
-                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                        // Sleep for the configured interval before the next refresh
+                        tokio::time::sleep(std::time::Duration::from_secs(refresh_interval)).await;
                     }
                 });
                 self.handle = Some(handle);
@@ -728,6 +729,8 @@ mod tests {
                 allow_insecure_https: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 cache_ttl: None,
+                #[cfg(not(target_arch = "wasm32"))]
+                refresh_interval: None,
             };
             Client::new(config)
         });
@@ -746,6 +749,8 @@ mod tests {
                 allow_insecure_https: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 cache_ttl: None,
+                #[cfg(not(target_arch = "wasm32"))]
+                refresh_interval: None,
             };
             Client::new(config)
         });
@@ -764,6 +769,8 @@ mod tests {
                 allow_insecure_https: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 cache_ttl: None,
+                #[cfg(not(target_arch = "wasm32"))]
+                refresh_interval: None,
             };
             Client::new(config)
         });
@@ -782,6 +789,8 @@ mod tests {
                 allow_insecure_https: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 cache_ttl: None,
+                #[cfg(not(target_arch = "wasm32"))]
+                refresh_interval: None,
             };
             Client::new(config)
         });
@@ -1264,7 +1273,8 @@ mod tests {
             allow_insecure_https: None,
             #[cfg(not(target_arch = "wasm32"))]
             cache_ttl: None,
-            // ..Default::default() // Be careful with Default if it doesn't set all needed fields for tests
+            #[cfg(not(target_arch = "wasm32"))]
+            refresh_interval: None,
         };
 
         let client = Client::new(config);
@@ -1444,6 +1454,7 @@ mod tests {
             ip: None,
             allow_insecure_https: None,
             cache_ttl: None,
+            refresh_interval: None,
         };
 
         let client = Arc::new(Client::new(config));
@@ -1479,5 +1490,38 @@ mod tests {
         // The test should not hang. If it does, timeout will fail it.
         let res = tokio::time::timeout(std::time::Duration::from_secs(10), test_body).await;
         assert!(res.is_ok(), "Test timed out, which indicates a deadlock.");
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_custom_refresh_interval() {
+        setup();
+
+        let temp_dir = TempDir::new("apollo_custom_refresh_interval");
+
+        let config = ClientConfig {
+            app_id: String::from("101010101"),
+            cluster: String::from("default"),
+            config_server: test_server_url(),
+            secret: None,
+            cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()),
+            label: None,
+            ip: None,
+            allow_insecure_https: None,
+            cache_ttl: None,
+            refresh_interval: Some(1), // 1 second interval for fast testing
+        };
+
+        let mut client = Client::new(config);
+        // Preload namespace so it's registered
+        let _ = client.namespace("application").await;
+
+        let res = client.start().await;
+        assert!(res.is_ok(), "Failed to start client background task");
+
+        // Let it run for 2.5 seconds (which should trigger a couple of refreshes with 1s interval)
+        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+
+        client.stop().await;
     }
 }

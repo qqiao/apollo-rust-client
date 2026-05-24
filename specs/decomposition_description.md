@@ -37,6 +37,7 @@ Encapsulates all server connectivity settings, credentials, local file path para
   - `secret: Option<String>` (Optional): Encryption secret key used to compute authentication signatures.
   - `cache_dir: Option<String>` (Optional, Native-only): Override path for local cache directories. Default evaluates to `/opt/data/{app_id}/config-cache`.
   - `cache_ttl: Option<u64>` (Optional, Native-only): Number of seconds cached values are kept before they are marked stale.
+  - `refresh_interval: Option<u64>` (Optional, Native-only): Refresh interval in seconds for the background cache refresh loop. Defaults to 30.
   - `label: Option<String>` (Optional): Metadata tag for canary releases.
   - `ip: Option<String>` (Optional): Client node IP address for grayscale routing.
   - `allow_insecure_https: Option<bool>` (Optional): Cert bypass flag for development testing.

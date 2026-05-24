@@ -228,6 +228,14 @@ pub struct ClientConfig {
     /// This field is not available on WebAssembly targets as disk caching is not supported.
     #[cfg(not(target_arch = "wasm32"))]
     pub cache_ttl: Option<u64>,
+
+    /// The refresh interval in seconds for the background namespace cache refresh loop (native targets only).
+    ///
+    /// When using `from_env`, this defaults to 30 seconds if
+    /// the `APOLLO_REFRESH_INTERVAL` environment variable is not set.
+    /// This field is not available on WebAssembly targets as background refresh is not supported.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub refresh_interval: Option<u64>,
 }
 
 impl From<Error> for JsValue {
@@ -284,6 +292,10 @@ cfg_if! {
                     .ok()
                     .and_then(|s| s.parse().ok())
                     .or(Some(600));
+                let refresh_interval = std::env::var("APOLLO_REFRESH_INTERVAL")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .or(Some(30));
                 Ok(Self {
                     app_id,
                     secret,
@@ -294,6 +306,7 @@ cfg_if! {
                     ip: None,
                     allow_insecure_https,
                     cache_ttl,
+                    refresh_interval,
                 })
             }
         }

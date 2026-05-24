@@ -112,7 +112,7 @@ When `Client::start()` is called on a native environment:
    - Copies reference counts of all caches.
    - Drops the locks to avoid blocking concurrent configuration readers.
    - Sequentially runs `cache.refresh()` on each namespace.
-   - Sleeps the current task for a hardcoded **30 seconds** using `tokio::time::sleep()`.
+   - Sleeps the current task for the configured interval (defaults to **30 seconds**) using `tokio::time::sleep()`.
 
 ### 4.2 WebAssembly Integration Lifecycle
 For WASM targets:

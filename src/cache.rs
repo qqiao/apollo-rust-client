@@ -756,6 +756,8 @@ mod tests {
             allow_insecure_https: None,
             #[cfg(not(target_arch = "wasm32"))]
             cache_ttl: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            refresh_interval: None,
         };
 
         let cache = Arc::new(Cache::new(
