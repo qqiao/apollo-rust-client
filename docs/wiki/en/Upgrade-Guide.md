@@ -4,9 +4,42 @@ This guide provides step-by-step instructions for upgrading between different ve
 
 ## Table of Contents
 
+- [Upgrading from v0.6.x to v0.7.0](#upgrading-from-v06x-to-v070)
 - [Upgrading from v0.5.x to v0.6.0](#upgrading-from-v05x-to-v060)
 - [Upgrading from v0.4.x to v0.5.0](#upgrading-from-v04x-to-v050)
 - [Upgrading from v0.3.x to v0.4.0](#upgrading-from-v03x-to-v040)
+
+## Upgrading from v0.6.x to v0.7.0
+
+This release includes performance improvements and new non-breaking configuration options.
+
+### New Features & Optimizations
+
+#### 1. Connection Reuse
+The library now reuses a single `reqwest::Client` instance across all namespaces and requests to eliminate connection handshake overhead and improve response times. This change is fully transparent and backward compatible.
+
+#### 2. Custom reqwest::Client Injection (Native Only)
+On native Rust platforms, `ClientConfig` now includes an optional `http_client` field allowing you to inject a pre-configured `reqwest::Client` containing custom proxies, custom headers, or network tracing middleware.
+
+```rust
+use apollo_rust_client::client_config::ClientConfig;
+
+let custom_client = reqwest::Client::builder()
+    .user_agent("my-custom-user-agent")
+    .build()?;
+
+let config = ClientConfig {
+    app_id: "my-app".to_string(),
+    config_server: "http://apollo-server:8080".to_string(),
+    cluster: "default".to_string(),
+    secret: None,
+    cache_dir: None,
+    label: None,
+    ip: None,
+    allow_insecure_https: None,
+    http_client: Some(custom_client), // Inject custom client
+};
+```
 
 ## Upgrading from v0.5.x to v0.6.0
 

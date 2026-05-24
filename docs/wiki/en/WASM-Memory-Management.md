@@ -13,7 +13,7 @@ WebAssembly objects created by the Apollo client must be explicitly freed when n
 // These objects MUST be freed:
 clientConfig.free(); // ClientConfig instances
 client.free(); // Client instances
-cache.free(); // Cache instances (returned by client.namespace())
+properties.free(); // Properties instances (returned by client.namespace() for properties format)
 ```
 
 ## Memory Management Pattern
@@ -24,22 +24,22 @@ import { Client, ClientConfig } from "@qqiao/apollo-rust-client";
 async function useApolloClient() {
   let clientConfig = null;
   let client = null;
-  let cache = null;
+  let properties = null;
 
   try {
     // Create objects
     clientConfig = new ClientConfig("app_id", "http://server:8080", "default");
     client = new Client(clientConfig);
-    cache = await client.namespace("application");
+    properties = await client.namespace("application");
 
     // Use the client
-    const value = await cache.get_string("some_key");
+    const value = properties.get_string("some_key");
     console.log("Retrieved:", value);
   } catch (error) {
     console.error("Error:", error);
   } finally {
-    // ALWAYS cleanup, even on errors
-    if (cache) cache.free();
+    // ALWAYS cleanup Properties, Client, and ClientConfig
+    if (properties) properties.free();
     if (client) client.free();
     if (clientConfig) clientConfig.free();
   }
@@ -54,15 +54,13 @@ Event listeners are automatically cleaned up when the cache is freed, but you sh
 async function useWithEventListeners() {
   let clientConfig = null;
   let client = null;
-  let cache = null;
 
   try {
     clientConfig = new ClientConfig("app_id", "http://server:8080", "default");
     client = new Client(clientConfig);
-    cache = await client.namespace("application");
 
-    // Register event listener
-    await cache.add_listener((data, error) => {
+    // Register event listener at client level
+    await client.add_listener("application", (data, error) => {
       if (error) {
         console.error("Config error:", error);
       } else {
@@ -74,8 +72,7 @@ async function useWithEventListeners() {
 
     // Your application logic here
   } finally {
-    // Cleanup automatically removes event listeners
-    if (cache) cache.free();
+    // Cleanup client and config
     if (client) client.free();
     if (clientConfig) clientConfig.free();
   }
@@ -91,15 +88,15 @@ class ApolloConfigManager {
   constructor(appId, serverUrl, cluster) {
     this.clientConfig = new ClientConfig(appId, serverUrl, cluster);
     this.client = new Client(this.clientConfig);
-    this.caches = new Map();
+    this.propertiesNamespaces = new Map();
   }
 
-  async getNamespace(name) {
-    if (!this.caches.has(name)) {
-      const cache = await this.client.namespace(name);
-      this.caches.set(name, cache);
+  async getProperties(name) {
+    if (!this.propertiesNamespaces.has(name)) {
+      const props = await this.client.namespace(name);
+      this.propertiesNamespaces.set(name, props);
     }
-    return this.caches.get(name);
+    return this.propertiesNamespaces.get(name);
   }
 
   async start() {
@@ -108,11 +105,11 @@ class ApolloConfigManager {
 
   // CRITICAL: Call this when shutting down
   cleanup() {
-    // Free all caches
-    for (const cache of this.caches.values()) {
-      cache.free();
+    // Free all properties namespaces
+    for (const props of this.propertiesNamespaces.values()) {
+      props.free();
     }
-    this.caches.clear();
+    this.propertiesNamespaces.clear();
 
     // Free client and config
     if (this.client) this.client.free();
@@ -168,10 +165,10 @@ window.addEventListener("beforeunload", () => {
 ❌ **Don't do this:**
 
 ```javascript
-// Memory leak: objects never freed
+// Memory leak: Properties object never freed
 const client = new Client(config);
-const cache = await client.namespace("app");
-// Objects leaked when function exits
+const props = await client.namespace("app");
+// Objects leaked when function exits (client and props must be freed)
 ```
 
 ✅ **Do this instead:**
@@ -180,12 +177,13 @@ const cache = await client.namespace("app");
 // Proper cleanup
 const client = new Client(config);
 try {
-  const cache = await client.namespace("app");
-  // Use cache...
-  cache.free();
+  const props = await client.namespace("app");
+  // Use props synchronously...
+  const value = props.get_string("key");
+  props.free();
 } finally {
   client.free();
 }
 ```
 
-Remember: The `free()` method releases memory allocated by Rust on the WebAssembly heap. Without it, memory will accumulate and eventually cause performance issues or crashes.
+Remember: The `free()` method releases memory allocated by Rust on the WebAssembly heap. Without it, WASM classes (Client, ClientConfig, and Properties) will accumulate and eventually cause performance issues or crashes. Other returned namespace formats like JSON, YAML, or Text are standard JS objects or strings managed automatically by JS garbage collection and do not need to be freed manually.

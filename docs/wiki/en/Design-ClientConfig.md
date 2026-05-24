@@ -13,7 +13,7 @@ The `ClientConfig` struct is a cornerstone of the `apollo-rust-client` library, 
 -   **`cluster: String`**:
     The name of the Apollo cluster to fetch configurations from. Defaults to `"default"` in many scenarios but should be explicitly provided.
 
--   **`cache_dir: Option<std::path::PathBuf>`**:
+-   **`cache_dir: Option<String>`**:
     *(Non-WASM only)* An optional path to a directory where configuration files will be cached locally. If `None`, a default path is typically constructed by `get_cache_dir()` (e.g., `/opt/data/{app_id}/config-cache`). For WASM targets, this is always `None` as filesystem access is restricted.
 
 -   **`config_server: String`**:
@@ -36,27 +36,36 @@ There are several ways to create a `ClientConfig` instance:
     As a standard Rust struct, you can instantiate it directly:
     ```rust
     use apollo_rust_client::client_config::ClientConfig;
-    use std::path::PathBuf;
 
     let config = ClientConfig {
         app_id: "my_app".to_string(),
         cluster: "my_cluster".to_string(),
         config_server: "http://apollo-server:8080".to_string(),
         secret: Some("my_secret_key".to_string()),
-        cache_dir: Some(PathBuf::from("/tmp/apollo_cache")),
+        cache_dir: Some("/tmp/apollo_cache".to_string()),
         label: Some("version1,regionA".to_string()),
         ip: Some("192.168.1.100".to_string()),
+        allow_insecure_https: Some(false),
+        #[cfg(not(target_arch = "wasm32"))]
+        cache_ttl: None,
+        #[cfg(not(target_arch = "wasm32"))]
+        refresh_interval: None,
+        #[cfg(not(target_arch = "wasm32"))]
+        http_client: None,
     };
     ```
 
 2.  **`ClientConfig::from_env()` (Non-WASM):**
     This associated function allows creating a `ClientConfig` from environment variables. This is particularly useful for server-side applications.
     -   `APP_ID`: Corresponds to `app_id`.
-    -   `APOLLO_CLUSTER` or `IDC`: Corresponds to `cluster` (defaults to "default" if neither is set).
+    -   `IDC`: Corresponds to `cluster` (defaults to "default" if not set).
     -   `APOLLO_CONFIG_SERVICE`: Corresponds to `config_server`.
     -   `APOLLO_ACCESS_KEY_SECRET`: Corresponds to `secret`.
     -   `APOLLO_LABEL`: Corresponds to `label`.
     -   `APOLLO_CACHE_DIR`: Corresponds to `cache_dir`.
+    -   `APOLLO_ALLOW_INSECURE_HTTPS`: Corresponds to `allow_insecure_https` ("true" to bypass cert verification).
+    -   `APOLLO_CACHE_TTL`: Corresponds to `cache_ttl` in seconds (defaults to 600).
+    -   `APOLLO_REFRESH_INTERVAL`: Corresponds to `refresh_interval` in seconds (defaults to 30).
     The `ip` field is not set via `from_env()`.
 
 3.  **WASM-Specific Constructor:**

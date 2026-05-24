@@ -1,0 +1,9 @@
+services:
+  wiremock:
+    image: wiremock/wiremock@sha256:fd27e46090916e85326229e5102ee169ae729059f3374549615bd20a35fee1f2
+    container_name: apollo-mock-server
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./tests/wiremock/mappings:/home/wiremock/mappings
+    restart: always

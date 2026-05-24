@@ -15,7 +15,7 @@ A robust Rust client for the Apollo Configuration Centre, with support for WebAs
 - **Cross-Platform Support**: Native Rust and WebAssembly targets
 - **TLS Support**: Switchable TLS implementations (native-tls by default, rustls via feature flag)
 - **Real-Time Updates**: Background polling with configurable intervals and event listeners
-- **Comprehensive Caching**: Multi-level caching with file persistence (native) and memory-only (WASM)
+- **Comprehensive Caching**: Multi-level caching with file persistence (native) and persistent localStorage caching with high-performance Node.js in-memory fallback (WASM)
 - **Async/Await Support**: Full asynchronous API for non-blocking operations
 - **Error Handling**: Detailed error diagnostics with comprehensive error types
 - **Grayscale Release Support**: IP and label-based configuration targeting
@@ -279,7 +279,7 @@ if let apollo_rust_client::namespace::Namespace::Yaml(yaml) = namespace {
 - **`secret`**: Optional secret key for authentication
 - **`cache_dir`**: Directory for local cache files (native only)
   - Default: `/opt/data/{app_id}/config-cache`
-  - WASM: Always `None` (memory-only caching)
+  - WASM: Always `None` (uses browser localStorage or Node.js in-memory fallback)
 - **`label`**: Label for grayscale releases (optional)
 - **`ip`**: IP address for grayscale releases (optional)
 

@@ -21,7 +21,7 @@
 //! # Platform Differences
 //!
 //! - **Native Rust**: Full caching with file persistence and background refresh
-//! - **WebAssembly**: Memory-only caching optimized for browser environments
+//! - **WebAssembly**: Persistent caching using browser localStorage with in-memory fallback for Node.js environments
 //!
 //! # Examples
 //!
@@ -34,7 +34,7 @@ use crate::{
     client_config::ClientConfig,
     namespace::{self, get_namespace},
 };
-use async_std::sync::RwLock;
+use tokio::sync::RwLock;
 use base64::display::Base64Display;
 use cfg_if::cfg_if;
 use chrono::Utc;
@@ -169,7 +169,7 @@ pub enum Error {
 ///
 /// # Concurrency Control
 ///
-/// The cache uses `async_std::sync::RwLock` to ensure thread-safety.
+/// The cache uses `tokio::sync::RwLock` to ensure thread-safety.
 /// The `memory` field is wrapped in an `Arc<RwLock<...>>` to allow multiple
 /// concurrent readers and exclusive writers. This prevents data races when
 /// accessing the cached configuration from multiple async tasks. The listeners
@@ -178,7 +178,7 @@ pub enum Error {
 /// # Platform Differences
 ///
 /// - **Native Rust**: Full feature set with file caching and background refresh
-/// - **WebAssembly**: Memory-only caching optimized for single-threaded execution
+/// - **WebAssembly**: Persistent caching using browser localStorage with in-memory fallback and single-threaded execution
 #[derive(Clone)]
 pub(crate) struct Cache {
     /// Client configuration containing server details and authentication.
@@ -198,6 +198,10 @@ pub(crate) struct Cache {
     /// Listeners are called when the cache is refreshed, allowing applications
     /// to react to configuration changes in real-time.
     listeners: Arc<RwLock<Vec<EventListener>>>,
+
+    /// The isolated cache key for WebAssembly localStorage persistence (wasm32 targets only).
+    #[cfg(target_arch = "wasm32")]
+    wasm_cache_key: String,
 
     /// Flag indicating whether a fetch operation is currently in progress.
     ///
@@ -248,11 +252,25 @@ impl Cache {
             let _ = write!(file_name, "_{label}");
         }
 
-        cfg_if! {
-            if #[cfg(not(target_arch = "wasm32"))] {
-                let file_path = client_config
-                    .get_cache_dir()
-                    .join(format!("{file_name}.cache.json"));
+        #[cfg(not(target_arch = "wasm32"))]
+        let file_path = client_config
+            .get_cache_dir()
+            .join(format!("{file_name}.cache.json"));
+
+        #[cfg(target_arch = "wasm32")]
+        let mut wasm_cache_key = format!(
+            "apollo_cache_{}_{}_{}",
+            client_config.app_id,
+            client_config.cluster,
+            namespace
+        );
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(ip) = &client_config.ip {
+                let _ = write!(wasm_cache_key, "_{ip}");
+            }
+            if let Some(label) = &client_config.label {
+                let _ = write!(wasm_cache_key, "_{label}");
             }
         }
 
@@ -266,6 +284,8 @@ impl Cache {
 
             #[cfg(not(target_arch = "wasm32"))]
             file_path,
+            #[cfg(target_arch = "wasm32")]
+            wasm_cache_key,
             http_client,
         }
     }
@@ -376,6 +396,17 @@ impl Cache {
                                 return Ok(config);
                             }
                         }
+            } else {
+                if let Some(cached_str) = load_from_local_storage(&self.wasm_cache_key) {
+                    if let Ok(cache_item) = serde_json::from_str::<CacheItem>(&cached_str) {
+                        w_lock.replace(cache_item.config.clone());
+                        let config = cache_item.config;
+                        let listeners = self.listeners.read().await.clone();
+                        drop(w_lock); // Release the lock before notifying listeners
+                        self.notify_listeners(&config, &listeners);
+                        return Ok(config);
+                    }
+                }
             }
         }
 
@@ -469,6 +500,14 @@ impl Cache {
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
                 self.write_to_file_cache(&config)?;
+            } else {
+                let cache_item = CacheItem {
+                    timestamp: chrono::Utc::now().timestamp(),
+                    config: config.clone(),
+                };
+                if let Ok(cache_content) = serde_json::to_string(&cache_item) {
+                    let _ = save_to_local_storage(&self.wasm_cache_key, &cache_content);
+                }
             }
         }
 
@@ -666,6 +705,12 @@ impl Cache {
         let mut listeners = self.listeners.write().await;
         listeners.push(listener);
     }
+
+    /// Returns the WASM cache key (wasm32 targets only).
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn wasm_cache_key(&self) -> &str {
+        &self.wasm_cache_key
+    }
 }
 
 type HmacSha1 = Hmac<Sha1>;
@@ -733,6 +778,39 @@ pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Er
     Ok(code.to_string())
 }
 
+#[cfg(target_arch = "wasm32")]
+fn load_from_local_storage(key: &str) -> Option<String> {
+    let global = js_sys::global();
+    let storage = js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("localStorage")).ok()?;
+    if storage.is_undefined() || storage.is_null() {
+        return None;
+    }
+    let get_item_fn = js_sys::Reflect::get(&storage, &wasm_bindgen::JsValue::from_str("getItem")).ok()?;
+    if get_item_fn.is_function() {
+        let args = js_sys::Array::of1(&wasm_bindgen::JsValue::from_str(key));
+        let result = js_sys::Reflect::apply(&get_item_fn.into(), &storage, &args).ok()?;
+        if !result.is_null() && !result.is_undefined() {
+            return result.as_string();
+        }
+    }
+    None
+}
+
+#[cfg(target_arch = "wasm32")]
+fn save_to_local_storage(key: &str, value: &str) -> Option<()> {
+    let global = js_sys::global();
+    let storage = js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("localStorage")).ok()?;
+    if storage.is_undefined() || storage.is_null() {
+        return None;
+    }
+    let set_item_fn = js_sys::Reflect::get(&storage, &wasm_bindgen::JsValue::from_str("setItem")).ok()?;
+    if set_item_fn.is_function() {
+        let args = js_sys::Array::of2(&wasm_bindgen::JsValue::from_str(key), &wasm_bindgen::JsValue::from_str(value));
+        let _ = js_sys::Reflect::apply(&set_item_fn.into(), &storage, &args).ok()?;
+    }
+    Some(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -748,7 +826,7 @@ mod tests {
         let config = ClientConfig {
             app_id: String::from("101010101"),
             cluster: String::from("default"),
-            config_server: String::from("http://81.68.181.139:8080"),
+            config_server: std::env::var("APOLLO_TEST_SERVER").unwrap_or_else(|_| String::from("http://localhost:8080")),
             secret: None,
             cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()),
             label: None,
@@ -756,6 +834,10 @@ mod tests {
             allow_insecure_https: None,
             #[cfg(not(target_arch = "wasm32"))]
             cache_ttl: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            refresh_interval: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            http_client: None,
         };
 
         let cache = Arc::new(Cache::new(

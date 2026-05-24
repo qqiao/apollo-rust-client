@@ -25,7 +25,7 @@
 //! # Platform Support
 //!
 //! - **Native Rust**: Full feature set including file caching and environment variable support
-//! - **WebAssembly**: Optimized for browser environments with memory-only caching
+//! - **WebAssembly**: Optimized for browser environments with persistent localStorage caching (and Node.js in-memory fallback)
 //!
 //! # Examples
 //!
@@ -228,6 +228,21 @@ pub struct ClientConfig {
     /// This field is not available on WebAssembly targets as disk caching is not supported.
     #[cfg(not(target_arch = "wasm32"))]
     pub cache_ttl: Option<u64>,
+
+    /// The refresh interval in seconds for the background namespace cache refresh loop (native targets only).
+    ///
+    /// When using `from_env`, this defaults to 30 seconds if
+    /// the `APOLLO_REFRESH_INTERVAL` environment variable is not set.
+    /// This field is not available on WebAssembly targets as background refresh is not supported.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub refresh_interval: Option<u64>,
+
+    /// A pre-configured `reqwest::Client` (native targets only) to allow custom HTTP pools, proxies, headers, or tracers.
+    ///
+    /// If not specified, defaults to standard client construction.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[wasm_bindgen(skip)]
+    pub http_client: Option<reqwest::Client>,
 }
 
 impl From<Error> for JsValue {
@@ -284,6 +299,14 @@ cfg_if! {
                     .ok()
                     .and_then(|s| s.parse().ok())
                     .or(Some(600));
+                let refresh_interval = std::env::var("APOLLO_REFRESH_INTERVAL")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .map(|v| {
+                        let min_val = if cfg!(test) { 1 } else { 30 };
+                        if v < min_val { min_val } else { v }
+                    })
+                    .or(Some(30));
                 Ok(Self {
                     app_id,
                     secret,
@@ -294,6 +317,8 @@ cfg_if! {
                     ip: None,
                     allow_insecure_https,
                     cache_ttl,
+                    refresh_interval,
+                    http_client: None,
                 })
             }
         }

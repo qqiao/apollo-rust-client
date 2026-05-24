@@ -4,9 +4,42 @@
 
 ## 目錄
 
+- [從 v0.6.x 升級到 v0.7.0](#從-v06x-升級到-v070)
 - [從 v0.5.x 升級到 v0.6.0](#從-v05x-升級到-v060)
 - [從 v0.4.x 升級到 v0.5.0](#從-v04x-升級到-v050)
 - [從 v0.3.x 升級到 v0.4.0](#從-v03x-升級到-v040)
+
+## 從 v0.6.x 升級到 v0.7.0
+
+此版本包含效能優化和全新非破壞性設定選項。
+
+### 新功能與優化
+
+#### 1. 連線重用 (Connection Reuse)
+客戶端現在在所有命名空間和請求之間重用同一個 `reqwest::Client` 實例，以消除頻繁建立 TCP 連線的網路開銷，大幅提升介面回應速度。此更改完全向後相容。
+
+#### 2. 自定義注入 reqwest::Client (僅限 Native 目標)
+在原生 Rust 平台上，`ClientConfig` 現在包含一個可選的 `http_client` 字段，允許您直接注入預先設定好的 `reqwest::Client`（例如設定了自定義企業代理、自定義請求頭或網路鏈路追蹤中間件的客戶端）。
+
+```rust
+use apollo_rust_client::client_config::ClientConfig;
+
+let custom_client = reqwest::Client::builder()
+    .user_agent("my-custom-user-agent")
+    .build()?;
+
+let config = ClientConfig {
+    app_id: "my-app".to_string(),
+    config_server: "http://apollo-server:8080".to_string(),
+    cluster: "default".to_string(),
+    secret: None,
+    cache_dir: None,
+    label: None,
+    ip: None,
+    allow_insecure_https: None,
+    http_client: Some(custom_client), // 注入自定義客戶端
+};
+```
 
 ## 從 v0.5.x 升級到 v0.6.0
 
