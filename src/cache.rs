@@ -34,7 +34,6 @@ use crate::{
     client_config::ClientConfig,
     namespace::{self, get_namespace},
 };
-use tokio::sync::RwLock;
 use base64::display::Base64Display;
 use cfg_if::cfg_if;
 use chrono::Utc;
@@ -45,6 +44,7 @@ use serde_json::Value;
 use sha1::Sha1;
 use std::{fmt::Write, sync::Arc};
 use tokio::sync::Notify;
+use tokio::sync::RwLock;
 use url::{ParseError, Url};
 
 #[derive(Serialize, Deserialize)]
@@ -260,9 +260,7 @@ impl Cache {
         #[cfg(target_arch = "wasm32")]
         let mut wasm_cache_key = format!(
             "apollo_cache_{}_{}_{}",
-            client_config.app_id,
-            client_config.cluster,
-            namespace
+            client_config.app_id, client_config.cluster, namespace
         );
         #[cfg(target_arch = "wasm32")]
         {
@@ -324,7 +322,7 @@ impl Cache {
         }
 
         // Second check: see if another thread is already loading, using a loop to avoid race conditions
-        let should_load = loop {
+        loop {
             // Check if value is now in memory (could have been loaded while we waited)
             if let Some(value) = self.memory.read().await.as_ref() {
                 return Ok(value.clone());
@@ -337,26 +335,21 @@ impl Cache {
                 self.loading_complete.notified().await;
             } else {
                 *loading = true;
-                break true;
+                break;
             }
-        };
+        }
 
         // We're the loading thread, proceed with the fetch
-        if should_load {
-            let result = self.load_and_cache().await;
+        let result = self.load_and_cache().await;
 
-            // Always reset loading flag and notify waiting threads
-            {
-                let mut loading = self.loading.write().await;
-                *loading = false;
-            }
-            self.loading_complete.notify_waiters();
-
-            result
-        } else {
-            // This should not happen, but handle gracefully
-            Err(Error::NamespaceNotFound(self.namespace.clone()))
+        // Always reset loading flag and notify waiting threads
+        {
+            let mut loading = self.loading.write().await;
+            *loading = false;
         }
+        self.loading_complete.notify_waiters();
+
+        result
     }
 
     /// Internal method to load configuration and update cache.
@@ -375,9 +368,10 @@ impl Cache {
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
                 let file_path = self.file_path.clone();
-                if file_path.exists()
-                    && let Ok(file) = std::fs::File::open(&file_path)
-                        && let Ok(cache_item) = serde_json::from_reader::<_, CacheItem>(file) {
+                if file_path.exists() {
+                    // Make file reading async
+                    if let Ok(file_content) = tokio::fs::read(&file_path).await
+                        && let Ok(cache_item) = serde_json::from_slice::<CacheItem>(&file_content) {
                             let mut is_stale = false;
                             if let Some(ttl) = self.client_config.cache_ttl {
                                 let age = Utc::now().timestamp() - cache_item.timestamp;
@@ -396,6 +390,7 @@ impl Cache {
                                 return Ok(config);
                             }
                         }
+                }
             } else {
                 if let Some(cached_str) = load_from_local_storage(&self.wasm_cache_key) {
                     if let Ok(cache_item) = serde_json::from_str::<CacheItem>(&cached_str) {
@@ -499,7 +494,7 @@ impl Cache {
 
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
-                self.write_to_file_cache(&config)?;
+                self.write_to_file_cache(&config).await?;
             } else {
                 let cache_item = CacheItem {
                     timestamp: chrono::Utc::now().timestamp(),
@@ -639,12 +634,12 @@ impl Cache {
     /// * `Err(Error::Io)` - If file operations fail
     /// * `Err(Error::Serde)` - If serialization fails
     #[cfg(not(target_arch = "wasm32"))]
-    fn write_to_file_cache(&self, config: &Value) -> Result<(), Error> {
+    async fn write_to_file_cache(&self, config: &Value) -> Result<(), Error> {
         debug!("writing cache file {}", self.file_path.display());
 
         // Create parent directories if they don't exist
         if let Some(parent) = self.file_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            tokio::fs::create_dir_all(parent).await?;
         }
 
         let cache_item = CacheItem {
@@ -654,7 +649,11 @@ impl Cache {
 
         let cache_content = serde_json::to_string(&cache_item)?;
 
-        std::fs::write(&self.file_path, cache_content)?;
+        // Write to a temporary file first, then atomically rename it
+        let temp_file_path = self.file_path.with_extension("cache.json.tmp");
+        tokio::fs::write(&temp_file_path, cache_content).await?;
+        tokio::fs::rename(&temp_file_path, &self.file_path).await?;
+
         trace!(
             "Wrote cache file {} for namespace {}",
             self.file_path.display(),
@@ -781,11 +780,13 @@ pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Er
 #[cfg(target_arch = "wasm32")]
 fn load_from_local_storage(key: &str) -> Option<String> {
     let global = js_sys::global();
-    let storage = js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("localStorage")).ok()?;
+    let storage =
+        js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("localStorage")).ok()?;
     if storage.is_undefined() || storage.is_null() {
         return None;
     }
-    let get_item_fn = js_sys::Reflect::get(&storage, &wasm_bindgen::JsValue::from_str("getItem")).ok()?;
+    let get_item_fn =
+        js_sys::Reflect::get(&storage, &wasm_bindgen::JsValue::from_str("getItem")).ok()?;
     if get_item_fn.is_function() {
         let args = js_sys::Array::of1(&wasm_bindgen::JsValue::from_str(key));
         let result = js_sys::Reflect::apply(&get_item_fn.into(), &storage, &args).ok()?;
@@ -799,13 +800,18 @@ fn load_from_local_storage(key: &str) -> Option<String> {
 #[cfg(target_arch = "wasm32")]
 fn save_to_local_storage(key: &str, value: &str) -> Option<()> {
     let global = js_sys::global();
-    let storage = js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("localStorage")).ok()?;
+    let storage =
+        js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("localStorage")).ok()?;
     if storage.is_undefined() || storage.is_null() {
         return None;
     }
-    let set_item_fn = js_sys::Reflect::get(&storage, &wasm_bindgen::JsValue::from_str("setItem")).ok()?;
+    let set_item_fn =
+        js_sys::Reflect::get(&storage, &wasm_bindgen::JsValue::from_str("setItem")).ok()?;
     if set_item_fn.is_function() {
-        let args = js_sys::Array::of2(&wasm_bindgen::JsValue::from_str(key), &wasm_bindgen::JsValue::from_str(value));
+        let args = js_sys::Array::of2(
+            &wasm_bindgen::JsValue::from_str(key),
+            &wasm_bindgen::JsValue::from_str(value),
+        );
         let _ = js_sys::Reflect::apply(&set_item_fn.into(), &storage, &args).ok()?;
     }
     Some(())
@@ -826,7 +832,8 @@ mod tests {
         let config = ClientConfig {
             app_id: String::from("101010101"),
             cluster: String::from("default"),
-            config_server: std::env::var("APOLLO_TEST_SERVER").unwrap_or_else(|_| String::from("http://localhost:8080")),
+            config_server: std::env::var("APOLLO_TEST_SERVER")
+                .unwrap_or_else(|_| String::from("http://localhost:8080")),
             secret: None,
             cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()),
             label: None,
@@ -840,11 +847,7 @@ mod tests {
             http_client: None,
         };
 
-        let cache = Arc::new(Cache::new(
-            config,
-            "application",
-            reqwest::Client::new(),
-        ));
+        let cache = Arc::new(Cache::new(config, "application", reqwest::Client::new()));
 
         let mut handles = Vec::new();
         for _ in 0..10 {

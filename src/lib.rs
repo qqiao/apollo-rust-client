@@ -23,7 +23,7 @@
 //! ```rust,no_run
 //! use apollo_rust_client::{Client, client_config::ClientConfig};
 //!
-//! # #[tokio::main]
+//! # #[tokio::main(flavor = "current_thread")]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let config = ClientConfig {
 //!     app_id: "my-app".to_string(),
@@ -34,6 +34,8 @@
 //!     label: None,
 //!     ip: None,
 //!     allow_insecure_https: None,
+//!     http_client: None,
+//!     refresh_interval: Some(30),
 //!     #[cfg(not(target_arch = "wasm32"))]
 //!     cache_ttl: None,
 //! };
@@ -54,21 +56,27 @@
 //! - **WebAssembly**: Persistent localStorage caching with high-performance Node.js in-memory fallback, single-threaded execution, JavaScript interop
 
 use crate::namespace::Namespace;
-use tokio::sync::RwLock;
 use cache::Cache;
 use client_config::ClientConfig;
 use log::{error, trace};
 use std::{collections::HashMap, sync::Arc};
+use tokio::sync::RwLock;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-#[cfg(all(feature = "native-tls", feature = "rustls", not(target_arch = "wasm32")))]
+#[cfg(all(
+    feature = "native-tls",
+    feature = "rustls",
+    not(target_arch = "wasm32")
+))]
 compile_error!(
     "Features 'native-tls' and 'rustls' are mutually exclusive on non-WASM targets. \
     Please disable default features and enable only one."
 );
 
 #[cfg(all(feature = "rustls", target_arch = "wasm32"))]
-compile_error!("Feature 'rustls' is not supported on WASM targets. Only native-tls (browser) is supported.");
+compile_error!(
+    "Feature 'rustls' is not supported on WASM targets. Only native-tls (browser) is supported."
+);
 
 cfg_if::cfg_if! {
     if #[cfg(not(target_arch = "wasm32"))] {
@@ -97,7 +105,7 @@ pub mod namespace;
 /// ```rust,no_run
 /// use apollo_rust_client::{Client, Error};
 ///
-/// # #[tokio::main]
+/// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() {
 /// # let client = Client::new(apollo_rust_client::client_config::ClientConfig {
 /// #     app_id: "test".to_string(),
@@ -110,6 +118,10 @@ pub mod namespace;
 /// #     allow_insecure_https: None,
 /// #     #[cfg(not(target_arch = "wasm32"))]
 /// #     cache_ttl: None,
+/// #     #[cfg(not(target_arch = "wasm32"))]
+/// #     http_client: None,
+/// #     #[cfg(not(target_arch = "wasm32"))]
+/// #     refresh_interval: Some(30),
 /// # });
 /// match client.namespace("application").await {
 ///     Ok(namespace) => {
@@ -209,7 +221,7 @@ cfg_if::cfg_if! {
 /// ```rust,no_run
 /// use apollo_rust_client::{Client, client_config::ClientConfig};
 ///
-/// # #[tokio::main]
+/// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// #     // Create a client instance
 /// #     let client = Client::new(ClientConfig {
@@ -223,6 +235,10 @@ cfg_if::cfg_if! {
 /// #         allow_insecure_https: None,
 /// #         #[cfg(not(target_arch = "wasm32"))]
 /// #         cache_ttl: None,
+/// #         #[cfg(not(target_arch = "wasm32"))]
+/// #         http_client: None,
+/// #         #[cfg(not(target_arch = "wasm32"))]
+/// #         refresh_interval: Some(30),
 /// #     });
 /// #
 /// #     // Get properties namespace (default format)
@@ -268,6 +284,7 @@ pub struct Client {
     /// HTTP client for making network requests.
     ///
     /// Shared across all caches to allow connection pooling and reduce overhead.
+    #[allow(clippy::struct_field_names)]
     http_client: reqwest::Client,
 }
 
@@ -343,7 +360,7 @@ impl Client {
     /// ```rust,no_run
     /// use apollo_rust_client::{Client, client_config::ClientConfig};
     ///
-    /// # #[tokio::main]
+    /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// #     // Create a client instance
     /// #     let client = Client::new(ClientConfig {
@@ -357,6 +374,10 @@ impl Client {
     /// #         allow_insecure_https: None,
     /// #         #[cfg(not(target_arch = "wasm32"))]
     /// #         cache_ttl: None,
+    /// #         #[cfg(not(target_arch = "wasm32"))]
+    /// #         http_client: None,
+    /// #         #[cfg(not(target_arch = "wasm32"))]
+    /// #         refresh_interval: Some(30),
     /// #     });
     /// #
     /// #     // Get properties namespace (default format)
@@ -494,7 +515,7 @@ impl Client {
     /// ```rust,no_run
     /// use apollo_rust_client::{Client, client_config::ClientConfig};
     ///
-    /// # #[tokio::main]
+    /// # #[tokio::main(flavor = "current_thread")]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let config = ClientConfig {
     ///     app_id: "my-app".to_string(),
@@ -505,6 +526,8 @@ impl Client {
     ///     label: None,
     ///     ip: None,
     ///     allow_insecure_https: None,
+    ///     http_client: None,
+    ///     refresh_interval: Some(30),
     ///     #[cfg(not(target_arch = "wasm32"))]
     ///     cache_ttl: None,
     /// };
@@ -732,11 +755,15 @@ mod tests {
     use std::sync::Mutex;
 
     fn test_server_url() -> String {
-        std::env::var("APOLLO_TEST_SERVER").unwrap_or_else(|_| String::from("http://localhost:8080"))
+        std::env::var("APOLLO_TEST_SERVER")
+            .unwrap_or_else(|_| String::from("http://localhost:8080"))
     }
 
     fn test_cache_dir() -> String {
-        std::env::temp_dir().join("apollo").to_string_lossy().to_string()
+        std::env::temp_dir()
+            .join("apollo")
+            .to_string_lossy()
+            .to_string()
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1298,7 +1325,7 @@ mod tests {
         // Using the same external test server and app_id as tests in lib.rs
         let config = ClientConfig {
             config_server: test_server_url(), // Use external test server
-            app_id: "101010101".to_string(), // Use existing app_id from lib.rs tests
+            app_id: "101010101".to_string(),  // Use existing app_id from lib.rs tests
             cluster: "default".to_string(),
             cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()), // Use a writable directory
             secret: None,
@@ -1570,7 +1597,7 @@ mod tests {
         unsafe {
             std::env::set_var("APP_ID", "101010101");
             std::env::set_var("APOLLO_CONFIG_SERVICE", "http://localhost:8080");
-            
+
             // 1. Set to 0, should clamp to 1 in test
             std::env::set_var("APOLLO_REFRESH_INTERVAL", "0");
         }
@@ -1600,7 +1627,7 @@ mod tests {
 
         // 1. Setup mock localStorage backed by a Rust HashMap
         let store = Arc::new(Mutex::new(HashMap::<String, String>::new()));
-        
+
         let store_clone1 = store.clone();
         let get_item = Closure::wrap(Box::new(move |key: String| -> wasm_bindgen::JsValue {
             let map = store_clone1.lock().unwrap();
@@ -1610,20 +1637,35 @@ mod tests {
                 wasm_bindgen::JsValue::NULL
             }
         }) as Box<dyn Fn(String) -> wasm_bindgen::JsValue>);
-        
+
         let store_clone2 = store.clone();
         let set_item = Closure::wrap(Box::new(move |key: String, value: String| {
             let mut map = store_clone2.lock().unwrap();
             map.insert(key, value);
         }) as Box<dyn Fn(String, String)>);
-        
+
         let mock_storage = js_sys::Object::new();
-        js_sys::Reflect::set(&mock_storage, &wasm_bindgen::JsValue::from_str("getItem"), get_item.as_ref()).unwrap();
-        js_sys::Reflect::set(&mock_storage, &wasm_bindgen::JsValue::from_str("setItem"), set_item.as_ref()).unwrap();
-        
+        js_sys::Reflect::set(
+            &mock_storage,
+            &wasm_bindgen::JsValue::from_str("getItem"),
+            get_item.as_ref(),
+        )
+        .unwrap();
+        js_sys::Reflect::set(
+            &mock_storage,
+            &wasm_bindgen::JsValue::from_str("setItem"),
+            set_item.as_ref(),
+        )
+        .unwrap();
+
         // Inject mock_storage into globalThis
         let global = js_sys::global();
-        js_sys::Reflect::set(&global, &wasm_bindgen::JsValue::from_str("localStorage"), &mock_storage).unwrap();
+        js_sys::Reflect::set(
+            &global,
+            &wasm_bindgen::JsValue::from_str("localStorage"),
+            &mock_storage,
+        )
+        .unwrap();
 
         // 2. Setup ClientConfig and cache key
         let config = ClientConfig {
@@ -1654,11 +1696,7 @@ mod tests {
         }
 
         // 3. Construct Cache and invoke load_and_cache via get_value()
-        let cache = cache::Cache::new(
-            config,
-            "application",
-            reqwest::Client::new(),
-        );
+        let cache = cache::Cache::new(config, "application", reqwest::Client::new());
 
         // Retrieve cache. Should hit Tier 2 (mock localStorage) and return the data!
         let value = cache.get_value().await.unwrap();
@@ -1673,7 +1711,10 @@ mod tests {
         set_item.into_js_value();
 
         // Cleanup: remove localStorage from globalThis to keep tests clean
-        let _ = js_sys::Reflect::delete_property(&global, &wasm_bindgen::JsValue::from_str("localStorage"));
+        let _ = js_sys::Reflect::delete_property(
+            &global,
+            &wasm_bindgen::JsValue::from_str("localStorage"),
+        );
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -1693,7 +1734,10 @@ mod tests {
             allow_insecure_https: None,
         };
         let cache1 = cache::Cache::new(config1, "application", reqwest::Client::new());
-        assert_eq!(cache1.wasm_cache_key(), "apollo_cache_app1_default_application");
+        assert_eq!(
+            cache1.wasm_cache_key(),
+            "apollo_cache_app1_default_application"
+        );
 
         // 2. Different cluster
         let config2 = ClientConfig {
@@ -1707,7 +1751,10 @@ mod tests {
             allow_insecure_https: None,
         };
         let cache2 = cache::Cache::new(config2, "application", reqwest::Client::new());
-        assert_eq!(cache2.wasm_cache_key(), "apollo_cache_app1_prod_application");
+        assert_eq!(
+            cache2.wasm_cache_key(),
+            "apollo_cache_app1_prod_application"
+        );
 
         // 3. Different namespace
         let config3 = ClientConfig {
@@ -1721,7 +1768,10 @@ mod tests {
             allow_insecure_https: None,
         };
         let cache3 = cache::Cache::new(config3, "other_namespace", reqwest::Client::new());
-        assert_eq!(cache3.wasm_cache_key(), "apollo_cache_app1_default_other_namespace");
+        assert_eq!(
+            cache3.wasm_cache_key(),
+            "apollo_cache_app1_default_other_namespace"
+        );
 
         // 4. Grayscale targeting: IP and label present
         let config4 = ClientConfig {
@@ -1735,7 +1785,10 @@ mod tests {
             allow_insecure_https: None,
         };
         let cache4 = cache::Cache::new(config4, "application", reqwest::Client::new());
-        assert_eq!(cache4.wasm_cache_key(), "apollo_cache_app1_default_application_192.168.1.1_gray");
+        assert_eq!(
+            cache4.wasm_cache_key(),
+            "apollo_cache_app1_default_application_192.168.1.1_gray"
+        );
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -1788,11 +1841,16 @@ mod tests {
 
         // Fetching namespace should fail because of the 1ms timeout!
         let result = client.namespace("application").await;
-        assert!(result.is_err(), "Expected request to fail due to custom injected HTTP client timeout");
+        assert!(
+            result.is_err(),
+            "Expected request to fail due to custom injected HTTP client timeout"
+        );
 
         // Verify the error represents a timeout or request failure
         let err_str = result.err().unwrap().to_string();
-        assert!(err_str.contains("timeout") || err_str.contains("error") || err_str.contains("reqwest"), "Expected error to mention timeout or request failure, got: {err_str}");
+        assert!(
+            err_str.contains("timeout") || err_str.contains("error") || err_str.contains("reqwest"),
+            "Expected error to mention timeout or request failure, got: {err_str}"
+        );
     }
 }
-
