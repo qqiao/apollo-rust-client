@@ -44,6 +44,10 @@
 //!     ip: Some("192.168.1.100".to_string()),
 //!     allow_insecure_https: None,
 //!     #[cfg(not(target_arch = "wasm32"))]
+//!     http_client: None,
+//!     #[cfg(not(target_arch = "wasm32"))]
+//!     refresh_interval: Some(30),
+//!     #[cfg(not(target_arch = "wasm32"))]
 //!     cache_ttl: None,
 //! };
 //! ```
@@ -138,6 +142,10 @@ pub enum Error {
 ///     ip: None,
 ///     allow_insecure_https: None,
 ///     #[cfg(not(target_arch = "wasm32"))]
+///     http_client: None,
+///     #[cfg(not(target_arch = "wasm32"))]
+///     refresh_interval: Some(30),
+///     #[cfg(not(target_arch = "wasm32"))]
 ///     cache_ttl: None,
 /// };
 /// ```
@@ -156,6 +164,10 @@ pub enum Error {
 ///     label: Some("canary,beta".to_string()),
 ///     ip: Some("192.168.1.100".to_string()),
 ///     allow_insecure_https: Some(true), // Allow self-signed certificates
+///     #[cfg(not(target_arch = "wasm32"))]
+///     http_client: None,
+///     #[cfg(not(target_arch = "wasm32"))]
+///     refresh_interval: Some(30),
 ///     #[cfg(not(target_arch = "wasm32"))]
 ///     cache_ttl: None,
 /// };
