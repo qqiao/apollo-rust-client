@@ -163,9 +163,11 @@ pub enum Error {
 ///     cache_dir: Some("/custom/cache/path".to_string()),
 ///     label: Some("canary,beta".to_string()),
 ///     ip: Some("192.168.1.100".to_string()),
-///     allow_insecure_https: Some(true),
+///     allow_insecure_https: Some(true), // Allow self-signed certificates
+///     #[cfg(not(target_arch = "wasm32"))]
 ///     http_client: None,
-///     refresh_interval: Some(30), // Allow self-signed certificates
+///     #[cfg(not(target_arch = "wasm32"))]
+///     refresh_interval: Some(30),
 ///     #[cfg(not(target_arch = "wasm32"))]
 ///     cache_ttl: None,
 /// };
