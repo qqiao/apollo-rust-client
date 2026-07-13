@@ -34,7 +34,9 @@
 //!     label: None,
 //!     ip: None,
 //!     allow_insecure_https: None,
+//!     #[cfg(not(target_arch = "wasm32"))]
 //!     http_client: None,
+//!     #[cfg(not(target_arch = "wasm32"))]
 //!     refresh_interval: Some(30),
 //!     #[cfg(not(target_arch = "wasm32"))]
 //!     cache_ttl: None,
