@@ -17,16 +17,16 @@
     -   `RwLock`: 提供具有读写锁的内部可变性，允许多个线程并发读取 `HashMap` 或一个线程写入它（例如，在添加新命名空间时）。
     -   `Arc<RwLock<...>>`: 整个 `HashMap` 包装在 `Arc` 中，以便后台刷新任务也可以安全地访问和迭代命名空间。
 
--   **`handle: Option<async_std::task::JoinHandle<()>>`**:
-    *(仅限非 WASM)* 一个可选的句柄，指向定期刷新配置的后台任务。当后台任务正在运行时，此值为 `Some`，否则为 `None`。当调用 `stop()` 时，它用于 `cancel` 任务。对于 WASM，此值始终为 `None`，因为任务管理方式不同。
+-   **`handle: Option<tokio::task::JoinHandle<()>>`**:
+    *(仅限非 WASM)* 定期刷新任务的句柄。`stop()` 和 `Drop` 会立即中止该任务。WASM 使用 `futures::future::AbortHandle`。
 
--   **`running: Arc<RwLock<bool>>`**:
+-   **`running: Arc<AtomicBool>`**:
     一个标志，用于控制后台刷新任务的执行。
     -   `Arc<RwLock<...>>`: 在 `Client` 和后台任务之间共享。`Client` 将其设置为 `false` 以通知任务停止，任务读取它以了解何时退出。
 
 ## 核心方法
 
--   **`new(client_config: ClientConfig) -> Self`**:
+-   **`new(client_config: ClientConfig) -> Result<Self, Error>`**:
     `Client` 的构造函数。它将 `namespaces` 映射初始化为空，并将 `handle` 设置为 `None`，`running` 设置为 `false`（初始状态）。
 
 -   **`namespace(&mut self, name: &str) -> impl Future<Output = Result<CACHE_RETURN_TYPE, Error>> + Send`**:
@@ -43,13 +43,13 @@
     -   如果已在运行，则不执行任何操作。
     -   将 `self.running` 设置为 `true`。
     -   **生成任务**:
-        -   **非 WASM (原生)**: 使用 `async_std::task::spawn` 在新的操作系统线程中创建后台任务。`handle` 字段存储此任务的 `JoinHandle`。
-        -   **WASM**: 使用 `async_std::task::spawn_local`，因为 `spawn`（可以将 future 发送到其他线程）在典型的浏览器单线程 WASM 环境中并非总是可用或适用。
+        -   **非 WASM (原生)**: 使用 `tokio::spawn`。
+        -   **WASM**: 使用 `wasm_bindgen_futures::spawn_local` 和可取消 future。
     -   **后台任务逻辑**:
         1.  进入一个循环，只要 `*self.running.read().unwrap()` 为 `true`，该循环就会继续。
         2.  休眠固定间隔（当前为 30 秒）。
-        3.  迭代存储在 `self.namespaces` 中的所有 `Cache` 实例。
-        4.  对于每个 `Cache`，调用 `cache.refresh().await`。刷新期间的任何错误都会被记录，但不会停止循环。
+        3.  以最多四个并发请求刷新命名空间。
+        4.  失败时采用有上限的指数退避和抖动。
     -   该方法本身在生成任务后迅速返回。
 
 -   **`stop(&mut self)`**:

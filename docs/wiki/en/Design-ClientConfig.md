@@ -14,7 +14,7 @@ The `ClientConfig` struct is a cornerstone of the `apollo-rust-client` library, 
     The name of the Apollo cluster to fetch configurations from. Defaults to `"default"` in many scenarios but should be explicitly provided.
 
 -   **`cache_dir: Option<String>`**:
-    *(Non-WASM only)* An optional path to a directory where configuration files will be cached locally. If `None`, a default path is typically constructed by `get_cache_dir()` (e.g., `/opt/data/{app_id}/config-cache`). For WASM targets, this is always `None` as filesystem access is restricted.
+    *(Non-WASM only)* An optional base path for configuration files. If `None`, the client uses `/opt/data/apollo-rust-client/config-cache`. Versioned hashed filenames isolate all request identity fields.
 
 -   **`config_server: String`**:
     The base URL of the Apollo Configuration server (e.g., `http://localhost:8080`). This is a mandatory field.
@@ -32,27 +32,17 @@ The `ClientConfig` struct is a cornerstone of the `apollo-rust-client` library, 
 
 There are several ways to create a `ClientConfig` instance:
 
-1.  **Manual Creation (Rust):**
-    As a standard Rust struct, you can instantiate it directly:
+1.  **Validated Builder (Rust, preferred):**
     ```rust
     use apollo_rust_client::client_config::ClientConfig;
 
-    let config = ClientConfig {
-        app_id: "my_app".to_string(),
-        cluster: "my_cluster".to_string(),
-        config_server: "http://apollo-server:8080".to_string(),
-        secret: Some("my_secret_key".to_string()),
-        cache_dir: Some("/tmp/apollo_cache".to_string()),
-        label: Some("version1,regionA".to_string()),
-        ip: Some("192.168.1.100".to_string()),
-        allow_insecure_https: Some(false),
-        #[cfg(not(target_arch = "wasm32"))]
-        cache_ttl: None,
-        #[cfg(not(target_arch = "wasm32"))]
-        refresh_interval: None,
-        #[cfg(not(target_arch = "wasm32"))]
-        http_client: None,
-    };
+    let config = ClientConfig::builder("my_app", "http://apollo-server:8080")
+        .cluster("my_cluster")
+        .secret("my_secret_key")
+        .cache_dir("/tmp/apollo_cache")
+        .label("version1,regionA")
+        .ip("192.168.1.100")
+        .build()?;
     ```
 
 2.  **`ClientConfig::from_env()` (Non-WASM):**
@@ -87,6 +77,6 @@ There are several ways to create a `ClientConfig` instance:
 
 This method, available on non-WASM targets, determines the actual cache directory path to be used.
 -   If `self.cache_dir` (the field in `ClientConfig`) is `Some(path)`, that path is used.
--   If `self.cache_dir` is `None`, it constructs a default path: `/opt/data/{self.app_id}/config-cache`.
+-   If `self.cache_dir` is `None`, it uses `/opt/data/apollo-rust-client/config-cache`.
 
 This logic ensures that there's a predictable location for cached configuration files even if not explicitly specified by the user.

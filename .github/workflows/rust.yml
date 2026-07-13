@@ -10,12 +10,31 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust and WASM target
+        run: |
+          rustup update stable
+          rustup target add wasm32-unknown-unknown
+      - name: Native clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Rustls clippy
+        run: cargo clippy --no-default-features --features rustls --all-targets -- -D warnings
+      - name: WASM clippy
+        run: cargo clippy --target wasm32-unknown-unknown --all-targets -- -D warnings
+      - name: Documentation tests
+        run: cargo test --doc
+
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Update Rust toolchain
-        run: rustup update
+        run: |
+          rustup update stable
+          rustup target add wasm32-unknown-unknown
       - name: Install wasm-pack
         run: cargo install wasm-pack
       - name: Build
@@ -26,7 +45,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Update Rust toolchain
-        run: rustup update
+        run: |
+          rustup update stable
+          rustup target add wasm32-unknown-unknown
       - name: Install wasm-pack
         run: cargo install wasm-pack
       - name: Run tests

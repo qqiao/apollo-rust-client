@@ -40,9 +40,9 @@ use wasm_bindgen::prelude::wasm_bindgen;
 ///
 /// # Examples
 ///
-/// ```rust,ignore
+/// ```rust
 /// use serde_json::json;
-/// use apollo_client::namespace::properties::Properties;
+/// use apollo_rust_client::namespace::properties::Properties;
 ///
 /// let props_data = json!({
 ///     "database.host": "localhost",
@@ -90,9 +90,9 @@ impl Properties {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// use serde_json::json;
-    /// use apollo_client::namespace::properties::Properties;
+    /// use apollo_rust_client::namespace::properties::Properties;
     ///
     /// let props_data = json!({"timeout": "30", "retries": "3"});
     /// let properties = Properties::from(props_data);
@@ -130,9 +130,9 @@ impl Properties {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// use serde_json::json;
-    /// use apollo_client::namespace::properties::Properties;
+    /// use apollo_rust_client::namespace::properties::Properties;
     ///
     /// let props_data = json!({"app.name": "MyApp"});
     /// let properties = Properties::from(props_data);
@@ -161,9 +161,9 @@ impl Properties {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// use serde_json::json;
-    /// use apollo_client::namespace::properties::Properties;
+    /// use apollo_rust_client::namespace::properties::Properties;
     ///
     /// let props_data = json!({"server.port": "8080"});
     /// let properties = Properties::from(props_data);
@@ -192,9 +192,9 @@ impl Properties {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// use serde_json::json;
-    /// use apollo_client::namespace::properties::Properties;
+    /// use apollo_rust_client::namespace::properties::Properties;
     ///
     /// let props_data = json!({"timeout.seconds": "30.5"});
     /// let properties = Properties::from(props_data);
@@ -224,9 +224,9 @@ impl Properties {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
     /// use serde_json::json;
-    /// use apollo_client::namespace::properties::Properties;
+    /// use apollo_rust_client::namespace::properties::Properties;
     ///
     /// let props_data = json!({"debug.enabled": "true"});
     /// let properties = Properties::from(props_data);
@@ -249,9 +249,9 @@ impl Properties {
 ///
 /// # Examples
 ///
-/// ```rust,ignore
+/// ```rust
 /// use serde_json::json;
-/// use apollo_client::namespace::properties::Properties;
+/// use apollo_rust_client::namespace::properties::Properties;
 ///
 /// let props_data = json!({
 ///     "app.name": "MyApp",

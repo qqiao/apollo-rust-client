@@ -1,5 +1,7 @@
 #!/bin/sh
 
+set -eu
+
 # Ensure clean teardown of containers on exit (success or failure)
 cleanup() {
   echo "Shutting down Apollo Mock Server (docker compose down)..."
@@ -32,5 +34,9 @@ if [ "$ready" -ne 1 ]; then
 fi
 
 rm -fr /tmp/apollo && \
-RUST_LOG=apollo_rust_client=trace cargo test --lib -- --nocapture && \
+cargo clippy --all-targets -- -D warnings && \
+cargo clippy --no-default-features --features rustls --all-targets -- -D warnings && \
+cargo clippy --target wasm32-unknown-unknown --all-targets -- -D warnings && \
+RUST_LOG=apollo_rust_client=trace cargo test --all-targets -- --nocapture && \
+cargo test --doc && \
 RUST_BACKTRACE=1 wasm-pack test --node --lib -- --nocapture

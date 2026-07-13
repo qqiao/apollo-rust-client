@@ -10,7 +10,7 @@
 - `secret`: 給定 `app_id` 的可選金鑰。
 - `config_server`: 設定伺服器的位址。
 - `cache_dir`: 用于儲存本地快取的目錄。
-  - 對于非 WASM 目標（原生 Rust 應用程式）：如果未指定，則預設為建構為 `/opt/data/{app_id}/config-cache` 的路徑。
+  - 原生目標預設使用 `/opt/data/apollo-rust-client/config-cache`；版本化雜湊檔名隔離完整請求身分。WASM 瀏覽器使用帶 TTL 的 localStorage。
   - 對于 WASM 目標：此欄位是可選的，預設為 `None`；檔案系統快取在瀏覽器環境中通常不適用或不使用。
 - `label`: 目前實例的標籤。用于在灰度發布中識別目前實例。
 - `ip`: 您應用程式的 IP 位址。用于在灰度發布中識別目前實例。

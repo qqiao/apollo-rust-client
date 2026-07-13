@@ -94,7 +94,7 @@ use apollo_rust_client::{Client, client_config::ClientConfig};
 
 // 创建和配置客户端
 let config = ClientConfig { /* ... */ };
-let mut client = Client::new(config);
+let mut client = Client::new(config)?;
 
 // 启动后台刷新
 client.start().await?;

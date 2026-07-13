@@ -91,7 +91,7 @@ let config = ClientConfig {
 
 - **Description**: Directory for local cache files (native targets only)
 - **Purpose**: Persistent storage for configuration data
-- **Default**: `/opt/data/{app_id}/config-cache` (native), `None` (WASM)
+- **Default**: `/opt/data/apollo-rust-client/config-cache` (native); browser localStorage on WASM
 - **Platform**: Native Rust only, ignored on WebAssembly
 - **Environment Variable**: `APOLLO_CACHE_DIR`
 
@@ -603,7 +603,7 @@ println!("Configuration loaded: {:?}", config);
    let client = Client::new(client_config);
 
    // After
-   let client = Client::new(config);
+   let client = Client::new(config)?;
    ```
 
 #### Version 0.4.x to 0.5.0

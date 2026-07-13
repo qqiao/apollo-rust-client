@@ -11,19 +11,13 @@ use apollo_rust_client::client_config::ClientConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client_config = ClientConfig {
-        app_id: "your_app_id".to_string(),
-        cluster: "default".to_string(),
-        secret: Some("your_apollo_secret".to_string()),
-        config_server: "http://your-apollo-server:8080".to_string(),
-        cache_dir: None,
-        label: None,
-        ip: None,
-        allow_insecure_https: None,
-        #[cfg(not(target_arch = "wasm32"))]
-        cache_ttl: None, // Uses default: 600 seconds (10 minutes)
-    };
-    let mut client = Client::new(client_config);
+    let client_config = ClientConfig::builder(
+        "your_app_id",
+        "http://your-apollo-server:8080",
+    )
+    .secret("your_apollo_secret")
+    .build()?;
+    let mut client = Client::new(client_config)?;
 
     // Start background polling for configuration updates.
     client.start().await?;
@@ -145,7 +139,7 @@ use apollo_rust_client::client_config::ClientConfig;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize from environment variables
     let config = ClientConfig::from_env()?;
-    let mut client = Client::new(config);
+    let mut client = Client::new(config)?;
 
     client.start().await?;
 
@@ -179,17 +173,11 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = ClientConfig {
-        app_id: "your_app_id".to_string(),
-        cluster: "default".to_string(),
-        secret: None,
-        config_server: "http://your-apollo-server:8080".to_string(),
-        cache_dir: None,
-        label: None,
-        ip: None,
-        allow_insecure_https: None,
-    };
-    let mut client = Client::new(config);
+    let config = ClientConfig::builder(
+        "your_app_id",
+        "http://your-apollo-server:8080",
+    ).build()?;
+    let mut client = Client::new(config)?;
 
     // Register an event listener before starting
     let listener: EventListener = Arc::new(|result| {

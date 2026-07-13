@@ -106,6 +106,7 @@ async function main() {
   // Your application logic here
  
   // Cleanup
+  client.stop();
   client.free();
   clientConfig.free();
 }
@@ -160,7 +161,7 @@ import { Client, ClientConfig } from "@qqiao/apollo-rust-client";
 
 async function main() {
   let client = null;
-  let cache = null;
+  let properties = null;
   let clientConfig = null;
 
   try {
@@ -184,7 +185,10 @@ async function main() {
   } finally {
     // Always cleanup WASM objects
     if (properties) properties.free();
-    if (client) client.free();
+    if (client) {
+      client.stop();
+      client.free();
+    }
     if (clientConfig) clientConfig.free();
   }
 }
@@ -218,5 +222,8 @@ Optional properties that can be set after construction:
 - `secret`: Secret key for authentication
 - `label`: Label for grayscale releases
 - `ip`: IP address for grayscale releases
+- `allow_insecure_https`: Accepted for API parity but ignored by browser TLS enforcement
+- `cache_ttl`: Memory/localStorage TTL in seconds (default 600)
+- `refresh_interval`: Periodic polling interval in seconds (default 30)
 
 Note: `cache_dir` is not applicable in browser environments and is automatically handled.

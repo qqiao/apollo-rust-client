@@ -13,7 +13,7 @@
 - **自动格式检测**: 基于命名空间文件扩展名自动检测
 - **类型安全的配置管理**: 编译时保证和运行时类型转换
 - **跨平台支持**: 原生 Rust 和 WebAssembly 目标
-- **实时更新**: 可配置间隔的后台轮询和事件监听器
+- **定期更新**: 有界并发后台轮询、可配置间隔、抖动退避和事件监听器
 - **全面缓存**: 多级缓存，支持文件持久化（原生）和内存缓存（WASM）
 - **Async/Await 支持**: 完整的异步 API，实现非阻塞操作
 - **错误处理**: 详细的错误诊断和全面的错误类型
@@ -54,20 +54,14 @@ use apollo_rust_client::client_config::ClientConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 创建客户端配置
-    let client_config = ClientConfig {
-        app_id: "your_app_id".to_string(),
-        cluster: "default".to_string(),
-        config_server: "http://your-apollo-server:8080".to_string(),
-        secret: Some("your_apollo_secret".to_string()),
-        cache_dir: None, // 使用默认值: /opt/data/{app_id}/config-cache
-        label: None,     // 用于灰度发布
-        ip: None,        // 用于灰度发布
-        #[cfg(not(target_arch = "wasm32"))]
-cache_ttl: None, // 使用默认值: 600 秒（10 分钟）
-    };
+    let client_config = ClientConfig::builder(
+        "your_app_id",
+        "http://your-apollo-server:8080",
+    )
+    .secret("your_apollo_secret")
+    .build()?;
 
-    let mut client = Client::new(client_config);
+    let mut client = Client::new(client_config)?;
 
     // 启动后台轮询配置更新
     client.start().await?;
@@ -101,6 +95,9 @@ cache_ttl: None, // 使用默认值: 600 秒（10 分钟）
 
             let config: Config = json.to_object()?;
             println!("配置: {} v{}", config.name, config.version);
+        }
+        apollo_rust_client::namespace::Namespace::Yaml(yaml) => {
+            println!("YAML 配置: {:?}", yaml);
         }
         apollo_rust_client::namespace::Namespace::Text(text) => {
             // 文本格式 - 纯文本内容
@@ -138,6 +135,7 @@ let client_config = ClientConfig::from_env()?;
 - `APOLLO_LABEL`: 灰度规则的标签列表，用逗号分隔（可选）
 - `APOLLO_CACHE_DIR`: 本地缓存目录（可选）
 - `APOLLO_CACHE_TTL`: 缓存生存时间，以秒为单位（可选，默认为 600，仅限原生目标）
+- `APOLLO_REFRESH_INTERVAL`: 后台轮询间隔秒数（可选，默认 30，必须大于零）
 
 ### JavaScript/WebAssembly 用法
 
@@ -162,19 +160,18 @@ async function main() {
   // 启动后台轮询
   await client.start();
 
-  // 获取配置缓存
-  const cache = await client.namespace("application");
+  // 获取类型化命名空间
+  const namespace = await client.namespace("application");
 
   // 检索不同数据类型
-  const appName = cache.get_string("app.name");
-  const serverPort = cache.get_int("server.port");
-  const debugEnabled = cache.get_bool("debug.enabled");
-  const timeout = cache.get_float("timeout.seconds");
+  const appName = namespace.get_string("app.name");
+  const serverPort = namespace.get_int("server.port");
+  const debugEnabled = namespace.get_bool("debug.enabled");
 
   console.log(`应用: ${appName}, 端口: ${serverPort}, 调试: ${debugEnabled}`);
 
   // 添加配置变更事件监听器
-  await cache.add_listener((data, error) => {
+  await client.add_listener("application", (data, error) => {
     if (error) {
       console.error("配置更新错误:", error);
     } else {
@@ -183,7 +180,8 @@ async function main() {
   });
 
   // 重要：使用完毕后释放内存
-  cache.free();
+  client.stop();
+  namespace.free();
   client.free();
   clientConfig.free();
 }
@@ -259,8 +257,8 @@ if let apollo_rust_client::namespace::Namespace::Yaml(yaml) = namespace {
 - **`cluster`**: 集群名称（必需，通常为 "default"）
 - **`secret`**: 认证的可选密钥
 - **`cache_dir`**: 本地缓存文件目录（仅原生）
-  - 默认值: `/opt/data/{app_id}/config-cache`
-  - WASM: 始终为 `None`（仅内存缓存）
+  - 默认值: `/opt/data/apollo-rust-client/config-cache`，文件名使用包含服务器、应用、集群、命名空间、IP 和标签的版本化哈希
+  - WASM: 使用带 TTL 的浏览器 localStorage（Node.js 无 localStorage 时仅内存）
 - **`label`**: 灰度发布的标签（可选）
 - **`ip`**: 灰度发布的 IP 地址（可选）
 
@@ -319,7 +317,7 @@ client.add_listener("application", std::sync::Arc::new(|result| {
 
 ```javascript
 // JavaScript - 添加事件监听器
-await cache.add_listener((data, error) => {
+await client.add_listener("application", (data, error) => {
   if (error) {
     console.error("更新错误:", error);
   } else {
@@ -331,17 +329,10 @@ await cache.add_listener((data, error) => {
 ### 灰度发布
 
 ```rust
-let client_config = ClientConfig {
-    app_id: "my-app".to_string(),
-    config_server: "http://apollo-server:8080".to_string(),
-    cluster: "default".to_string(),
-    secret: None,
-    cache_dir: None,
-    label: Some("canary,beta".to_string()),  // 多个标签
-    ip: Some("192.168.1.100".to_string()),  // 客户端 IP
-    #[cfg(not(target_arch = "wasm32"))]
-    cache_ttl: None,
-};
+let client_config = ClientConfig::builder("my-app", "http://apollo-server:8080")
+    .label("canary,beta")
+    .ip("192.168.1.100")
+    .build()?;
 ```
 
 ### 自定义 JSON 反序列化

@@ -89,7 +89,7 @@ let settings: ServerConfig = yaml_namespace.to_object()?;
 let client = Client::new(client_config);
 
 // After
-let client = Client::new(config);
+let client = Client::new(config)?;
 ```
 
 #### 4. Function Visibility Changes
@@ -170,7 +170,7 @@ match namespace {
 use apollo_rust_client::{Client, client_config::ClientConfig};
 
 let config = ClientConfig::from_env()?;
-let mut client = Client::new(config);
+let mut client = Client::new(config)?;
 
 let namespace = client.namespace("application").await?;
 match namespace {

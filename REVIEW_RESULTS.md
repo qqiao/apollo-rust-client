@@ -34,6 +34,26 @@ The highest-priority conclusions are:
 
 The passing doctest count should not be interpreted as complete documentation verification: 24 examples are marked `ignore`, including examples that refer to a nonexistent `apollo_client` crate or private APIs.
 
+## Remediation status
+
+All findings below are addressed in the current working tree:
+
+| Findings | Resolution and regression coverage |
+|---|---|
+| C1, C4 | Tokio filesystem support is native-only. WASM now has exported, cancelable `start`, `stop`, `preload`, and `refresh` methods, TTL-bound localStorage, lifecycle tests, binding tests, target clippy, and generated-JS smoke checks. |
+| C2, L2-L4 | Responses are status-checked before parsing or caching; timeout, HTTP status, URL-base, and signing failures are typed. URL construction uses encoded path segments and preserves context paths. Local transport and WireMock fixtures cover status, malformed, timeout, auth, and encoding behavior. |
+| C3, H7, M4 | Native and WASM persistence use the same versioned hash of server, app, cluster, namespace, IP, and label. Raw identifiers never form filesystem paths. Unique create-new temporary files plus atomic rename are stress-tested with concurrent writers. |
+| H1, H3, M2, M5 | Memory and persistent entries share TTL semantics. Remote values remain usable when persistence fails, stale values recover network failures, refresh I/O occurs outside value locks, and namespace-map reads use a read-lock fast path. |
+| H2, M1 | Native and WASM polling is explicitly periodic, refreshes four namespaces concurrently, and uses jittered bounded backoff. Atomic lifecycle state, abort handles, and `Drop` provide prompt cancellation; lifecycle timing/drop tests cover the behavior. |
+| H4 | `.properties`, extensionless, and unknown/dotted public namespaces are properties; only `.txt` is text. Unit and WireMock format cases cover `.properties`, `FX.apollo`, and text. |
+| H5 | Cold/stale loads use a cancellation-safe mutex single-flight gate. Cancellation and concurrent-load regression tests ensure later callers cannot be stranded. |
+| H6 | Listeners run synchronously in registration order after locks are released, receive only changed values plus refresh errors, and isolate panics. Native change/error and actual JavaScript callback-argument tests cover the contract. |
+| H8, M6, M10 | A validated `ClientConfig` builder supplies consistent defaults, construction errors propagate, public docs use the real Rust/JavaScript APIs, stale runtime/cache descriptions were corrected, README Rust API compilation is tested, and generated bindings are smoke-tested. |
+| M3 | Invalid or non-Unicode environment values are returned as configuration errors; refresh interval zero is rejected; defaults and validation are centralized and tested without production/test-only clamping. |
+| M7 | `preload` uses joined futures directly, avoiding join-error misclassification. Parallel, duplicate, partial-failure, native, and WASM API paths are covered. |
+| M8, M9 | WireMock now validates authentication headers and includes public/text namespaces plus 401/429/500/malformed/timeout fixtures. The test script runs all native targets, doctests, strict native/rustls/WASM clippy, and WASM tests; CI exposes those checks independently. |
+| L1 | All supported target/feature clippy commands run with `-D warnings`. |
+
 ## Critical findings
 
 ### C1. The WASM target does not compile

@@ -12,8 +12,8 @@
 应用条件编译的关键领域：
 
 -   **任务生成:**
-    -   原生: 使用 `async_std::task::spawn` 在单独的操作系统线程中运行后台刷新任务。
-    -   WASM: 使用 `async_std::task::spawn_local`，因为 WASM 环境（尤其是浏览器）通常是单线程的，`spawn` 可能不可用或不适用。
+    -   原生: 使用 `tokio::spawn` 运行后台刷新任务。
+    -   WASM: 使用 `wasm_bindgen_futures::spawn_local` 和 `AbortHandle` 运行可取消的后台轮询。
 
 -   **`Client::namespace()` 中的 `Cache` 返回类型:**
     -   原生: 返回 `Arc<Cache>` 以允许共享缓存的所有权。
@@ -24,7 +24,7 @@
     -   WASM: 向 JavaScript 公开一个特定的 `ClientConfig::new(app_id, config_server, cluster)` 构造函数，因为环境变量通常不在浏览器 WASM 中使用，并且文件系统缓存被禁用。
 
 -   **文件系统缓存:**
-    -   所有与磁盘上缓存配置相关的 文件 I/O 操作都针对 WASM 目标进行了条件编译排除。`ClientConfig` 中的 `cache_dir` 字段和 `Cache` 中的 `file_path` 字段在 WASM 中实际上未使用。
+    -   磁盘 I/O 在 WASM 中被排除；浏览器使用具有 TTL 的 `localStorage`，键包含版本化的服务器、应用、集群、命名空间、IP 和标签哈希。无 `localStorage` 的 Node.js 环境回退为仅内存缓存。
 
 ## `wasm-bindgen`
 
@@ -58,6 +58,6 @@
 
 ## 文件系统
 
--   如前所述，基于文件系统的配置缓存对于 WASM 目标完全禁用。`Cache` 结构体仅依赖其内存存储和从 Apollo 服务器获取。
+-   文件系统缓存被禁用，但浏览器 `localStorage` 缓存可用；过期条目会触发远程请求，并可在请求失败时作为陈旧回退。
 
 这些设计考量确保 `apollo-rust-client` 可以在广泛的 JavaScript 和 WebAssembly 应用程序中有效使用，提供一致的核心功能，同时适应 WASM 环境的特定约束和模式。

@@ -20,6 +20,7 @@
 //! - `APOLLO_LABEL`: Labels for grayscale release targeting
 //! - `APOLLO_CACHE_DIR`: Local cache directory
 //! - `APOLLO_CACHE_TTL`: Cache time-to-live in seconds
+//! - `APOLLO_REFRESH_INTERVAL`: Periodic refresh interval in seconds
 //! - `APOLLO_ALLOW_INSECURE_HTTPS`: Whether to allow insecure HTTPS connections
 //!
 //! # Platform Support
@@ -45,9 +46,7 @@
 //!     allow_insecure_https: None,
 //!     #[cfg(not(target_arch = "wasm32"))]
 //!     http_client: None,
-//!     #[cfg(not(target_arch = "wasm32"))]
 //!     refresh_interval: Some(30),
-//!     #[cfg(not(target_arch = "wasm32"))]
 //!     cache_ttl: None,
 //! };
 //! ```
@@ -64,6 +63,12 @@
 
 use cfg_if::cfg_if;
 use wasm_bindgen::prelude::*;
+
+/// Default persistent-cache time-to-live in seconds.
+pub const DEFAULT_CACHE_TTL_SECONDS: u64 = 600;
+
+/// Default interval between periodic background refreshes in seconds.
+pub const DEFAULT_REFRESH_INTERVAL_SECONDS: u64 = 30;
 
 /// Comprehensive error types that can occur during client configuration.
 ///
@@ -101,8 +106,19 @@ pub enum Error {
     /// This error occurs when attempting to read an environment variable
     /// that is not set or cannot be accessed. The error includes both
     /// the underlying system error and the name of the variable that failed.
-    #[error("Environment variable is not set: {1}")]
+    #[error("Failed to read environment variable {1}: {0}")]
     EnvVar(std::env::VarError, String),
+
+    /// A configuration value was present but invalid.
+    #[error("Invalid value for {name} ({value:?}): {reason}")]
+    InvalidValue {
+        /// Configuration field or environment-variable name.
+        name: String,
+        /// Invalid value supplied by the caller.
+        value: String,
+        /// Human-readable validation failure.
+        reason: String,
+    },
 }
 
 /// Configuration settings for the Apollo client.
@@ -187,11 +203,11 @@ pub struct ClientConfig {
     /// groups. Common values include "default", "production", "staging", etc.
     pub cluster: String,
 
-    /// The directory to store local cache files (native targets only).
+    /// The base directory used to store native local cache files.
     ///
     /// On native Rust targets, this specifies where configuration files should
-    /// be cached locally. If `None`, defaults to `/opt/data/{app_id}/config-cache`.
-    /// On WebAssembly targets, this is always `None` as file system access is not available.
+    /// be cached locally. If `None`, defaults to `/opt/data/apollo-rust-client/config-cache`.
+    /// On WebAssembly targets this value is ignored because filesystem access is unavailable.
     pub cache_dir: Option<String>,
 
     /// The Apollo configuration server URL.
@@ -233,20 +249,18 @@ pub struct ClientConfig {
     /// certificate validation. Only use this in trusted internal networks.
     pub allow_insecure_https: Option<bool>,
 
-    /// Time-to-live for the cache, in seconds (native targets only).
+    /// Time-to-live for memory and persistent cache entries, in seconds.
     ///
     /// When using `from_env`, this defaults to 600 seconds (10 minutes) if
     /// the `APOLLO_CACHE_TTL` environment variable is not set.
-    /// This field is not available on WebAssembly targets as disk caching is not supported.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// The same TTL is enforced for native files and browser localStorage.
     pub cache_ttl: Option<u64>,
 
-    /// The refresh interval in seconds for the background namespace cache refresh loop (native targets only).
+    /// The refresh interval in seconds for native and WASM background polling.
     ///
     /// When using `from_env`, this defaults to 30 seconds if
     /// the `APOLLO_REFRESH_INTERVAL` environment variable is not set.
-    /// This field is not available on WebAssembly targets as background refresh is not supported.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// The value must be greater than zero.
     pub refresh_interval: Option<u64>,
 
     /// A pre-configured `reqwest::Client` (native targets only) to allow custom HTTP pools, proxies, headers, or tracers.
@@ -255,6 +269,206 @@ pub struct ClientConfig {
     #[cfg(not(target_arch = "wasm32"))]
     #[wasm_bindgen(skip)]
     pub http_client: Option<reqwest::Client>,
+}
+
+/// Builder for a validated [`ClientConfig`].
+///
+/// The builder is the preferred Rust construction API because new optional
+/// settings can be added without breaking downstream struct literals.
+#[derive(Clone, Debug)]
+pub struct ClientConfigBuilder {
+    config: ClientConfig,
+}
+
+impl ClientConfigBuilder {
+    /// Sets the Apollo cluster. The default is `default`.
+    #[must_use]
+    pub fn cluster(mut self, cluster: impl Into<String>) -> Self {
+        self.config.cluster = cluster.into();
+        self
+    }
+
+    /// Sets the optional Apollo access-key secret.
+    #[must_use]
+    pub fn secret(mut self, secret: impl Into<String>) -> Self {
+        self.config.secret = Some(secret.into());
+        self
+    }
+
+    /// Sets the base directory for native persistent cache files.
+    #[must_use]
+    pub fn cache_dir(mut self, cache_dir: impl Into<String>) -> Self {
+        self.config.cache_dir = Some(cache_dir.into());
+        self
+    }
+
+    /// Sets the optional label used for grayscale selection.
+    #[must_use]
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.config.label = Some(label.into());
+        self
+    }
+
+    /// Sets the optional client IP used for grayscale selection.
+    #[must_use]
+    pub fn ip(mut self, ip: impl Into<String>) -> Self {
+        self.config.ip = Some(ip.into());
+        self
+    }
+
+    /// Enables or disables acceptance of invalid HTTPS certificates on native targets.
+    #[must_use]
+    pub fn allow_insecure_https(mut self, allow: bool) -> Self {
+        self.config.allow_insecure_https = Some(allow);
+        self
+    }
+
+    /// Sets the cache time-to-live in seconds.
+    #[must_use]
+    pub fn cache_ttl(mut self, seconds: u64) -> Self {
+        self.config.cache_ttl = Some(seconds);
+        self
+    }
+
+    /// Sets the periodic refresh interval in seconds.
+    #[must_use]
+    pub fn refresh_interval(mut self, seconds: u64) -> Self {
+        self.config.refresh_interval = Some(seconds);
+        self
+    }
+
+    /// Supplies a custom native HTTP client.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn http_client(mut self, client: reqwest::Client) -> Self {
+        self.config.http_client = Some(client);
+        self
+    }
+
+    /// Validates and returns the completed configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidValue`] when a required identifier or the server
+    /// URL is invalid.
+    pub fn build(self) -> Result<ClientConfig, Error> {
+        self.config.validate()?;
+        Ok(self.config)
+    }
+}
+
+impl ClientConfig {
+    /// Creates a builder with stable defaults.
+    #[must_use]
+    pub fn builder(
+        app_id: impl Into<String>,
+        config_server: impl Into<String>,
+    ) -> ClientConfigBuilder {
+        ClientConfigBuilder {
+            config: Self {
+                app_id: app_id.into(),
+                cluster: "default".to_string(),
+                cache_dir: None,
+                config_server: config_server.into(),
+                secret: None,
+                label: None,
+                ip: None,
+                allow_insecure_https: None,
+                cache_ttl: Some(DEFAULT_CACHE_TTL_SECONDS),
+                refresh_interval: Some(DEFAULT_REFRESH_INTERVAL_SECONDS),
+                #[cfg(not(target_arch = "wasm32"))]
+                http_client: None,
+            },
+        }
+    }
+
+    /// Validates required identifiers and the Apollo server URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidValue`] for empty identifiers, unsupported URL
+    /// schemes, URLs that cannot be used as a base, or URLs containing a query
+    /// or fragment.
+    pub fn validate(&self) -> Result<(), Error> {
+        validate_nonempty("app_id", &self.app_id)?;
+        validate_nonempty("cluster", &self.cluster)?;
+
+        let parsed = url::Url::parse(&self.config_server).map_err(|error| Error::InvalidValue {
+            name: "config_server".to_string(),
+            value: self.config_server.clone(),
+            reason: error.to_string(),
+        })?;
+        if !matches!(parsed.scheme(), "http" | "https") || parsed.cannot_be_a_base() {
+            return Err(Error::InvalidValue {
+                name: "config_server".to_string(),
+                value: self.config_server.clone(),
+                reason: "expected an HTTP(S) base URL".to_string(),
+            });
+        }
+        if parsed.query().is_some() || parsed.fragment().is_some() {
+            return Err(Error::InvalidValue {
+                name: "config_server".to_string(),
+                value: self.config_server.clone(),
+                reason: "base URL must not contain a query or fragment".to_string(),
+            });
+        }
+        if self.refresh_interval == Some(0) {
+            return Err(Error::InvalidValue {
+                name: "refresh_interval".to_string(),
+                value: "0".to_string(),
+                reason: "value must be greater than zero".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Returns the effective cache TTL, including the documented default.
+    #[must_use]
+    pub(crate) fn effective_cache_ttl(&self) -> u64 {
+        self.cache_ttl.unwrap_or(DEFAULT_CACHE_TTL_SECONDS)
+    }
+
+    /// Returns the effective periodic refresh interval.
+    #[must_use]
+    pub(crate) fn effective_refresh_interval(&self) -> u64 {
+        self.refresh_interval
+            .unwrap_or(DEFAULT_REFRESH_INTERVAL_SECONDS)
+    }
+}
+
+fn validate_nonempty(name: &str, value: &str) -> Result<(), Error> {
+    if value.trim().is_empty() {
+        return Err(Error::InvalidValue {
+            name: name.to_string(),
+            value: value.to_string(),
+            reason: "value must not be empty".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn optional_env(name: &str) -> Result<Option<String>, Error> {
+    match std::env::var(name) {
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(error) => Err(Error::EnvVar(error, name.to_string())),
+    }
+}
+
+fn parse_optional_env<T>(name: &str) -> Result<Option<T>, Error>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    optional_env(name)?
+        .map(|value| {
+            value.parse::<T>().map_err(|error| Error::InvalidValue {
+                name: name.to_string(),
+                value,
+                reason: error.to_string(),
+            })
+        })
+        .transpose()
 }
 
 impl From<Error> for JsValue {
@@ -277,6 +491,7 @@ cfg_if! {
             /// - `APOLLO_CACHE_DIR` (optional): Directory for local cache storage.
             /// - `APOLLO_ALLOW_INSECURE_HTTPS` (optional): If set to `"true"`, allows insecure HTTPS.
             /// - `APOLLO_CACHE_TTL` (optional): Cache time-to-live in seconds. Defaults to 600 if not set.
+            /// - `APOLLO_REFRESH_INTERVAL` (optional): Periodic refresh interval in seconds. Defaults to 30.
             ///
             /// # Returns
             ///
@@ -294,32 +509,18 @@ cfg_if! {
             pub fn from_env() -> Result<Self, Error> {
                 let app_id =
                     std::env::var("APP_ID").map_err(|e| Error::EnvVar(e, "APP_ID".to_string()))?;
-                let secret = std::env::var("APOLLO_ACCESS_KEY_SECRET")
-                    .map_err(|e| Error::EnvVar(e, "APOLLO_ACCESS_KEY_SECRET".to_string()))
-                    .ok();
-                let cluster = std::env::var("IDC").unwrap_or("default".to_string());
+                let secret = optional_env("APOLLO_ACCESS_KEY_SECRET")?;
+                let cluster = optional_env("IDC")?.unwrap_or_else(|| "default".to_string());
                 let config_server = std::env::var("APOLLO_CONFIG_SERVICE")
                     .map_err(|e| Error::EnvVar(e, "APOLLO_CONFIG_SERVICE".to_string()))?;
-                let label = std::env::var("APOLLO_LABEL")
-                    .map_err(|e| Error::EnvVar(e, "APOLLO_LABEL".to_string()))
-                    .ok();
-                let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok();
-                let allow_insecure_https = std::env::var("APOLLO_ALLOW_INSECURE_HTTPS")
-                    .ok()
-                    .and_then(|s| s.parse().ok());
-                let cache_ttl = std::env::var("APOLLO_CACHE_TTL")
-                    .ok()
-                    .and_then(|s| s.parse().ok())
-                    .or(Some(600));
-                let refresh_interval = std::env::var("APOLLO_REFRESH_INTERVAL")
-                    .ok()
-                    .and_then(|s| s.parse().ok())
-                    .map(|v| {
-                        let min_val = if cfg!(test) { 1 } else { 30 };
-                        if v < min_val { min_val } else { v }
-                    })
-                    .or(Some(30));
-                Ok(Self {
+                let label = optional_env("APOLLO_LABEL")?;
+                let cache_dir = optional_env("APOLLO_CACHE_DIR")?;
+                let allow_insecure_https = parse_optional_env("APOLLO_ALLOW_INSECURE_HTTPS")?;
+                let cache_ttl = parse_optional_env("APOLLO_CACHE_TTL")?
+                    .or(Some(DEFAULT_CACHE_TTL_SECONDS));
+                let refresh_interval = parse_optional_env("APOLLO_REFRESH_INTERVAL")?
+                    .or(Some(DEFAULT_REFRESH_INTERVAL_SECONDS));
+                let config = Self {
                     app_id,
                     secret,
                     cluster,
@@ -331,7 +532,9 @@ cfg_if! {
                     cache_ttl,
                     refresh_interval,
                     http_client: None,
-                })
+                };
+                config.validate()?;
+                Ok(config)
             }
         }
     } else {
@@ -342,23 +545,25 @@ cfg_if! {
             /// # Returns
             ///
             /// A new configuration instance.
+            ///
+            /// # Errors
+            ///
+            /// Returns an error for missing, non-Unicode, or invalid environment values.
             pub fn from_env() -> Result<Self, Error> {
                 let app_id =
                     std::env::var("APP_ID").map_err(|e| Error::EnvVar(e, "APP_ID".to_string()))?;
-                let secret = std::env::var("APOLLO_ACCESS_KEY_SECRET")
-                    .map_err(|e| Error::EnvVar(e, "APOLLO_ACCESS_KEY_SECRET".to_string()))
-                    .ok();
-                let cluster = std::env::var("IDC").unwrap_or("default".to_string());
+                let secret = optional_env("APOLLO_ACCESS_KEY_SECRET")?;
+                let cluster = optional_env("IDC")?.unwrap_or_else(|| "default".to_string());
                 let config_server = std::env::var("APOLLO_CONFIG_SERVICE")
                     .map_err(|e| Error::EnvVar(e, "APOLLO_CONFIG_SERVICE".to_string()))?;
-                let label = std::env::var("APOLLO_LABEL")
-                    .map_err(|e| Error::EnvVar(e, "APOLLO_LABEL".to_string()))
-                    .ok();
-                let cache_dir = std::env::var("APOLLO_CACHE_DIR").ok();
-                let allow_insecure_https = std::env::var("APOLLO_ALLOW_INSECURE_HTTPS")
-                    .ok()
-                    .and_then(|s| s.parse().ok());
-                Ok(Self {
+                let label = optional_env("APOLLO_LABEL")?;
+                let cache_dir = optional_env("APOLLO_CACHE_DIR")?;
+                let allow_insecure_https = parse_optional_env("APOLLO_ALLOW_INSECURE_HTTPS")?;
+                let cache_ttl = parse_optional_env("APOLLO_CACHE_TTL")?
+                    .or(Some(DEFAULT_CACHE_TTL_SECONDS));
+                let refresh_interval = parse_optional_env("APOLLO_REFRESH_INTERVAL")?
+                    .or(Some(DEFAULT_REFRESH_INTERVAL_SECONDS));
+                let config = Self {
                     app_id,
                     secret,
                     cluster,
@@ -367,8 +572,90 @@ cfg_if! {
                     label,
                     ip: None,
                     allow_insecure_https,
-                })
+                    cache_ttl,
+                    refresh_interval,
+                };
+                config.validate()?;
+                Ok(config)
             }
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builder_applies_consistent_defaults_and_validates() {
+        let config = ClientConfig::builder("sample", "https://apollo.example/base/")
+            .build()
+            .unwrap();
+        assert_eq!(config.cluster, "default");
+        assert_eq!(config.effective_cache_ttl(), DEFAULT_CACHE_TTL_SECONDS);
+        assert_eq!(
+            config.effective_refresh_interval(),
+            DEFAULT_REFRESH_INTERVAL_SECONDS
+        );
+
+        assert!(
+            ClientConfig::builder("", "https://apollo.example")
+                .build()
+                .is_err()
+        );
+        assert!(
+            ClientConfig::builder("sample", "ftp://apollo.example")
+                .build()
+                .is_err()
+        );
+        assert!(
+            ClientConfig::builder("sample", "https://apollo.example?token=secret")
+                .build()
+                .is_err()
+        );
+        assert!(
+            ClientConfig::builder("sample", "https://apollo.example")
+                .refresh_interval(0)
+                .build()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn invalid_optional_environment_values_are_reported() {
+        const NUMBER: &str = "APOLLO_RUST_CLIENT_TEST_NUMBER";
+        const BOOLEAN: &str = "APOLLO_RUST_CLIENT_TEST_BOOLEAN";
+        unsafe {
+            std::env::set_var(NUMBER, "not-a-number");
+            std::env::set_var(BOOLEAN, "sometimes");
+        }
+        assert!(matches!(
+            parse_optional_env::<u64>(NUMBER),
+            Err(Error::InvalidValue { .. })
+        ));
+        assert!(matches!(
+            parse_optional_env::<bool>(BOOLEAN),
+            Err(Error::InvalidValue { .. })
+        ));
+        unsafe {
+            std::env::remove_var(NUMBER);
+            std::env::remove_var(BOOLEAN);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_unicode_optional_environment_values_are_reported() {
+        use std::os::unix::ffi::OsStringExt;
+
+        const NAME: &str = "APOLLO_RUST_CLIENT_TEST_NON_UNICODE";
+        unsafe {
+            std::env::set_var(NAME, std::ffi::OsString::from_vec(vec![0xff]));
+        }
+        assert!(matches!(optional_env(NAME), Err(Error::EnvVar(_, _))));
+        unsafe {
+            std::env::remove_var(NAME);
         }
     }
 }
@@ -383,15 +670,16 @@ cfg_if! {
             ///
             /// 1.  It uses the `cache_dir` field from the `ClientConfig` instance if it's set.
             /// 2.  If `cache_dir` is `None`, it defaults to `/opt/data`.
-            /// 3.  It then appends the `app_id` (from `ClientConfig`) as a subdirectory.
-            /// 4.  Finally, it appends `config-cache` as another subdirectory.
+            /// 3.  It appends the library-owned `apollo-rust-client/config-cache`
+            ///     directory. Application, server, cluster, and namespace identity
+            ///     are encoded in each cache filename rather than raw path segments.
             ///
             /// # Examples
             ///
-            /// - If `cache_dir` is `Some("/my/custom/path".to_string())` and `app_id` is `"my_app"`,
-            ///   the result will be `/my/custom/path/my_app/config-cache`.
-            /// - If `cache_dir` is `None` and `app_id` is `"another_app"`,
-            ///   the result will be `/opt/data/another_app/config-cache`.
+            /// - If `cache_dir` is `Some("/my/custom/path".to_string())`, the
+            ///   result is `/my/custom/path/apollo-rust-client/config-cache`.
+            /// - If `cache_dir` is `None`, the result is
+            ///   `/opt/data/apollo-rust-client/config-cache`.
             ///
             /// # Returns
             ///
@@ -403,7 +691,7 @@ cfg_if! {
                         .clone()
                         .unwrap_or_else(|| String::from("/opt/data")),
                 );
-                base.join(&self.app_id).join("config-cache")
+                base.join("apollo-rust-client").join("config-cache")
             }
         }
     } else {
@@ -432,6 +720,7 @@ cfg_if! {
             ///
             /// A new `ClientConfig` instance.
             #[wasm_bindgen(constructor)]
+            #[must_use]
             pub fn new(app_id: String, config_server: String, cluster: String) -> Self {
                 Self {
                     app_id,
@@ -442,6 +731,8 @@ cfg_if! {
                     label: None,
                     ip: None,
                     allow_insecure_https: None,
+                    cache_ttl: Some(DEFAULT_CACHE_TTL_SECONDS),
+                    refresh_interval: Some(DEFAULT_REFRESH_INTERVAL_SECONDS),
                 }
             }
         }

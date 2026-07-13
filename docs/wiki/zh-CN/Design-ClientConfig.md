@@ -14,7 +14,7 @@
     要从中获取配置的 Apollo 集群的名称。在许多情况下默认为 `"default"`，但应明确提供。
 
 -   **`cache_dir: Option<std::path::PathBuf>`**:
-    *(仅限非 WASM)* 一个可选路径，指向将本地缓存配置文件的目录。如果为 `None`，则通常由 `get_cache_dir()` 构建默认路径（例如 `/opt/data/{app_id}/config-cache`）。对于 WASM 目标，此字段始终为 `None`，因为文件系统访问受限。
+    *(仅限非 WASM)* 本地缓存的可选基础目录。默认是 `/opt/data/apollo-rust-client/config-cache`，版本化哈希文件名隔离完整请求身份。WASM 浏览器改用 localStorage。
 
 -   **`config_server: String`**:
     Apollo 配置服务器的基本 URL（例如 `http://localhost:8080`）。这是一个必填字段。
@@ -78,6 +78,6 @@
 
 此方法（在非 WASM 目标上可用）确定要使用的实际缓存目录路径。
 -   如果 `self.cache_dir`（`ClientConfig` 中的字段）是 `Some(path)`，则使用该路径。
--   如果 `self.cache_dir` 是 `None`，它会构建一个默认路径：`/opt/data/{self.app_id}/config-cache`。
+-   如果 `self.cache_dir` 是 `None`，默认路径为 `/opt/data/apollo-rust-client/config-cache`。
 
 此逻辑确保即使在用户未明确指定的情况下，缓存配置文件也有一个可预测的位置。

@@ -116,17 +116,36 @@ pub enum Error {
 ///
 /// # Examples
 ///
-/// ```ignore
-/// use apollo_client::namespace::Namespace;
+/// ```rust
+/// use apollo_rust_client::namespace::{
+///     Namespace,
+///     json::Json,
+///     properties::Properties,
+///     yaml::Yaml,
+/// };
+/// use serde_json::json;
 ///
 /// // Working with JSON data
-/// let json_namespace = Namespace::Json(json_data);
+/// let json_namespace = Namespace::Json(
+///     Json::try_from(json!({"content": r#"{"enabled":true}"#})).unwrap(),
+/// );
+/// assert!(matches!(json_namespace, Namespace::Json(_)));
 ///
 /// // Working with Properties data
-/// let props_namespace = Namespace::Properties(properties_data);
+/// let props_namespace = Namespace::Properties(Properties::from(json!({
+///     "database.host": "localhost",
+/// })));
+/// assert!(matches!(props_namespace, Namespace::Properties(_)));
+///
+/// // Working with YAML data
+/// let yaml_namespace = Namespace::Yaml(
+///     Yaml::try_from(json!({"content": "enabled: true"})).unwrap(),
+/// );
+/// assert!(matches!(yaml_namespace, Namespace::Yaml(_)));
 ///
 /// // Working with plain text
 /// let text_namespace = Namespace::Text("configuration content".to_string());
+/// assert!(matches!(text_namespace, Namespace::Text(_)));
 /// ```
 #[derive(Clone, Debug)]
 pub enum Namespace {
@@ -204,7 +223,8 @@ fn get_namespace_type(namespace: &str) -> NamespaceType {
             "json" => NamespaceType::Json,
             "yaml" | "yml" => NamespaceType::Yaml,
             "xml" => NamespaceType::Xml,
-            _ => NamespaceType::Text,
+            "txt" => NamespaceType::Text,
+            _ => NamespaceType::Properties,
         }
     }
 }
@@ -238,17 +258,24 @@ fn get_namespace_type(namespace: &str) -> NamespaceType {
 ///
 /// # Examples
 ///
-/// ```ignore
-/// use serde_json::json;
-/// use apollo_client::namespace::get_namespace;
+/// `get_namespace` is an internal conversion step. Applications trigger it through
+/// [`crate::Client::namespace`]:
 ///
-/// let json_data = json!({"content": "{\"key\": \"value\"}"});
-/// let namespace = get_namespace("config.json", json_data)?;
-/// // Returns Namespace::Json variant
+/// ```rust,no_run
+/// use apollo_rust_client::{Client, client_config::ClientConfig, namespace::Namespace};
 ///
-/// let props_data = json!({"app.name": "MyApp", "app.version": "1.0"});
-/// let namespace = get_namespace("application", props_data)?;
-/// // Returns Namespace::Properties variant
+/// # #[tokio::main(flavor = "current_thread")]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let config = ClientConfig::builder("my-app", "http://apollo-server:8080").build()?;
+/// let client = Client::new(config)?;
+///
+/// let namespace = client.namespace("config.json").await?;
+/// assert!(matches!(namespace, Namespace::Json(_)));
+///
+/// let namespace = client.namespace("application").await?;
+/// assert!(matches!(namespace, Namespace::Properties(_)));
+/// # Ok(())
+/// # }
 /// ```
 pub(crate) fn get_namespace(namespace: &str, value: serde_json::Value) -> Result<Namespace, Error> {
     match get_namespace_type(namespace) {
@@ -288,6 +315,11 @@ mod tests {
             get_namespace_type("app-settings"),
             NamespaceType::Properties
         );
+        assert_eq!(
+            get_namespace_type("application.properties"),
+            NamespaceType::Properties
+        );
+        assert_eq!(get_namespace_type("FX.apollo"), NamespaceType::Properties);
     }
 
     #[test]
@@ -328,15 +360,24 @@ mod tests {
 
     #[test]
     fn test_get_namespace_type_unsupported_extensions() {
-        // Test cases with unsupported extensions that should default to Text
-        assert_eq!(get_namespace_type("config.ini"), NamespaceType::Text);
-        assert_eq!(get_namespace_type("settings.cfg"), NamespaceType::Text);
-        assert_eq!(get_namespace_type("app.properties"), NamespaceType::Text);
-        assert_eq!(get_namespace_type("data.csv"), NamespaceType::Text);
-        assert_eq!(get_namespace_type("config.toml"), NamespaceType::Text);
-        assert_eq!(get_namespace_type("settings.conf"), NamespaceType::Text);
-        assert_eq!(get_namespace_type("app.unknown"), NamespaceType::Text);
-        assert_eq!(get_namespace_type("file.xyz"), NamespaceType::Text);
+        // Apollo dotted public properties namespaces must remain properties.
+        assert_eq!(get_namespace_type("config.ini"), NamespaceType::Properties);
+        assert_eq!(
+            get_namespace_type("settings.cfg"),
+            NamespaceType::Properties
+        );
+        assert_eq!(
+            get_namespace_type("app.properties"),
+            NamespaceType::Properties
+        );
+        assert_eq!(get_namespace_type("data.csv"), NamespaceType::Properties);
+        assert_eq!(get_namespace_type("config.toml"), NamespaceType::Properties);
+        assert_eq!(
+            get_namespace_type("settings.conf"),
+            NamespaceType::Properties
+        );
+        assert_eq!(get_namespace_type("app.unknown"), NamespaceType::Properties);
+        assert_eq!(get_namespace_type("file.xyz"), NamespaceType::Properties);
     }
 
     #[test]
@@ -344,11 +385,11 @@ mod tests {
         // Test edge cases
         assert_eq!(get_namespace_type(""), NamespaceType::Properties); // Empty string
         assert_eq!(get_namespace_type(".json"), NamespaceType::Json); // Leading dot
-        assert_eq!(get_namespace_type("file."), NamespaceType::Text); // Trailing dot with no extension
+        assert_eq!(get_namespace_type("file."), NamespaceType::Properties); // Trailing dot with no extension
         assert_eq!(get_namespace_type("file..json"), NamespaceType::Json); // Double dots
         assert_eq!(
             get_namespace_type("config.json.backup"),
-            NamespaceType::Text
+            NamespaceType::Properties
         ); // Multiple extensions
     }
 }

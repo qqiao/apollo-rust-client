@@ -7,17 +7,19 @@
 //! # Usage
 //!
 //! The `Yaml` struct is typically created automatically by the namespace detection
-//! system when a namespace name contains a `.yml` or `.yaml` extension, but can also be
-//! created directly from any `serde_yaml::Value`.
+//! system when a namespace name contains a `.yml` or `.yaml` extension. It can also be
+//! constructed from the JSON response envelope returned by Apollo.
 //!
 //! # Examples
 //!
-//! ```ignore
-//! use serde_yaml;
-//! use apollo_client::namespace::yaml::Yaml;
+//! ```rust
+//! use serde_json::json;
+//! use apollo_rust_client::namespace::yaml::Yaml;
 //!
-//! let yaml_data = serde_yaml::from_str("name: MyApp\nversion: 1.0.0").unwrap();
-//! let yaml_namespace = Yaml::from(yaml_data);
+//! let response = json!({"content": "name: MyApp\nversion: 1.0.0"});
+//! let yaml_namespace = Yaml::try_from(response).unwrap();
+//! let value: serde_yaml::Value = yaml_namespace.to_object().unwrap();
+//! assert_eq!(value["name"].as_str(), Some("MyApp"));
 //! ```
 
 use log::trace;
@@ -94,13 +96,16 @@ pub enum Error {
 ///
 /// # Examples
 ///
-/// ```ignore
-/// use serde_yaml;
-/// use apollo_client::namespace::yaml::Yaml;
+/// ```rust
+/// use serde_json::json;
+/// use apollo_rust_client::namespace::yaml::Yaml;
 ///
-/// let yaml_data = serde_yaml::from_str("database:\n  host: localhost\n  port: 5432").unwrap();
-///
-/// let yaml_namespace = Yaml::from(yaml_data);
+/// let response = json!({
+///     "content": "database:\n  host: localhost\n  port: 5432"
+/// });
+/// let yaml_namespace = Yaml::try_from(response).unwrap();
+/// let value: serde_yaml::Value = yaml_namespace.to_object().unwrap();
+/// assert_eq!(value["database"]["port"].as_u64(), Some(5432));
 /// ```
 #[derive(Clone, Debug)]
 pub struct Yaml {
@@ -141,21 +146,24 @@ impl Yaml {
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// use serde::{Deserialize, Serialize};
-    /// use serde_yaml;
-    /// use apollo_client::namespace::yaml::Yaml;
+    /// ```rust
+    /// use serde::Deserialize;
+    /// use serde_json::json;
+    /// use apollo_rust_client::namespace::yaml::Yaml;
     ///
-    /// #[derive(Deserialize, Serialize)]
+    /// #[derive(Debug, Deserialize, PartialEq)]
     /// struct DatabaseConfig {
     ///     host: String,
     ///     port: u16,
     /// }
     ///
-    /// let yaml_data = serde_yaml::from_str("host: localhost\nport: 5432").unwrap();
-    ///
-    /// let yaml_namespace = Yaml::from(yaml_data);
-    /// let config: DatabaseConfig = yaml_namespace.to_object()?;
+    /// let response = json!({"content": "host: localhost\nport: 5432"});
+    /// let yaml_namespace = Yaml::try_from(response).unwrap();
+    /// let config: DatabaseConfig = yaml_namespace.to_object().unwrap();
+    /// assert_eq!(config, DatabaseConfig {
+    ///     host: "localhost".to_string(),
+    ///     port: 5432,
+    /// });
     /// ```
     pub fn to_object<T: DeserializeOwned>(&self) -> Result<T, serde_yaml::Error> {
         trace!("string: {:?}", self.string);
@@ -185,12 +193,14 @@ impl Yaml {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```rust
 /// use serde_json::json;
-/// use apollo_client::namespace::yaml::Yaml;
+/// use apollo_rust_client::namespace::yaml::Yaml;
 ///
 /// let json_data = json!({"content": "name: MyApp\nversion: 1.0.0"});
 /// let yaml_namespace = Yaml::try_from(json_data).unwrap();
+/// let value: serde_yaml::Value = yaml_namespace.to_object().unwrap();
+/// assert_eq!(value["version"].as_str(), Some("1.0.0"));
 /// ```
 impl TryFrom<serde_json::Value> for Yaml {
     type Error = crate::namespace::yaml::Error;
@@ -209,8 +219,10 @@ impl TryFrom<serde_json::Value> for Yaml {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_arch = "wasm32"))]
     use serde::Deserialize;
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[derive(Debug, Deserialize, PartialEq)]
     struct TestStruct {
         host: String,
@@ -241,7 +253,7 @@ mod tests {
     #[tokio::test]
     async fn test_namespace_to_object() {
         crate::setup();
-        let namespace = crate::tests::CLIENT_NO_SECRET
+        let namespace = crate::tests::client_no_secret()
             .namespace("application.yml")
             .await
             .unwrap();

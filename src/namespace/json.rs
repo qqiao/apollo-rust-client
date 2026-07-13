@@ -7,17 +7,21 @@
 //! # Usage
 //!
 //! The `Json` struct is typically created automatically by the namespace detection
-//! system when a namespace name contains a `.json` extension, but can also be
-//! created directly from any `serde_json::Value`.
+//! system when a namespace name contains a `.json` extension. It can also be
+//! constructed from the JSON response envelope returned by Apollo.
 //!
 //! # Examples
 //!
-//! ```ignore
+//! ```rust
 //! use serde_json::json;
-//! use apollo_client::namespace::json::Json;
+//! use apollo_rust_client::namespace::json::Json;
 //!
-//! let json_data = json!({"name": "MyApp", "version": "1.0.0"});
-//! let json_namespace = Json::from(json_data);
+//! let response = json!({
+//!     "content": r#"{"name":"MyApp","version":"1.0.0"}"#
+//! });
+//! let json_namespace = Json::try_from(response).unwrap();
+//! let value: serde_json::Value = json_namespace.to_object().unwrap();
+//! assert_eq!(value["name"], "MyApp");
 //! ```
 
 use log::trace;
@@ -94,18 +98,17 @@ pub enum Error {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```rust
 /// use serde_json::json;
-/// use apollo_client::namespace::json::Json;
+/// use apollo_rust_client::namespace::json::Json;
 ///
-/// let json_data = json!({
-///     "database": {
-///         "host": "localhost",
-///         "port": 5432
-///     }
+/// let response = json!({
+///     "content": r#"{"database":{"host":"localhost","port":5432}}"#
 /// });
 ///
-/// let json_namespace = Json::from(json_data);
+/// let json_namespace = Json::try_from(response).unwrap();
+/// let value: serde_json::Value = json_namespace.to_object().unwrap();
+/// assert_eq!(value["database"]["port"], 5432);
 /// ```
 use serde::Serialize;
 
@@ -148,24 +151,27 @@ impl Json {
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// use serde::{Deserialize, Serialize};
+    /// ```rust
+    /// use serde::Deserialize;
     /// use serde_json::json;
-    /// use apollo_client::namespace::json::Json;
+    /// use apollo_rust_client::namespace::json::Json;
     ///
-    /// #[derive(Deserialize, Serialize)]
+    /// #[derive(Debug, Deserialize, PartialEq)]
     /// struct DatabaseConfig {
     ///     host: String,
     ///     port: u16,
     /// }
     ///
-    /// let json_data = json!({
-    ///     "host": "localhost",
-    ///     "port": 5432
+    /// let response = json!({
+    ///     "content": r#"{"host":"localhost","port":5432}"#
     /// });
     ///
-    /// let json_namespace = Json::from(json_data);
-    /// let config: DatabaseConfig = json_namespace.to_object()?;
+    /// let json_namespace = Json::try_from(response).unwrap();
+    /// let config: DatabaseConfig = json_namespace.to_object().unwrap();
+    /// assert_eq!(config, DatabaseConfig {
+    ///     host: "localhost".to_string(),
+    ///     port: 5432,
+    /// });
     /// ```
     pub fn to_object<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
         serde_json::from_value(self.value.clone())
@@ -196,12 +202,14 @@ impl Json {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```rust
 /// use serde_json::json;
-/// use apollo_client::namespace::json::Json;
+/// use apollo_rust_client::namespace::json::Json;
 ///
 /// let json_data = json!({"content": "{\"key\": \"value\"}"});
-/// let json_namespace = Json::try_from(json_data)?;
+/// let json_namespace = Json::try_from(json_data).unwrap();
+/// let value: serde_json::Value = json_namespace.to_object().unwrap();
+/// assert_eq!(value["key"], "value");
 /// ```
 impl TryFrom<serde_json::Value> for Json {
     type Error = crate::namespace::json::Error;
@@ -219,8 +227,10 @@ impl TryFrom<serde_json::Value> for Json {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_arch = "wasm32"))]
     use serde::Deserialize;
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[derive(Debug, Deserialize, PartialEq)]
     struct TestStruct {
         host: String,
@@ -251,7 +261,7 @@ mod tests {
     #[tokio::test]
     async fn test_namespace_to_object() {
         crate::setup();
-        let namespace = crate::tests::CLIENT_NO_SECRET
+        let namespace = crate::tests::client_no_secret()
             .namespace("application.json")
             .await
             .unwrap();

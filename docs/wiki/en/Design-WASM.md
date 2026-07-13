@@ -24,7 +24,7 @@ Key areas where conditional compilation is applied:
     -   WASM: Exposes a specific `ClientConfig::new(app_id, config_server, cluster)` constructor to JavaScript, as environment variables are not typically used in browser WASM, and file system caching is disabled.
 
 -   **File System Caching:**
-    -   All file I/O operations related to caching configuration on disk are conditionally compiled out for WASM targets. The `cache_dir` field in `ClientConfig` and `file_path` in `Cache` are effectively unused in WASM. Instead, browser WASM targets support persistent `localStorage` caching under the key `apollo_cache_{app_id}_{cluster}_{namespace}`.
+    -   Disk I/O is compiled out for WASM. Browsers use TTL-bound `localStorage` under `apollo_cache_v2_{sha1(identity)}`; Node.js falls back to memory when localStorage is unavailable.
 
 ## `wasm-bindgen`
 
