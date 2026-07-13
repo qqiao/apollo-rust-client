@@ -650,7 +650,7 @@ impl Cache {
         let cache_content = serde_json::to_string(&cache_item)?;
 
         // Write to a temporary file first, then atomically rename it
-        let temp_file_path = self.file_path.with_extension("cache.json.tmp");
+        let temp_file_path = self.file_path.with_extension("json.tmp");
         tokio::fs::write(&temp_file_path, cache_content).await?;
         tokio::fs::rename(&temp_file_path, &self.file_path).await?;
 
