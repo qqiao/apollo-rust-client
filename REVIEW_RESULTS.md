@@ -1,280 +1,328 @@
 # Code Review Results — apollo-rust-client v0.7.0
 
-**Review date:** 2026-07-12
-**Scope:** Architecture, correctness, documentation, testing (per `REVIEW.md`)
-**Verification performed:** `cargo clippy --all-targets` (2 warnings), `cargo test --doc` (**8 doctest compile failures**), targeted unit tests (pass). The wiremock integration suite (`scripts/test.sh`) could not be executed because the Docker daemon was unavailable in the review environment; mock mappings were reviewed statically.
+**Review date:** 2026-07-14
 
----
+**Scope:** Architecture, correctness, documentation, and testing, as requested by `REVIEW.md`
 
-## Executive Summary
+**Reviewed revision:** `8c73915` (`code-review`)
 
-The overall architecture is sound for a polling-based configuration client: a clean three-layer design (`Client` → per-namespace `Cache` → typed `Namespace`), a shared `reqwest::Client` for connection pooling, a correct HMAC-SHA1 signature implementation (verified against the official Apollo test vector), and a sensible double-checked-locking pattern to prevent thundering-herd fetches.
+## Executive summary
 
-However, there are several findings that matter for a library running in production:
+The core decomposition is understandable and generally appropriate: `Client` owns a shared HTTP client and a map of per-namespace `Cache` objects, while `Namespace` provides format-specific access. Connection pooling, typed property access, HMAC signing, feature-conflict guards, grayscale request parameters, and the intention to provide memory plus persistent caching are all sound choices.
 
-1. **HTTP status codes are never checked** — error responses can be parsed and *cached as configuration*.
-2. **The native file cache key omits the cluster** — clients in different clusters can serve each other's cached config.
-3. **The WASM story diverges sharply from the documentation** — `start()` does nothing on WASM, `start`/`stop` aren't even exported to JavaScript, and the localStorage cache never expires, so WASM clients can be permanently frozen on first-fetched config.
-4. **8 doctests fail to compile**, and the CI test script never runs doctests, so this regression went unnoticed.
+The current revision is nevertheless not ready for a production release. The advertised WASM target does not compile, HTTP status codes are ignored, persistent cache identities can cross clusters/environments, and the WASM cache can permanently freeze configuration. Native shutdown and refresh locking can also cause long stalls or leaked background tasks. Several of these behaviors contradict the repository's public documentation and Apollo's documented client design.
 
----
+The highest-priority conclusions are:
 
-## Critical
+1. **WASM is build-broken** by enabling Tokio's native-only `fs` feature for all targets.
+2. **Non-success HTTP responses can be cached and served as configuration.**
+3. **Persistent cache keys are not fully isolated**, allowing silent configuration bleed.
+4. **The WASM lifecycle is non-functional**: no polling task is started, lifecycle methods are absent from JavaScript, and localStorage entries never expire.
+5. **Native cache persistence reduces availability instead of improving it** when the cache directory is unwritable or a stale cache is the only available configuration.
 
-### C1. HTTP response status is never validated — error bodies can be cached as config
+## Verification performed
 
-**Files:** `src/cache.rs` L589–597 (`execute_request`), L610–625 (`parse_response`), L476–515 (`fetch_remote_config`)
+| Check | Result |
+|---|---|
+| `rustc --version` | `1.97.0` (stable, 2026-07-07) |
+| `cargo test --doc` | Pass: 14 passed, 24 ignored |
+| `cargo clippy --all-targets -- -D warnings` | Fail: one `useless_borrows_in_formatting` error at `src/cache.rs:567` |
+| `cargo clippy --no-default-features --features rustls --all-targets -- -D warnings` | Same clippy failure; rustls otherwise compiled to the crate |
+| `cargo clippy --target wasm32-unknown-unknown --all-targets -- -D warnings` | Fail: Tokio rejects the enabled `fs` feature on WASM |
+| `scripts/test.sh` | Could not run: the Docker/OrbStack daemon socket was unavailable, so WireMock did not start |
+| WireMock mappings | Reviewed statically against the request paths and response shapes used by this client |
 
-Neither `execute_request` nor `parse_response` calls `response.error_for_status()` or inspects `response.status()`. Consequences:
+The passing doctest count should not be interpreted as complete documentation verification: 24 examples are marked `ignore`, including examples that refer to a nonexistent `apollo_client` crate or private APIs.
 
-- A 404 (nonexistent namespace) or 401 (bad/expired secret) produces a confusing `Error::Serde` ("expected value at line 1…") instead of a meaningful error, or worse:
-- Any error response with a JSON body — e.g. Spring's `{"timestamp":..., "status":404, "error":"Not Found"}` or a JSON-speaking gateway/load-balancer error — parses successfully, is **written to the file cache / localStorage** (`fetch_remote_config` L500–512), stored in memory, and served to the application as if it were legitimate configuration. Grayscale keys silently disappear; typed lookups return `None`.
+## Critical findings
 
-**Suggestion:** Check the status before parsing; introduce dedicated error variants (e.g. `Error::HttpStatus(StatusCode)`, `Error::Unauthorized`, `Error::NamespaceNotFound`). Only cache bodies from 2xx responses.
+### C1. The WASM target does not compile
 
-### C2. Native file cache is not isolated by cluster
+**Files:** `Cargo.toml:24`, `src/cache.rs:373`, `src/cache.rs:642-655`
 
-**File:** `src/cache.rs` L242–258 (`Cache::new`)
+Tokio is declared globally with `features = ["sync", "rt", "time", "fs"]`. Tokio explicitly rejects `fs` when compiled for `wasm32`, producing:
 
-The cache file name is built from `namespace` + optional `ip` + optional `label`, and the directory from `cache_dir`/`app_id` (`client_config.rs` L387–395). The **cluster is not part of the path**. Two processes (or two `Client`s) with the same `app_id` and `cache_dir` but different `cluster`s will read/write the same `*.cache.json` file and can serve each other's configuration — a silent cross-environment config bleed. Note the WASM key *does* include the cluster (`apollo_cache_{app_id}_{cluster}_{namespace}`, L260–266), so this is an inconsistency as well as a correctness bug.
-
-**Suggestion:** Include the cluster (and ideally `config_server`) in the file path, mirroring the WASM key. Provide a cache-version bump / migration note since existing deployments will re-fetch once.
-
-### C3. WASM: `start()` does nothing, and `start`/`stop` are not exported to JavaScript at all
-
-**Files:** `src/lib.rs` L402–453 (`start`), L410–413 (wasm branch), L563–687 (`#[wasm_bindgen] impl` block); `README.md` L177–178; `docs/wiki/en/JavaScript-Usage.md` L30, L104, L174
-
-Two distinct problems:
-
-1. On `wasm32`, `start()` merely sets `self.handle = None` after flipping the `running` flag — **no task is spawned, no polling ever happens**. The doc comment (L382–384), `docs/wiki/en/Design-Client.md`, `Design-WASM.md`, `Features.md`, `Home.md`, and `specs/architectural_design.md` all claim `wasm_bindgen_futures::spawn_local` is used. `wasm-bindgen-futures` is even declared as a dependency (Cargo.toml L42) but `spawn_local` appears nowhere in `src/` (verified by grep).
-2. `start`, `stop`, and `preload` live in the *non-annotated* `impl Client` block, so they are not exported to the JS bindings at all. The README (L178: `await client.start();`) and `JavaScript-Usage.md` instruct users to call a method that **throws `TypeError: client.start is not a function`** at runtime.
-
-**Suggestion:** Either implement WASM polling via `spawn_local` + a cancellation flag (and export `start`/`stop` with `#[wasm_bindgen]`), or explicitly document that WASM is fetch-on-demand only and remove `start()` from all JS examples.
-
-### C4. WASM localStorage cache never expires → configuration frozen forever
-
-**File:** `src/cache.rs` L399–410 (`load_and_cache`, wasm branch)
-
-The wasm branch deserializes the `CacheItem` and uses `cache_item.config` unconditionally — the `timestamp` field is written (L504–507) but **never checked**. There is no `cache_ttl` on the WASM `ClientConfig` (it's `cfg`'d out, `client_config.rs` L229–230). Combined with C3 (no background refresh on WASM) and the fact that `Cache::refresh` is not reachable from JS, a browser client that has ever cached a namespace in localStorage will **never contact the server again** for that namespace. For a production configuration client this defeats the purpose of centralized config.
-
-**Suggestion:** Honor the stored `timestamp` with a TTL (even a hard-coded conservative default), and/or treat localStorage as a fallback only (fetch remote first, fall back to localStorage on network failure).
-
----
-
-## High
-
-### H1. Documentation examples do not compile — 8 doctest failures
-
-**Files:** `src/lib.rs` doc examples at L23, L97, L209, L343, L494; `src/client_config.rs` doc examples at L34, L128, L147; `README.md` L64–135
-
-Verified with `cargo test --doc`:
-
-```
-error[E0063]: missing fields `http_client` and `refresh_interval` in initializer of `ClientConfig`
-test result: FAILED. 6 passed; 8 failed; 24 ignored
+```text
+error: Only features sync,macros,io-util,rt,time are supported on wasm.
 ```
 
-When `refresh_interval` and `http_client` were added to `ClientConfig`, none of the struct-literal examples were updated. The README's Quick Start has the same problem, *plus* its `match namespace { ... }` (L93–123) omits the `Namespace::Yaml` arm of a non-exhaustive match — it cannot compile either. This directly violates the project's own rule (".agent/rules/rust.md" #3: keep documentation valid on every change).
+This was reproduced with the current stable toolchain and current lockfile (`tokio 1.52.3`). It breaks the project's defining cross-compilation promise and prevents the WASM tests from compiling, independent of any runtime behavior.
 
-Root cause of non-detection: `scripts/test.sh` runs `cargo test --lib` only — **doctests are never executed in CI** (`.github/workflows/rust.yml` delegates to that script).
+**Recommendation:** Move `fs` behind a non-WASM target-specific Tokio dependency, leaving only WASM-supported features in the common dependency. Add a direct WASM compile/clippy command to CI so this regression is reported before merge.
 
-**Suggestion:** Fix all examples (better: use `ClientConfig::from_env()` or a builder in examples to reduce churn), add `cargo test --doc` (or plain `cargo test`) to `scripts/test.sh`, and consider `#[non_exhaustive]` + a builder/`Default` impl for `ClientConfig` so field additions stop breaking every downstream initializer — this struct is a public API and every new field is currently a semver-breaking change.
+### C2. HTTP status codes are never checked, so error responses may be cached as configuration
 
-### H2. `stop()` can block for a full refresh interval
+**Files:** `src/cache.rs:471-509`, `src/cache.rs:584-619`
 
-**File:** `src/lib.rs` L422–447 (background loop), L464–475 (`stop`)
+`execute_request` accepts every response returned by `send()`, and `parse_response` consumes the body without calling `error_for_status()` or inspecting `status()`. A 401, 404, 429, or 500 with a JSON body therefore parses successfully, is written to disk/localStorage, placed in memory, and returned as configuration. A non-JSON error body becomes a misleading serialization error rather than an HTTP error.
 
-In the background task, `let running = running.read().await;` acquires a read guard that is held **for the entire loop iteration** — including all namespace refreshes and the `tokio::time::sleep(refresh_interval)` — because it is not dropped until the iteration ends. `stop()` first awaits `self.running.write().await`, which must wait for that read guard. With the default 30s interval (or longer), `stop()` blocks up to that long before it even reaches `handle.abort()`.
+This is particularly dangerous for properties namespaces: a typical JSON gateway error object is structurally acceptable as a properties map, so applications may silently receive missing or attacker-controlled keys instead of an error.
 
-**Suggestion:** Drop the guard immediately (`if !*running.read().await { break; }`), or replace the flag with `tokio_util::sync::CancellationToken` / `tokio::select!` over sleep + shutdown signal. Also consider awaiting the aborted handle so in-flight file writes finish (see M5).
+**Recommendation:** Validate status before parsing or persisting. Add explicit status-bearing error variants and map expected Apollo outcomes (401, 404, 304, 429, 5xx). Never cache a non-success response.
 
-### H3. `Cache::refresh()` holds the memory write lock across the network fetch
+### C3. Persistent cache identities can cross clusters and configuration servers
 
-**File:** `src/cache.rs` L440–450
+**Files:** `src/cache.rs:247-273`, `src/client_config.rs:399-406`
 
-`refresh()` acquires `self.memory.write().await` *before* calling `fetch_remote_config()`. Every reader (`get_value` fast path, L322) blocks for the duration of the HTTP round trip — up to the 10-second timeout — on **every background refresh cycle**, for every namespace. In a hot path where config is read per-request, this causes periodic latency spikes.
+The native cache path includes `app_id`, namespace, IP, and label, but omits `cluster` and `config_server`. Two clients using a shared cache directory for the same application but different clusters or Apollo environments can read and overwrite the same file. This can silently serve production configuration in staging or vice versa.
 
-**Suggestion:** Fetch first, then lock briefly to swap the value:
+The WASM key includes `app_id` and `cluster` but still omits `config_server`. A page that connects to multiple Apollo environments on the same origin can therefore reuse the wrong localStorage entry.
 
-```rust
-let config = self.fetch_remote_config().await?;
-let listeners = { let mut w = self.memory.write().await; w.replace(config.clone()); self.listeners.read().await.clone() };
-```
+The filename composition is also ambiguous: underscores are used as separators without escaping, so namespace/IP/label combinations can collide.
 
-### H4. Namespace format detection misclassifies legitimate Apollo namespaces
+**Recommendation:** Define and version a canonical cache identity containing server origin, app ID, cluster, namespace, IP, and label. Serialize the tuple and hash or safely encode it for both native and WASM storage. Add migration/re-fetch behavior for existing cache entries.
 
-**File:** `src/namespace/mod.rs` L198–210 (`get_namespace_type`), L258–269 (text branch)
+### C4. WASM has no working update lifecycle and can remain permanently frozen on old configuration
 
-Any namespace containing a dot with an unrecognized "extension" is treated as `Text`. This breaks two common, legitimate Apollo cases:
+**Files:** `src/lib.rs:403-475`, `src/lib.rs:590-714`, `src/cache.rs:394-405`; `README.md:157-198`; `docs/wiki/en/JavaScript-Usage.md:1-190`
 
-- **`.properties` suffix** (e.g. `application.properties`) — a properties namespace, classified here as Text.
-- **Public / association namespaces**, which are conventionally named `{department}.{namespace}` (e.g. `TEST1.apollo`) and are properties-format. The server returns a JSON map with no `"content"` key, so `get_namespace` fails hard with `Error::Text("Failed to get text content...")` — public namespaces are effectively **unusable**.
+There are three compounding defects:
 
-The unit test `test_get_namespace_type_unsupported_extensions` (L330–340) actually enshrines the wrong behavior (`app.properties → Text`).
+- The WASM branch of `Client::start` only assigns `self.handle = None`; it never calls `spawn_local` and performs no polling.
+- `start`, `stop`, and `preload` are in the non-`#[wasm_bindgen]` impl and are absent from the JavaScript API, despite JavaScript documentation calling `client.start()`.
+- The localStorage read path accepts a cached `CacheItem` without checking its timestamp. WASM has no `cache_ttl` field, and `refresh` is not exposed to JavaScript.
 
-**Suggestion:** Map a trailing `.properties` to `Properties`; for unknown "extensions", default to Properties (matching Apollo's own convention) or inspect the payload shape (`content` key present → text-like; otherwise properties). Only `.txt` should map to Text.
+Once C1 is fixed, a browser that has cached a namespace may still never contact Apollo for it again. Registered JS listeners have no source of future refreshes.
 
-### H5. Configuration never refreshes unless `start()` is called; TTL semantics inconsistent
+**Recommendation:** Either implement and export a real WASM lifecycle (polling or Apollo long polling plus cancellation) and enforce localStorage freshness, or explicitly define WASM as fetch-on-demand, fetch remote before falling back to storage, and remove the nonexistent lifecycle from all docs. The former better matches the advertised product.
 
-**Files:** `src/cache.rs` L320–360 (`get_value`), L374–398 (file-cache TTL check); `src/client_config.rs` L298–301
+## High findings
 
-Once `memory` is populated, `get_value` returns it forever; `cache_ttl` is only consulted when loading the *file* cache on a cold start. A native client that never calls `start()` will never see a config change for the process lifetime. Additionally, defaults are inconsistent: `from_env()` defaults `cache_ttl` to `Some(600)`, but direct struct construction leaves it `None` = *never stale* — a surprising divergence that is only partially documented (`client_config.rs` L224–228).
+### H1. Native persistent caching turns successful fetches into failures and does not provide stale fallback
 
-**Suggestion:** Document loudly that `start()` (or manual `refresh`) is required for updates; consider honoring `cache_ttl` for the in-memory tier as well, and unify the default TTL between construction paths.
+**Files:** `src/cache.rs:359-415`, `src/cache.rs:471-509`, `src/cache.rs:637-663`; `src/client_config.rs:399-406`
 
-### H6. Listeners are never notified of errors, contrary to documentation
+Every successful remote fetch must also successfully create and write the cache file before the configuration is returned. With `cache_dir: None`, the default is `/opt/data/{app_id}/config-cache`, which is commonly unwritable for an unprivileged process. In that case, a valid Apollo response is discarded and `Client::namespace` returns `Error::Io`.
 
-**Files:** `src/cache.rs` L440–450 (`refresh`), L452–474 (`notify_listeners`), doc at L667–682; `src/lib.rs` L612–640 (JS listener docs); `README.md` L126–131
+When a disk cache is older than `cache_ttl`, it is discarded before the network request. If Apollo is unreachable, the stale value is not used as a fallback. This contradicts the stated purpose of persistent caching and Apollo's documented client model, in which local files restore configuration during service/network failure.
 
-`refresh()` propagates fetch errors with `?` before `notify_listeners` is ever called, and `load_and_cache` does the same. So a listener can only ever receive `Err(...)` from a namespace *parse* failure — never from network/auth/server failures. Yet `add_listener`'s docs ("Listeners are called ... or when an error occurs during a refresh attempt"), the JS callback signature `(data, error)`, and the README all promise error delivery. Production users relying on the error callback for alerting will never get one for the most common failure class.
+**Recommendation:** Treat persistence as best-effort after updating memory, with observable logging/metrics for failures. Retain a parsed stale item and return it when remote retrieval fails. Consider a configurable strict-persistence mode only for callers that explicitly want write failures to be fatal.
 
-**Suggestion:** Notify listeners with `Err(...)` in the failure path of `refresh()` (and possibly `load_and_cache`), or correct all documentation.
+### H2. Dropping a started native client leaks its background task; `stop()` may block for the entire refresh interval
 
----
+**Files:** `src/lib.rs:258-290`, `src/lib.rs:425-498`
 
-## Medium
+There is no `Drop` implementation. Dropping a Tokio `JoinHandle` detaches rather than cancels its task, and the task owns cloned `Arc`s, so a dropped `Client` can continue polling and writing indefinitely.
 
-### M1. "Real-Time Updates" overstates the architecture
+Within the worker, `let running = running.read().await` keeps the read guard alive across every refresh and the subsequent sleep. `stop()` needs the write lock before it can call `abort()`, so it can wait for all sequential requests plus the full interval (at least 30 seconds in production). The docs explicitly claim the loop ends when the client is dropped, which is false.
 
-**Files:** `README.md` L17; `src/lib.rs` L15; `src/cache.rs` L526–548
+**Recommendation:** Use a cancellation token/watch channel and `tokio::select!` for prompt shutdown. Drop the read guard immediately after reading the flag, await task termination where appropriate, and abort the handle in `Drop` as a final safety net.
 
-The client polls `/configfiles/json/...`, which per Apollo's design is a server-side *cached* endpoint (may lag ~up to a minute) — the official clients achieve near-real-time updates via `/notifications/v2` long polling plus the uncached `/configs` endpoint with `releaseKey`. With a 30s default poll on a cached endpoint, worst-case propagation is minutes, not real-time. There is also no retry/backoff, no meta-server discovery, and no multi-server failover.
+### H3. Refresh holds the memory write lock across network and disk I/O
 
-**Suggestion:** Either implement long polling (`/notifications/v2`) as the update trigger, or soften the claim to "periodic background polling". Consider retry with jittered backoff in the refresh loop.
+**File:** `src/cache.rs:435-444`
 
-### M2. Secret authentication is not actually verified by the mocks
+`refresh` acquires `memory.write()` before a request that can take ten seconds and before the file write in `fetch_remote_config`. All readers block during every scheduled refresh even though a valid previous value exists. This creates periodic application latency spikes, and a slow namespace worsens shutdown delay.
 
-**Files:** `tests/wiremock/mappings/application_secret.json`; `src/cache.rs` L563–577
+**Recommendation:** Fetch and persist without holding the memory lock, then take the lock only to atomically swap the new value. Preserve and serve the old value when refresh fails.
 
-The mapping for app `101010102` matches only method + URL path. The `Authorization`/`timestamp` headers produced by `build_http_request` are never asserted, so `test_string_value_with_secret` et al. would pass even if header wiring were completely broken. The `sign()` function itself is well-tested (matches the official Apollo test vector — good), but the end-to-end request signing is untested.
+### H4. Legitimate properties and public namespaces are misclassified as text
 
-**Suggestion:** Add wiremock header matchers, e.g. `"Authorization": {"matches": "Apollo 101010102:.+"}` and `"timestamp": {"matches": "\\d+"}`, and a negative mapping returning 401 when the header is absent (which would also exercise C1's status handling once fixed).
+**File:** `src/namespace/mod.rs:198-210`, `src/namespace/mod.rs:253-274`, `src/namespace/mod.rs:329-340`
 
-### M3. Mock/test coverage gaps
+Only names without a dot are treated as properties. Every unknown suffix—including `.properties`—becomes `Text`. Apollo public/associated properties namespaces conventionally contain dots (for example `FX.apollo`), so the server returns a properties map but this client looks for a string `content` field and fails.
 
-**Files:** `tests/wiremock/mappings/`, `src/lib.rs` tests
+The test suite explicitly enshrines `app.properties -> Text`, while the README and wiki advertise `config.properties` as properties. Apollo's official Open API documentation identifies dotted public namespaces such as `FX.apollo` as `properties`.
 
-The mappings are up to date with the endpoints the client calls (`/configfiles/json/...`, ip/label query params — good), but coverage is missing for:
+**Recommendation:** Recognize `.properties`; default unknown/no suffixes to properties unless the response has the non-properties `{ "content": ... }` shape. Restrict text handling to known text-like formats, and add public namespace integration cases.
 
-- Text namespaces (`.txt`) — the `Namespace::Text` path has no integration test at all.
-- Error responses: 404 (unknown namespace), 401 (bad secret), 500, malformed JSON body.
-- File-cache behavior: TTL expiry, corrupt cache file fallback, cache reuse across client restarts.
-- `preload()` — no test on either platform.
-- `test_custom_refresh_interval` (lib.rs L1533–1564) starts/stops the loop but asserts nothing about refreshes actually occurring (no wiremock request-count verification).
-- `stop()` responsiveness (would have caught H2).
+### H5. Initial-load coordination is not cancellation-safe and has a lost-notification window
 
-Also note the shared static clients + shared temp cache dir (`test_cache_dir()`, lib.rs L738–740) make some tests order/state-dependent (`rm -fr /tmp/apollo` in `scripts/test.sh` is compensating for this).
+**File:** `src/cache.rs:318-352`
 
-### M4. `cfg!(test)` behavior baked into production code
+The task that sets `loading = true` resets it only after `load_and_cache().await`. If that future is cancelled or panics, the flag remains true forever and future callers wait indefinitely.
 
-**Files:** `src/lib.rs` L416–420; `src/client_config.rs` L305–308
+There is also a race between dropping the `loading` lock and constructing `loading_complete.notified()`. `notify_waiters()` does not store a permit for a waiter created after the notification, so a fast file-cache load can notify in this gap and leave the waiter asleep. The existing concurrency test exercises normal success but not forced interleavings, cancellation, panic, or loader failure.
 
-Refresh-interval clamping uses `if cfg!(test) { 1 } else { 30 }`. Test-specific behavior in shipped logic is a smell, and the clamping logic is duplicated in `from_env()` and `start()`. (Note `cfg!(test)` is false when the crate is used as a dependency, so downstream users always get 30 — but the duplication invites drift.)
+**Recommendation:** Replace the ad-hoc flag/`Notify` pair with a cancellation-safe single-flight primitive or an explicit state machine under one mutex. If retaining `Notify`, create/pin the notification future before checking state and use a guard that resets state on drop.
 
-**Suggestion:** Clamp in exactly one place (`start()`), and make the minimum a named constant. For tests, use a crate-private setter or accept small intervals unconditionally.
+### H6. Listener behavior violates the public contract
 
-### M5. Blocking, non-atomic file I/O inside async context
+**Files:** `src/cache.rs:435-469`, `src/cache.rs:666-705`, `src/lib.rs:639-704`
 
-**File:** `src/cache.rs` L377–380 (read), L642–665 (`write_to_file_cache`)
+- Network, authentication, HTTP, and persistence errors return before `notify_listeners`, so listeners never receive the promised refresh errors.
+- Every successful poll notifies listeners even if the value is byte-for-byte unchanged, while documentation describes configuration-change notifications.
+- Native listener callbacks are detached tasks; ordering is not guaranteed and panics are unobserved.
+- The WASM listener test adds a JS callback but only asserts that a separate Rust callback ran.
 
-`std::fs` calls run on the async executor thread (blocking it), and `std::fs::write` is not atomic — a process crash or the `handle.abort()` in `stop()` can leave a truncated/corrupt cache file. The load path tolerates parse failure (falls through to remote), which limits the blast radius, but atomicity is cheap to get.
+**Recommendation:** Compare old and new values and notify success only on a change; notify failures through a clearly documented error policy. Define ordering/reentrancy guarantees, and test the actual JavaScript callback arguments.
 
-**Suggestion:** Use `tokio::fs` or `spawn_blocking`, and write to a temp file + `rename` for atomic replacement.
+### H7. Cache paths are built from unvalidated identifiers and can escape the cache directory
 
-### M6. Dead/unreachable branch in `get_value`
+**Files:** `src/cache.rs:247-258`, `src/client_config.rs:399-406`, `src/cache.rs:521-542`
 
-**File:** `src/cache.rs` L327–359
+`app_id` and `namespace` are joined directly into filesystem paths. Absolute paths, separators, or `..` components can escape the configured cache root and cause writes elsewhere. The same identifiers are interpolated directly into the URL path instead of being encoded as path segments, so `?`, `#`, `/`, and traversal-like values can change request semantics.
 
-`should_load` is only ever `true` when the loop breaks, so the `else` branch returning `Err(Error::NamespaceNotFound)` (L356–359) is unreachable, and `NamespaceNotFound` is a misleading error for a concurrency fallback. Simplify: make the loop simply proceed to load, removing the boolean entirely.
+This normally requires a caller to pass untrusted identifiers, but libraries should not turn a namespace lookup into an arbitrary-path write primitive—especially when C2 allows a JSON error body to reach the write path.
 
-### M7. Undocumented public API and duplicated logic in `Client::add_listener`
+**Recommendation:** Validate Apollo identifier rules and use a hash/encoding for filenames. Build request URLs through path-segment APIs rather than string formatting.
 
-**File:** `src/lib.rs` L297–308
+### H8. Main README examples still do not compile and the JavaScript guide describes a different API
 
-`pub async fn add_listener` has **no doc comment** — a direct violation of project rule #1 (".agent/rules/rust.md": all public APIs must be documented). Its body also duplicates `Client::cache()` verbatim; it should just call `self.cache(namespace).await`.
+**Files:** `README.md:64-134`, `README.md:157-204`, `README.md:274-284`, `README.md:327-348`; corresponding sections in `README_zh.md` and `docs/wiki/**`
 
-### M8. `preload()` misreports task-join failures as I/O errors
+The Rust quick start omits `http_client` and `refresh_interval` from `ClientConfig` and omits the `Namespace::Yaml` match arm. `cache_ttl: None` is described as using a 600-second default, but direct construction with `None` means no TTL; only `from_env` supplies 600.
 
-**File:** `src/lib.rs` L550–554
+The JavaScript examples call nonexistent `client.start()`, then call `add_listener` on the returned namespace even though the exported method is `client.add_listener(namespace, callback)`. Several configuration field lists omit `allow_insecure_https`, `cache_ttl`, `refresh_interval`, and `http_client`.
 
-A `JoinError` (panic/cancellation) is wrapped into `cache::Error::Io` — semantically wrong and hard to distinguish from real file errors downstream. Add a dedicated variant (e.g. `Error::Task(String)`).
+**Recommendation:** Compile README Rust snippets in CI (for example with `doc-comment`, `skeptic`, or extracted examples) and run a JS/TypeScript smoke test against generated bindings. Treat English and translated docs as versioned API artifacts.
 
-### M9. Test dependencies compiled into published WASM artifacts
+## Medium findings
 
-**File:** `Cargo.toml` L36–42
+### M1. The architecture is periodic polling, not Apollo-style real-time updates
 
-`wasm-bindgen-test`, `wasm-logger`, etc. are declared as regular `[target.'cfg(target_arch = "wasm32")'.dependencies]` rather than dev-dependencies, so the test framework is linked into the published npm package (binary bloat). Move test-only crates to `[target.'cfg(target_arch = "wasm32")'.dev-dependencies]`.
+**Files:** `src/lib.rs:403-475`, `src/cache.rs:471-543`; `README.md:8-18`; `specs/architectural_design.md`
 
-### M10. Stale/incorrect API documentation (beyond the compile failures)
+The client repeatedly fetches `/configfiles/json` and has no `/notifications/v2` long poll, `releaseKey`/304 workflow, service discovery, server failover, retry policy, jitter, or backoff. Refreshes are sequential, so one slow namespace delays all later namespaces. Apollo's official design uses long polling to trigger immediate retrieval, plus periodic version-aware pulling as fallback.
 
-- `src/cache.rs` L667–702: `add_listener` docs describe `Result<Value, Error>` and `Arc<dyn Fn(Result<Value, Error>)...>`; the actual type is `Result<Namespace, crate::Error>`.
-- `src/lib.rs` L186–188: mentions `Namespace<T>` — no such generic exists.
-- `README.md` L192: `cache.add_listener((data, error) => ...)` — the JS API is `client.add_listener(namespace, fn)` (listener lives on `Client`, takes two args).
-- `README.md` L274–284 "ClientConfig Fields" omits `allow_insecure_https`, `cache_ttl`, `refresh_interval`, `http_client`.
-- `docs/wiki/zh-CN/Design-Client.md` L46–48 still describes `async_std::task::spawn` — the project migrated to tokio; the zh-CN wiki is at least one architecture generation out of date.
-- `src/namespace/mod.rs` L139–142: the doc comment "XML format - planned support..." floats above a commented-out variant and effectively merges into `Text`'s docs.
-- Several doc examples reference a crate named `apollo_client` instead of `apollo_rust_client` (e.g. `namespace/mod.rs` L120, `properties.rs` L45, `json.rs` L17).
+This implementation can be a valid lightweight polling client, but calling it “real-time” is inaccurate and polling a full cached response every 30 seconds is inefficient.
 
----
+**Recommendation:** Either rename the feature to periodic polling or implement the notification protocol. Refresh namespaces concurrently with bounded concurrency and use jittered retry/backoff.
 
-## Low
+### M2. Memory cache never expires and refresh depends entirely on calling `start()`
 
-### L1. Clippy warnings (2)
+**Files:** `src/cache.rs:318-322`, `src/cache.rs:367-405`; `src/client_config.rs:239-250`
 
-- `src/cache.rs` L572: redundant `&` in `format!` argument.
-- `src/lib.rs` L271: `http_client` field name ends with struct-name pattern (pedantic).
+`cache_ttl` applies only to a file read during cold start. Once memory is populated, `namespace()` returns it forever. A native caller that does not call `start()` never sees a change, regardless of TTL. Direct configuration defaults (`None`) also differ from `from_env` defaults (`Some(600)`).
 
-Project rules mandate clippy; keep the build warning-free.
+**Recommendation:** Define TTL semantics for every tier, expose an explicit public refresh API if background work is optional, and provide one consistent construction/default path.
 
-### L2. `Client::cache()` takes the write lock even on cache hit
+### M3. Environment parsing silently ignores invalid values despite documentation promising errors
 
-**File:** `src/lib.rs` L284–295. Every `namespace()` call serializes on the `namespaces` write lock. Use a read-lock fast path and upgrade only on miss.
+**File:** `src/client_config.rs:266-335`
 
-### L3. `config_server` trailing-slash fragility
+Invalid `APOLLO_CACHE_TTL`, `APOLLO_REFRESH_INTERVAL`, and `APOLLO_ALLOW_INSECURE_HTTPS` values are discarded through `.parse().ok()` and replaced by defaults/`None`. The docs say numeric parse failures return an error, but the error enum cannot represent parse errors. `APOLLO_REFRESH_INTERVAL` is also absent from several environment-variable lists.
 
-**File:** `src/cache.rs` L527–533. `format!("{}/configfiles/...", config_server)` produces `//configfiles/...` if the user supplies a trailing slash; some servers/proxies 404 on this. Trim or use `Url::join`.
+Production refresh intervals are silently clamped to at least 30 seconds in both `from_env` and `start`, while tests use a different one-second minimum via `cfg!(test)`. This is duplicated policy and makes tests exercise different behavior from release builds.
 
-### L4. `sign()` fallback `unwrap`s
+**Recommendation:** Validate and report invalid inputs, document or remove clamping, centralize defaults/validation, and avoid test-only branches in shipped logic.
 
-**File:** `src/cache.rs` L756–758. `base_url.join(url).unwrap()` can panic on pathological relative inputs. Propagate the error instead.
+### M4. Atomic file writes still race across clients/processes
 
-### L5. Env-var mutating test can race under parallel test execution
+**File:** `src/cache.rs:637-655`
 
-**File:** `src/lib.rs` L1566–1593 (`test_refresh_interval_clamping`). `std::env::set_var` affects the whole process; if another `from_env` test is ever added it will flake. Consider a serial-test guard or dependency-injected env lookup.
+Writing then renaming is a good improvement, but every writer uses the same deterministic `*.json.tmp` path. Two clients or processes sharing a cache identity can overwrite/rename each other's temporary file; one may fail, and—because persistence errors are fatal—the corresponding refresh fails.
 
-### L6. Minor dependency housekeeping
+**Recommendation:** Use a unique temporary file in the destination directory, flush as required, then atomically rename. Combine this with file locking or tolerate concurrent last-writer-wins updates.
 
-- `chrono` pinned twice with different minimums (`0.4.45` main, `0.4.44` wasm) — unify.
-- `web-sys` is a dev-dependency for all targets but only used in wasm tests.
-- `hmac 0.13` / `sha1 0.11` / `digest 0.11`: verify these are stable (non-RC) lines before the next release; the 0.12/0.10 series are the widely-deployed stable ones.
+### M5. `Client::cache` serializes every namespace read on a write lock
 
-### L7. `Error::EnvVar` message inaccuracy
+**Files:** `src/lib.rs:293-327`
 
-**File:** `src/client_config.rs` L100–101. Message says "Environment variable is not set" but `VarError` also covers `NotUnicode`.
+Both `cache()` and `add_listener()` take the namespace map's write lock even on hits, and `add_listener` duplicates cache-creation logic. This unnecessarily serializes a common read path.
 
----
+**Recommendation:** Use a read-lock fast path and acquire the write lock only on a miss; have `add_listener` call `cache()`.
 
-## Positive Observations
+### M6. Public API evolution is brittle
 
-- **Signature implementation is correct**: `sign()` matches the official Apollo test vector (`EoKyziXvKqzHgwx+ijDJwgVTDgE=`) and handles both full URLs and path-only inputs; tests cover both (`cache.rs` L865–880).
-- **Thundering-herd protection** in `get_value` (loading flag + `Notify`) is a genuinely good pattern, and `test_concurrent_get_value` exercises it.
-- **Deadlock regression test** (`test_concurrent_namespace_hang_repro`, lib.rs L1476–1530) shows evidence of a real bug being fixed and locked in — good practice.
-- **Feature-flag hygiene**: the `compile_error!` guards for `native-tls`/`rustls` mutual exclusivity and WASM incompatibility (lib.rs L64–71) are exactly right.
-- **Grayscale cache isolation** by ip/label in cache keys on both platforms (modulo C2's missing cluster).
-- The wiremock mappings correctly model the `/configfiles/json` payload shapes for properties (`flat map`) and json/yaml (`{"content": ...}`) namespaces, including priority-based grayscale matching.
+**Files:** `src/client_config.rs:176-258`, `src/lib.rs:590-637`
 
----
+`ClientConfig` is a public struct constructed through literals on native Rust. Every new field breaks downstream source and every example, as the recent `http_client` and `refresh_interval` additions demonstrate. The native constructor also silently falls back to a default client if custom client construction for insecure HTTPS fails, hiding the actual build error.
 
-## Prioritized Recommendations
+**Recommendation:** Introduce a validated builder/constructor with stable defaults, make fields private over a deprecation cycle, and return construction errors instead of silently changing behavior.
 
-| # | Action | Addresses |
-|---|--------|-----------|
-| 1 | Validate HTTP status before parsing/caching responses | C1 |
-| 2 | Add cluster to the native file-cache path | C2 |
-| 3 | Implement or honestly document the WASM update story (spawn_local polling or fetch-on-demand + TTL); export `start`/`stop` to JS or delete them from JS docs | C3, C4 |
-| 4 | Fix all doc examples; run `cargo test` (not `--lib`) in `scripts/test.sh`; add a builder/`Default` for `ClientConfig` | H1 |
-| 5 | Fix `stop()` latency and `refresh()` lock-across-network | H2, H3 |
-| 6 | Correct namespace type detection for `.properties` and dotted public namespaces | H4 |
-| 7 | Notify listeners on refresh errors (or fix the docs) | H6 |
-| 8 | Add wiremock header matching for auth, error-response mappings, `.txt` mapping, and request-count assertions | M2, M3 |
-| 9 | Consider `/notifications/v2` long polling for genuinely real-time updates | M1 |
+### M7. `preload` misclassifies task failures and is not tested
+
+**File:** `src/lib.rs:555-586`
+
+A panic/cancellation `JoinError` is wrapped as `cache::Error::Io`, making task failures indistinguishable from filesystem failures. No native or WASM test exercises `preload`, partial failure, duplicates, or cancellation.
+
+**Recommendation:** Add a task/join error variant or avoid spawning when unnecessary; add behavior tests.
+
+### M8. The integration mocks match the current implementation but are not adequate protocol tests
+
+**Files:** `tests/wiremock/mappings/*.json`, `scripts/test.sh:34-36`
+
+The mappings correctly model the current `/configfiles/json/{app}/{cluster}/{namespace}` shapes for properties, JSON, YAML, IP, and label requests. They are not sufficient to validate a production Apollo client:
+
+- The secret mapping does not require `Authorization` or `timestamp`, so end-to-end auth can break without a test failure.
+- There are no 400/401/404/429/500, malformed-body, timeout, or retry mappings.
+- There is no text namespace, `.properties`, dotted public namespace, stale cache, corrupt cache, unwritable directory, cluster/server isolation, or cache migration coverage.
+- There is no `/notifications/v2`, 304, or release-key scenario because the implementation omits that protocol.
+- No request-count assertion verifies single-flight loading or refresh cadence.
+
+**Recommendation:** Add header matchers and negative auth cases, status/error mappings, namespace-format cases, persistence/fallback cases, and WireMock request verification.
+
+### M9. Test execution and CI leave important gaps
+
+**Files:** `scripts/test.sh`, `.github/workflows/rust.yml`, `src/lib.rs:1508-1624`, `src/cache.rs:827-866`
+
+`scripts/test.sh` runs `cargo test --lib`, so it omits doctests and any future integration-test binaries. It does not run clippy. `test_custom_refresh_interval` waits but never asserts request counts, the concurrency tests do not cover cancellation/lost wakeups, and environment-mutating tests can race with future parallel tests. Static clients and reused temp-directory names make isolation fragile.
+
+The build job should catch C1, but the test job alone would not. A release-quality matrix should independently compile/check native TLS, rustls, WASM, docs, and examples.
+
+**Recommendation:** Add explicit CI commands for native clippy, rustls clippy, WASM compile/clippy, doctests, integration tests, and generated JS smoke tests. Use isolated temporary directories and serialized environment tests.
+
+### M10. Documentation is extensive but substantially stale and internally inconsistent
+
+**Files:** `src/lib.rs:186-201`, `src/cache.rs:666-702`, `src/namespace/*.rs`; `docs/wiki/**`; `specs/**`
+
+Representative issues:
+
+- Public `Client::add_listener` at `src/lib.rs:316` has no Rust doc comment, violating `.agent/rules/rust.md`.
+- Listener docs describe `Result<Value, cache::Error>` and a generic `Namespace<T>`; the API uses `Result<Namespace, crate::Error>` and `Namespace` is not generic.
+- Many ignored examples import `apollo_client` instead of `apollo_rust_client`, construct types through unsupported conversions, or reference private `cache` APIs.
+- English WASM design docs claim `spawn_local`; Chinese design docs still describe `async_std`; the implementation uses neither on WASM and Tokio on native.
+- `specs/data_design.md` documents a cluster-containing native filename that does not match the implementation.
+- XML is repeatedly presented as a supported/detected format even though every XML namespace returns an error.
+
+**Recommendation:** Make source/API behavior authoritative, reduce duplicated narrative, test every public example, and regenerate translations/specifications from a reviewed canonical version where practical.
+
+## Low findings
+
+### L1. Clippy is not clean
+
+**File:** `src/cache.rs:567`
+
+The redundant borrow in the `Authorization` formatting argument causes `cargo clippy ... -D warnings` to fail.
+
+### L2. Base URL construction is fragile
+
+**File:** `src/cache.rs:521-533`
+
+A trailing slash in `config_server` creates `//configfiles/...`, which some proxies do not normalize. String interpolation also makes context-path and encoding behavior harder to reason about.
+
+**Recommendation:** Parse the base once during configuration validation and append encoded path segments deliberately.
+
+### L3. `sign` contains avoidable panics
+
+**File:** `src/cache.rs:751-772`
+
+The fallback base URL parse and `join` are unwrapped. The base literal is safe, but a malformed relative input can make `join` fail. HMAC construction is effectively infallible for HMAC keys, but its unwrap obscures that guarantee.
+
+**Recommendation:** Propagate URL errors and use an infallible/explained construction path.
+
+### L4. Some error variants/messages are misleading or dead
+
+**Files:** `src/cache.rs:104-147`, `src/client_config.rs:97-103`, `src/lib.rs:575-582`
+
+`NamespaceNotFound` is no longer constructed; request timeouts and preload join failures are labeled as I/O; `EnvVar` says “not set” even for non-Unicode values. This makes operational diagnosis harder.
+
+## Positive observations
+
+- The `Client -> Cache -> Namespace` layering is easy to navigate and keeps format-specific parsing separate from transport.
+- A shared `reqwest::Client` enables connection pooling, and custom client injection is useful for proxies, tracing, and policy control.
+- HMAC-SHA1 signing matches Apollo's published test vector for both path-only and full-URL inputs.
+- IP and label query parameters use URL query encoding, and the mappings verify grayscale selection precedence.
+- Native file I/O was moved to Tokio and now uses write-then-rename rather than direct truncating writes; the remaining issue is unique temp naming/concurrency.
+- The feature guards preventing simultaneous native TLS and rustls selection are clear and useful.
+- Doctest regressions in the Rust source were improved: all enabled doctests pass on the reviewed revision.
+
+## Recommended remediation order
+
+1. Fix WASM dependency partitioning and make the full target matrix build.
+2. Validate HTTP statuses before parsing/caching and add status-aware errors/tests.
+3. Version and fully isolate persistent cache identities; sanitize/hash filesystem keys.
+4. Make persistence best-effort and implement stale-cache fallback.
+5. Decide and implement the WASM update model; export only APIs that actually work and enforce cache freshness.
+6. Fix native lifecycle cancellation, `Drop`, and lock-across-I/O behavior.
+7. Correct `.properties` and dotted public namespace detection.
+8. Make single-flight loading cancellation-safe and listeners change/error-correct.
+9. Expand WireMock coverage and CI gates across native TLS, rustls, WASM, docs, and generated JavaScript.
+10. Reconcile README/wiki/spec/API documentation and introduce a stable `ClientConfig` builder.
+
+## External protocol references used
+
+- [Apollo configuration-center/client design](https://github.com/apolloconfig/apollo/wiki/Apollo%E9%85%8D%E7%BD%AE%E4%B8%AD%E5%BF%83%E8%AE%BE%E8%AE%A1) — long polling, periodic version-aware fallback, local-file recovery, client-side failover/retry.
+- [Apollo Open API documentation](https://github.com/apolloconfig/apollo/wiki/Apollo%E5%BC%80%E6%94%BE%E5%B9%B3%E5%8F%B0) — namespace formats and dotted public properties namespace examples.
+- [Tokio `Notify` documentation](https://docs.rs/tokio/1.52.3/tokio/sync/struct.Notify.html) — notification/permit semantics relevant to H5.
