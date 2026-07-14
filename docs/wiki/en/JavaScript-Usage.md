@@ -93,10 +93,9 @@ async function main() {
     } else {
       console.log("Configuration updated:", data);
  
-      // data is a Properties instance for Properties format, or raw JS object/string for JSON/YAML/Text formats
-      if (data && typeof data.get_string === "function") {
-        console.log("Updated some_key:", data.get_string("some_key"));
-      }
+      // Listener data is always an ordinary JS object/string. Properties
+      // payloads therefore use normal property access and require no free().
+      console.log("Updated some_key:", data?.some_key);
     }
   });
  
@@ -225,5 +224,9 @@ Optional properties that can be set after construction:
 - `allow_insecure_https`: Accepted for API parity but ignored by browser TLS enforcement
 - `cache_ttl`: Memory/localStorage TTL in seconds (default 600)
 - `refresh_interval`: Periodic polling interval in seconds (default 30)
+- `request_timeout`: Complete request and response-body timeout in seconds (default 10)
+
+Under Node.js, `ClientConfig.from_env()` reads `globalThis.process.env`. Browser
+calls fail with a clear missing-process-environment error.
 
 Note: `cache_dir` is not applicable in browser environments and is automatically handled.

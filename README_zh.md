@@ -134,8 +134,9 @@ let client_config = ClientConfig::from_env()?;
 - `APOLLO_ACCESS_KEY_SECRET`: 认证密钥（可选）
 - `APOLLO_LABEL`: 灰度规则的标签列表，用逗号分隔（可选）
 - `APOLLO_CACHE_DIR`: 本地缓存目录（可选）
-- `APOLLO_CACHE_TTL`: 缓存生存时间，以秒为单位（可选，默认为 600，仅限原生目标）
+- `APOLLO_CACHE_TTL`: 原生与 WASM 内存/持久缓存生存时间（可选，默认 600；`0` 表示每次读取都在后台重新验证）
 - `APOLLO_REFRESH_INTERVAL`: 后台轮询间隔秒数（可选，默认 30，必须大于零）
+- `APOLLO_REQUEST_TIMEOUT`: 完整请求及响应体超时秒数（可选，默认 10，必须大于零）
 
 ### JavaScript/WebAssembly 用法
 
@@ -257,10 +258,13 @@ if let apollo_rust_client::namespace::Namespace::Yaml(yaml) = namespace {
 - **`cluster`**: 集群名称（必需，通常为 "default"）
 - **`secret`**: 认证的可选密钥
 - **`cache_dir`**: 本地缓存文件目录（仅原生）
-  - 默认值: `/opt/data/apollo-rust-client/config-cache`，文件名使用包含服务器、应用、集群、命名空间、IP 和标签的版本化哈希
+  - 默认值: 平台标准应用缓存目录，文件名使用包含服务器、应用、集群、命名空间、IP 和标签的版本化哈希
   - WASM: 使用带 TTL 的浏览器 localStorage（Node.js 无 localStorage 时仅内存）
 - **`label`**: 灰度发布的标签（可选）
 - **`ip`**: 灰度发布的 IP 地址（可选）
+- **`cache_ttl`**: 原生与 WASM 的内存/持久缓存 TTL（默认 600 秒；`0` 为后台始终重新验证）
+- **`refresh_interval`**: 周期轮询间隔（默认 30 秒）
+- **`request_timeout`**: 覆盖请求和响应体的外层超时（默认 10 秒，也覆盖自定义原生 HTTP 客户端）
 
 ## 错误处理
 
@@ -293,13 +297,19 @@ match client.namespace("application").await {
 对于 WebAssembly 环境，需要显式的内存管理：
 
 ```javascript
-// 使用完毕后始终对 WASM 对象调用 free()
-cache.free();
+// wasm-bindgen 分配的类实例使用完毕后必须释放
+namespace.free(); // 仅 Properties 命名空间
 client.free();
 clientConfig.free();
 ```
 
 这通过释放 WebAssembly 堆上的 Rust 分配内存来防止内存泄漏。
+
+## 更新模型
+
+客户端有意采用 Apollo 缓存 `configfiles` 端点的周期轮询，不实现通知长轮询或
+`releaseKey`。因此更新延迟由 `refresh_interval` 限定，配置未变化时仍会传输完整
+命名空间。轮询使用每客户端对称 ±10% 抖动，临时故障使用指数退避。
 
 ## 高级用法
 

@@ -25,6 +25,8 @@
 //! ```
 
 use log::debug;
+#[cfg(target_arch = "wasm32")]
+use serde::Serialize;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 /// A wrapper around `serde_json::Value` for properties-style configuration data.
@@ -73,7 +75,9 @@ impl Properties {
     ///
     /// This is a generic method that can parse string values into any type that
     /// implements `FromStr`. It first retrieves the value as a string, then
-    /// attempts to parse it into the target type.
+    /// attempts to parse it into the target type. JSON numbers and booleans are
+    /// converted to their text representation before parsing; arrays, objects,
+    /// and `null` are not treated as Properties scalars.
     ///
     /// # Type Parameters
     ///
@@ -86,7 +90,7 @@ impl Properties {
     /// # Returns
     ///
     /// * `Some(T)` - The parsed value if the key exists and parsing succeeds
-    /// * `None` - If the key doesn't exist, the value is not a string, or parsing fails
+    /// * `None` - If the key doesn't exist, the value is not scalar, or parsing fails
     ///
     /// # Examples
     ///
@@ -108,7 +112,29 @@ impl Properties {
         debug!("Getting property for key {key}");
 
         let value = self.value.get(key)?;
-        value.as_str().and_then(|s| s.parse::<T>().ok())
+        match value {
+            serde_json::Value::String(value) => value.parse::<T>().ok(),
+            serde_json::Value::Number(_) | serde_json::Value::Bool(_) => {
+                value.to_string().parse::<T>().ok()
+            }
+            serde_json::Value::Null
+            | serde_json::Value::Array(_)
+            | serde_json::Value::Object(_) => None,
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn into_js_value(self) -> wasm_bindgen::JsValue {
+        match self
+            .value
+            .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        {
+            Ok(value) => value,
+            Err(error) => {
+                log::error!("Unable to serialize Properties for JavaScript conversion: {error}");
+                wasm_bindgen::JsValue::NULL
+            }
+        }
     }
 }
 
@@ -269,5 +295,26 @@ impl Properties {
 impl From<serde_json::Value> for Properties {
     fn from(value: serde_json::Value) -> Self {
         Self { value }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Properties;
+
+    #[test]
+    fn getters_accept_string_number_and_boolean_scalars() {
+        let properties = Properties::from(serde_json::json!({
+            "string": "42",
+            "number": 42,
+            "boolean": true,
+            "array": [1, 2]
+        }));
+
+        assert_eq!(properties.get_int("string"), Some(42));
+        assert_eq!(properties.get_int("number"), Some(42));
+        assert_eq!(properties.get_bool("boolean"), Some(true));
+        assert_eq!(properties.get_string("boolean"), Some("true".to_string()));
+        assert_eq!(properties.get_string("array"), None);
     }
 }

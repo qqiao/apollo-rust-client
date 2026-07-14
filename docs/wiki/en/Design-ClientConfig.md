@@ -14,7 +14,7 @@ The `ClientConfig` struct is a cornerstone of the `apollo-rust-client` library, 
     The name of the Apollo cluster to fetch configurations from. Defaults to `"default"` in many scenarios but should be explicitly provided.
 
 -   **`cache_dir: Option<String>`**:
-    *(Non-WASM only)* An optional base path for configuration files. If `None`, the client uses `/opt/data/apollo-rust-client/config-cache`. Versioned hashed filenames isolate all request identity fields.
+    *(Non-WASM only)* An optional base path for configuration files. If `None`, the client uses the platform-standard application cache directory. Versioned hashed filenames isolate all request identity fields.
 
 -   **`config_server: String`**:
     The base URL of the Apollo Configuration server (e.g., `http://localhost:8080`). This is a mandatory field.
@@ -27,6 +27,9 @@ The `ClientConfig` struct is a cornerstone of the `apollo-rust-client` library, 
 
 -   **`ip: Option<String>`**:
     An optional IP address of the client machine. This is also used for grayscale release rules.
+
+-   **`cache_ttl`, `refresh_interval`, `request_timeout`: Option<u64>**:
+    Independent cache-expiry, polling, and complete-request timeout controls. `cache_ttl = 0` is an always-revalidate mode; the other two values must be greater than zero.
 
 ## Instantiation
 
@@ -45,8 +48,8 @@ There are several ways to create a `ClientConfig` instance:
         .build()?;
     ```
 
-2.  **`ClientConfig::from_env()` (Non-WASM):**
-    This associated function allows creating a `ClientConfig` from environment variables. This is particularly useful for server-side applications.
+2.  **`ClientConfig::from_env()`:**
+    This associated function reads the native process environment. On WASM it reads `globalThis.process.env` when running under Node.js and returns an environment error in browsers.
     -   `APP_ID`: Corresponds to `app_id`.
     -   `IDC`: Corresponds to `cluster` (defaults to "default" if not set).
     -   `APOLLO_CONFIG_SERVICE`: Corresponds to `config_server`.
@@ -56,6 +59,7 @@ There are several ways to create a `ClientConfig` instance:
     -   `APOLLO_ALLOW_INSECURE_HTTPS`: Corresponds to `allow_insecure_https` ("true" to bypass cert verification).
     -   `APOLLO_CACHE_TTL`: Corresponds to `cache_ttl` in seconds (defaults to 600).
     -   `APOLLO_REFRESH_INTERVAL`: Corresponds to `refresh_interval` in seconds (defaults to 30).
+    -   `APOLLO_REQUEST_TIMEOUT`: Corresponds to `request_timeout` in seconds (defaults to 10).
     The `ip` field is not set via `from_env()`.
 
 3.  **WASM-Specific Constructor:**
@@ -77,6 +81,6 @@ There are several ways to create a `ClientConfig` instance:
 
 This method, available on non-WASM targets, determines the actual cache directory path to be used.
 -   If `self.cache_dir` (the field in `ClientConfig`) is `Some(path)`, that path is used.
--   If `self.cache_dir` is `None`, it uses `/opt/data/apollo-rust-client/config-cache`.
+-   If `self.cache_dir` is `None`, it uses the platform-standard application cache directory (XDG cache, macOS `~/Library/Caches`, or Windows Local AppData).
 
 This logic ensures that there's a predictable location for cached configuration files even if not explicitly specified by the user.

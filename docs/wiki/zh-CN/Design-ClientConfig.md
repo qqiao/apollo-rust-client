@@ -13,8 +13,8 @@
 -   **`cluster: String`**:
     要从中获取配置的 Apollo 集群的名称。在许多情况下默认为 `"default"`，但应明确提供。
 
--   **`cache_dir: Option<std::path::PathBuf>`**:
-    *(仅限非 WASM)* 本地缓存的可选基础目录。默认是 `/opt/data/apollo-rust-client/config-cache`，版本化哈希文件名隔离完整请求身份。WASM 浏览器改用 localStorage。
+-   **`cache_dir: Option<String>`**:
+    *(仅限非 WASM)* 本地缓存的可选基础目录。默认使用平台标准应用缓存目录，版本化哈希文件名隔离完整请求身份。WASM 浏览器改用 localStorage。
 
 -   **`config_server: String`**:
     Apollo 配置服务器的基本 URL（例如 `http://localhost:8080`）。这是一个必填字段。
@@ -32,21 +32,17 @@
 
 有几种方法可以创建 `ClientConfig` 实例：
 
-1.  **手动创建 (Rust):**
-    作为一个标准的 Rust 结构体，您可以直接实例化它：
+1.  **验证构建器（Rust，推荐）:**
     ```rust
     use apollo_rust_client::client_config::ClientConfig;
-    use std::path::PathBuf;
-
-    let config = ClientConfig {
-        app_id: "my_app".to_string(),
-        cluster: "my_cluster".to_string(),
-        config_server: "http://apollo-server:8080".to_string(),
-        secret: Some("my_secret_key".to_string()),
-        cache_dir: Some(PathBuf::from("/tmp/apollo_cache")),
-        label: Some("version1,regionA".to_string()),
-        ip: Some("192.168.1.100".to_string()),
-    };
+    let config = ClientConfig::builder("my_app", "http://apollo-server:8080")
+        .cluster("my_cluster")
+        .secret("my_secret_key")
+        .cache_dir("/tmp/apollo_cache")
+        .label("version1,regionA")
+        .ip("192.168.1.100")
+        .request_timeout(10)
+        .build()?;
     ```
 
 2.  **`ClientConfig::from_env()` (非 WASM):**
@@ -78,6 +74,6 @@
 
 此方法（在非 WASM 目标上可用）确定要使用的实际缓存目录路径。
 -   如果 `self.cache_dir`（`ClientConfig` 中的字段）是 `Some(path)`，则使用该路径。
--   如果 `self.cache_dir` 是 `None`，默认路径为 `/opt/data/apollo-rust-client/config-cache`。
+-   如果 `self.cache_dir` 是 `None`，使用平台标准应用缓存目录。
 
 此逻辑确保即使在用户未明确指定的情况下，缓存配置文件也有一个可预测的位置。

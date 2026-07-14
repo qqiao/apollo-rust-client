@@ -18,7 +18,7 @@ graph TD
     subgraph NativeEnv [Native Platform Environment - Server/Desktop]
         ClientNative[Client Struct]
         BgWorker[Background Polling Loop - Tokio]
-        FileCache[Local File Cache - Disk /opt/data]
+        FileCache[Local File Cache - Platform cache directory]
         MemCacheNative[In-Memory Namespace Caches - RwLock]
         ListenerTasks[Ordered synchronous listeners]
 
@@ -67,7 +67,7 @@ To support highly disparate computing models, the client implements platform-spe
 | **Task Spawning** | Spawns background OS tasks via `tokio::spawn`. | Uses single-threaded `wasm_bindgen_futures::spawn_local`. |
 | **Caching Tier** | Multi-level cache: Memory + Persistent Local Storage (disk). | Multi-level cache: Memory + `localStorage` (when available in JS runtime); falls back to memory-only when unavailable. |
 | **Listener Dispatch** | Invokes synchronously in registration order after all internal locks are released; callback panics are isolated. | Invokes synchronously via `js_sys::Function::call2`. |
-| **Configuration Retrieval** | Client returns a strongly-typed `Namespace` enum to Rust code. | Client returns JS-wrapped Namespace representation (Properties class, raw JSON object, or YAML/Text string) as `JsValue` to JS. |
+| **Configuration Retrieval** | Client returns a strongly-typed `Namespace` enum to Rust code. | Client returns a Properties class, plain JSON/YAML object, or text string as `JsValue` to JS. Listener Properties payloads are plain objects. |
 | **Resource Cleanup** | Managed automatically by Rust's RAII drop implementation. | Requires JavaScript context to call `.free()` manually on WASM class instances (ClientConfig, Client, Properties). |
 
 ---
@@ -83,7 +83,8 @@ Depending on target compilation flags, the public client API undergoes interface
 // Native Rust Compilation: Returns strongly typed Enum Namespace
 pub async fn namespace(&self, namespace: &str) -> Result<namespace::Namespace, Error>;
 
-// WebAssembly Compilation: Returns parsed namespace data as JsValue (e.g. Properties class instance, raw JSON object, YAML string, or raw text)
+// WebAssembly Compilation: Returns parsed namespace data as JsValue
+// (Properties class, plain JSON/YAML object, or text string)
 #[wasm_bindgen(js_name = "namespace")]
 pub async fn namespace_wasm(&self, namespace: &str) -> Result<wasm_bindgen::JsValue, Error>;
 ```

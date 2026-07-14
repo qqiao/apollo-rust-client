@@ -147,8 +147,9 @@ let client_config = ClientConfig::from_env()?;
 - `APOLLO_ACCESS_KEY_SECRET`: The secret key for authentication (optional)
 - `APOLLO_LABEL`: Comma-separated list of labels for grayscale rules (optional)
 - `APOLLO_CACHE_DIR`: Directory to store local cache (optional)
-- `APOLLO_CACHE_TTL`: Time-to-live for cache in seconds (optional, defaults to 600, native targets only)
+- `APOLLO_CACHE_TTL`: Memory and persistent-cache TTL in seconds on native and WASM (optional, defaults to 600; `0` means always revalidate)
 - `APOLLO_REFRESH_INTERVAL`: Background polling interval in seconds (optional, defaults to 30; must be greater than zero)
+- `APOLLO_REQUEST_TIMEOUT`: Complete request and response-body timeout in seconds (optional, defaults to 10; must be greater than zero)
 - `APOLLO_ALLOW_INSECURE_HTTPS`: Whether to allow insecure HTTPS connections (optional, defaults to false)
 
 ### JavaScript/WebAssembly Usage
@@ -193,7 +194,8 @@ async function main() {
     }
   });
 
-  // IMPORTANT: Release memory when done
+  // IMPORTANT: Properties namespaces are WASM class instances and must be freed.
+  // JSON, YAML, and Text values are ordinary JavaScript values.
   client.stop();
   namespace.free();
   client.free();
@@ -275,13 +277,14 @@ if let apollo_rust_client::namespace::Namespace::Yaml(yaml) = namespace {
 - **`cluster`**: The cluster name (required, typically "default")
 - **`secret`**: Optional secret key for authentication
 - **`cache_dir`**: Base directory for local cache files (native only)
-  - Default: `/opt/data/apollo-rust-client/config-cache`; versioned hashed filenames isolate server, app, cluster, namespace, IP, and label
+  - Default: the platform-standard application cache directory; versioned hashed filenames isolate server, app, cluster, namespace, IP, and label
   - WASM: Always `None` (uses browser localStorage or Node.js in-memory fallback)
 - **`label`**: Label for grayscale releases (optional)
 - **`ip`**: IP address for grayscale releases (optional)
 - **`allow_insecure_https`**: Accept invalid certificates on native targets (optional; use only in trusted development environments)
-- **`cache_ttl`**: Memory and persistent cache TTL (default: 600 seconds on native and WASM)
+- **`cache_ttl`**: Memory and persistent cache TTL (default: 600 seconds on native and WASM; `0` returns cached values immediately and revalidates in the background)
 - **`refresh_interval`**: Periodic polling interval (default: 30 seconds)
+- **`request_timeout`**: Outer timeout covering the request and response body (default: 10 seconds, including custom native HTTP clients)
 - **`http_client`**: Optional preconfigured `reqwest::Client` (native Rust only)
 
 ## Error Handling
@@ -315,13 +318,21 @@ match client.namespace("application").await {
 For WebAssembly environments, explicit memory management is required:
 
 ```javascript
-// Always call free() on WASM objects when done
-cache.free();
+// Class instances allocated by wasm-bindgen must be freed when done.
+namespace.free(); // Properties only
 client.free();
 clientConfig.free();
 ```
 
 This prevents memory leaks by releasing Rust-allocated memory on the WebAssembly heap.
+
+## Update Model
+
+The client deliberately uses periodic polling of Apollo's cached `configfiles`
+endpoint. It does not implement Apollo notification long-polling or `releaseKey`,
+so update latency is bounded by `refresh_interval` and unchanged polls still transfer
+the full namespace. Poll intervals include per-client symmetric ±10% jitter and
+temporary failures use exponential backoff.
 
 ## Advanced Usage
 

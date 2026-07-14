@@ -12,6 +12,7 @@ async fn readme_quick_start_compiles() -> Result<(), Box<dyn std::error::Error>>
         .ip("192.168.1.100")
         .cache_ttl(600)
         .refresh_interval(30)
+        .request_timeout(10)
         .build()?;
     let mut client = Client::new(config)?;
     client.start().await?;

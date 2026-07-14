@@ -2,38 +2,8 @@
 
 set -eu
 
-# Ensure clean teardown of containers on exit (success or failure)
-cleanup() {
-  echo "Shutting down Apollo Mock Server (docker compose down)..."
-  docker compose down
-}
-trap cleanup EXIT INT TERM
-
-echo "Starting Apollo Mock Server (docker compose up -d)..."
-if ! docker compose up -d; then
-  echo "Error: Failed to start Apollo Mock Server via docker compose." >&2
-  echo "Please ensure the Docker daemon is running." >&2
-  exit 1
-fi
-
-# Wait for WireMock to be ready and responsive
-echo "Waiting for Apollo Mock Server to be ready..."
-ready=0
-for i in 1 2 3 4 5; do
-  if curl -s http://localhost:8080/__admin/mappings >/dev/null; then
-    echo "Apollo Mock Server is ready."
-    ready=1
-    break
-  fi
-  sleep 1
-done
-
-if [ "$ready" -ne 1 ]; then
-  echo "Error: Apollo Mock Server (WireMock) failed to become ready within 5 seconds." >&2
-  exit 1
-fi
-
-rm -fr /tmp/apollo && \
+# Native tests launch their own random-port HTTPS mock; no external service or
+# fixed port is required.
 cargo clippy --all-targets -- -D warnings && \
 cargo clippy --no-default-features --features rustls --all-targets -- -D warnings && \
 cargo clippy --target wasm32-unknown-unknown --all-targets -- -D warnings && \

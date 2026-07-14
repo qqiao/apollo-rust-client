@@ -29,29 +29,58 @@
 //! by end users. However, understanding its behavior is important for debugging
 //! and performance optimization.
 
-use crate::{
-    EventListener,
-    client_config::ClientConfig,
-    namespace::{self, get_namespace},
-};
+use crate::{EventListener, client_config::ClientConfig, namespace::get_namespace};
 use base64::display::Base64Display;
 use cfg_if::cfg_if;
 use chrono::Utc;
+#[cfg(target_arch = "wasm32")]
+use futures::{FutureExt, future::Either};
 use hmac::{Hmac, KeyInit, Mac};
 use log::{debug, trace, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
-#[cfg(not(target_arch = "wasm32"))]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::{fmt::Write, sync::Arc};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::io::AsyncWriteExt;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, OwnedMutexGuard, RwLock};
 use url::{ParseError, Url};
 
 #[cfg(not(target_arch = "wasm32"))]
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn cleanup_stale_temp_files(cache_dir: &std::path::Path) {
+    let entries = match std::fs::read_dir(cache_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Err(error) => {
+            warn!(
+                "Unable to scan cache directory {} for stale temporary files: {error}",
+                cache_dir.display()
+            );
+            return;
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let is_temp_file = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("v2-"))
+            && path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("tmp"));
+        if is_temp_file && let Err(error) = std::fs::remove_file(&path) {
+            warn!(
+                "Unable to remove stale cache temporary file {}: {error}",
+                path.display()
+            );
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct CacheItem {
@@ -94,13 +123,6 @@ pub enum Error {
     #[error("Io error: {0}")]
     Io(#[from] std::io::Error),
 
-    /// An error occurred during namespace processing.
-    ///
-    /// This includes errors from format detection, parsing, or type conversion
-    /// operations specific to namespace handling.
-    #[error("Namespace error: {0}")]
-    Namespace(namespace::Error),
-
     /// A serialization/deserialization error occurred.
     ///
     /// This error occurs when there are issues with JSON parsing, such as
@@ -130,6 +152,10 @@ pub enum Error {
         /// Configured timeout in seconds.
         seconds: u64,
     },
+
+    /// A concurrent caller observed the failure from a coalesced refresh.
+    #[error("Coalesced Apollo refresh failed: {0}")]
+    CoalescedRefresh(String),
 
     /// A URL parsing error occurred.
     ///
@@ -204,8 +230,17 @@ pub(crate) struct Cache {
     #[cfg(target_arch = "wasm32")]
     wasm_cache_key: String,
 
-    /// Cancellation-safe single-flight lock for cold/stale loads.
+    /// Cancellation-safe single-flight lock for cold loads.
     load_lock: Arc<Mutex<()>>,
+
+    /// Single-flight lock shared by cold loads, manual refreshes, and polling.
+    refresh_lock: Arc<Mutex<()>>,
+
+    /// Completed refresh generation used to coalesce concurrent waiters.
+    refresh_generation: Arc<AtomicU64>,
+
+    /// Error snapshot for waiters that shared a failed refresh.
+    last_refresh_error: Arc<RwLock<Option<String>>>,
 
     /// Path to the local cache file (native targets only).
     ///
@@ -288,6 +323,9 @@ impl Cache {
             memory: Arc::new(RwLock::new(None)),
             listeners: Arc::new(RwLock::new(Vec::new())),
             load_lock: Arc::new(Mutex::new(())),
+            refresh_lock: Arc::new(Mutex::new(())),
+            refresh_generation: Arc::new(AtomicU64::new(0)),
+            last_refresh_error: Arc::new(RwLock::new(None)),
 
             #[cfg(not(target_arch = "wasm32"))]
             file_path,
@@ -302,14 +340,14 @@ impl Cache {
     /// This method retrieves the configuration for the namespace. It implements a read-through
     /// cache pattern with the following logic:
     ///
-    /// 1.  It first attempts to read from the in-memory cache. If the cache is populated,
-    ///     it returns the configuration immediately. This read is non-blocking for other readers.
-    /// 2.  If memory is missing or stale, it acquires the cancellation-safe single-flight gate
-    ///     and repeats the freshness check.
-    /// 3.  If the cache is still empty, it proceeds to load it, first from the file cache (on native targets)
-    ///     if it's not stale, otherwise by fetching from the remote Apollo server.
-    /// 4.  Once the configuration is fetched, it updates the in-memory cache and notifies any
-    ///     registered listeners.
+    /// 1.  It first attempts to read from memory. Any cached value is returned
+    ///     immediately; an expired value schedules one background revalidation.
+    /// 2.  On a cold miss it acquires the cancellation-safe single-flight gate and
+    ///     repeats the memory check.
+    /// 3.  A persistent native-file or browser-localStorage value is loaded and
+    ///     returned immediately, scheduling revalidation when expired.
+    /// 4.  Only a true cold miss waits for the remote Apollo request. Concurrent
+    ///     cold loads and refreshes are coalesced per namespace.
     ///
     /// Readers remain concurrent, and only the final memory swap uses the write lock.
     ///
@@ -324,69 +362,75 @@ impl Cache {
     /// This method can return transport, HTTP status, URL, or parsing errors when no
     /// usable stale value exists. Persistent read/write failures are logged and ignored.
     pub(crate) async fn get_value(&self) -> Result<Value, Error> {
-        if let Some(value) = self.fresh_memory_value().await {
-            return Ok(value);
+        if let Some(item) = self.memory.read().await.clone() {
+            return Ok(self.serve_cached_item(item));
         }
 
+        let observed_refresh_generation = self.refresh_generation.load(Ordering::Acquire);
         // A Tokio mutex releases automatically when a loading task is cancelled,
         // avoiding the stuck boolean/notification state of the previous design.
         let _load_guard = self.load_lock.lock().await;
-        if let Some(value) = self.fresh_memory_value().await {
-            return Ok(value);
+        if let Some(item) = self.memory.read().await.clone() {
+            return Ok(self.serve_cached_item(item));
         }
 
-        self.load_and_cache().await
-    }
-
-    /// Internal method to load configuration and update cache.
-    ///
-    /// This method handles persistent freshness, remote loading, and stale fallback.
-    async fn load_and_cache(&self) -> Result<Value, Error> {
-        let memory_fallback = self.memory.read().await.clone();
-        let persistent_fallback = self.load_persistent_item().await;
-
-        if let Some(item) = persistent_fallback.as_ref()
-            && self.is_fresh(item)
-        {
+        if let Some(item) = self.load_persistent_item().await {
             self.replace_memory(item.clone()).await;
-            return Ok(item.config.clone());
+            return Ok(self.serve_cached_item(item));
         }
 
-        match self.fetch_remote_config().await {
-            Ok(item) => {
-                self.persist_best_effort(&item).await;
-                self.replace_memory(item.clone()).await;
-                Ok(item.config)
-            }
-            Err(error) => {
-                self.notify_error(&error).await;
-                if let Some(fallback) = memory_fallback.or(persistent_fallback) {
-                    warn!(
-                        "Using stale cached configuration for namespace {} after refresh failure: {}",
-                        self.namespace, error
-                    );
-                    self.replace_memory(fallback.clone()).await;
-                    Ok(fallback.config)
-                } else {
-                    Err(error)
-                }
-            }
+        if self.refresh_generation.load(Ordering::Acquire) != observed_refresh_generation {
+            return Err(self.coalesced_refresh_error().await);
         }
+
+        self.coalesced_refresh(false).await?;
+        self.memory
+            .read()
+            .await
+            .as_ref()
+            .map(|item| item.config.clone())
+            .ok_or_else(|| Error::CoalescedRefresh("refresh produced no cache value".to_string()))
     }
 
-    async fn fresh_memory_value(&self) -> Option<Value> {
-        let memory = self.memory.read().await;
-        memory
-            .as_ref()
-            .filter(|item| self.is_fresh(item))
-            .map(|item| item.config.clone())
+    fn serve_cached_item(&self, item: CacheItem) -> Value {
+        if !self.is_fresh(&item) {
+            self.schedule_revalidation();
+        }
+        item.config
+    }
+
+    fn schedule_revalidation(&self) {
+        let Ok(refresh_guard) = self.refresh_lock.clone().try_lock_owned() else {
+            return;
+        };
+        let cache = self.clone();
+        let task = async move {
+            if let Err(error) = cache.perform_refresh(refresh_guard).await {
+                warn!(
+                    "Using stale cached configuration for namespace {} after refresh failure: {}",
+                    cache.namespace, error
+                );
+                cache.notify_error(&error).await;
+            }
+        };
+        cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                wasm_bindgen_futures::spawn_local(task);
+            } else {
+                tokio::spawn(task);
+            }
+        }
     }
 
     fn is_fresh(&self, item: &CacheItem) -> bool {
+        let cache_ttl = self.client_config.effective_cache_ttl();
+        if cache_ttl == 0 {
+            return false;
+        }
         let age = Utc::now().timestamp().saturating_sub(item.timestamp);
         #[allow(clippy::cast_possible_wrap)]
         {
-            age <= self.client_config.effective_cache_ttl() as i64
+            age <= cache_ttl as i64
         }
     }
 
@@ -424,9 +468,10 @@ impl Cache {
 
     /// Refreshes the cache by fetching the latest configuration from the Apollo server.
     ///
-    /// This method unconditionally fetches the latest configuration from the remote server,
-    /// updates the in-memory cache, attempts persistence on a best-effort basis, and
-    /// notifies listeners only when the value changed.
+    /// This method requests the latest configuration from the remote server,
+    /// coalescing with a concurrent manual or background refresh. The shared result
+    /// updates memory, attempts persistence on a best-effort basis, and notifies
+    /// listeners only when the value changed.
     ///
     /// Network and persistence I/O occur without holding the in-memory write lock.
     ///
@@ -440,17 +485,49 @@ impl Cache {
     /// This method can return various errors, such as network errors, parsing errors,
     /// or HTTP-status errors. Persistence failures are logged and do not fail refresh.
     pub(crate) async fn refresh(&self) -> Result<(), Error> {
-        match self.fetch_remote_config().await {
+        self.coalesced_refresh(true).await
+    }
+
+    async fn coalesced_refresh(&self, notify_error: bool) -> Result<(), Error> {
+        let observed_generation = self.refresh_generation.load(Ordering::Acquire);
+        let refresh_guard = self.refresh_lock.clone().lock_owned().await;
+        if self.refresh_generation.load(Ordering::Acquire) != observed_generation {
+            return self.last_refresh_result().await;
+        }
+
+        let result = self.perform_refresh(refresh_guard).await;
+        if notify_error && let Err(error) = &result {
+            self.notify_error(error).await;
+        }
+        result
+    }
+
+    async fn perform_refresh(&self, _refresh_guard: OwnedMutexGuard<()>) -> Result<(), Error> {
+        let result = match self.fetch_remote_config().await {
             Ok(item) => {
                 self.persist_best_effort(&item).await;
                 self.replace_memory(item).await;
                 Ok(())
             }
-            Err(error) => {
-                self.notify_error(&error).await;
-                Err(error)
-            }
+            Err(error) => Err(error),
+        };
+        *self.last_refresh_error.write().await = result.as_ref().err().map(ToString::to_string);
+        self.refresh_generation.fetch_add(1, Ordering::Release);
+        result
+    }
+
+    async fn last_refresh_result(&self) -> Result<(), Error> {
+        match self.last_refresh_error.read().await.clone() {
+            Some(error) => Err(Error::CoalescedRefresh(error)),
+            None => Ok(()),
         }
+    }
+
+    async fn coalesced_refresh_error(&self) -> Error {
+        self.last_refresh_error.read().await.clone().map_or_else(
+            || Error::CoalescedRefresh("concurrent refresh failed".to_string()),
+            Error::CoalescedRefresh,
+        )
     }
 
     async fn replace_memory(&self, item: CacheItem) {
@@ -490,20 +567,36 @@ impl Cache {
     async fn fetch_remote_config(&self) -> Result<CacheItem, Error> {
         let url = self.build_request_url()?;
         let client = self.build_http_request(&url)?;
-
-        // Add timeout to prevent long pauses
-        #[cfg(target_arch = "wasm32")]
-        let response = self.execute_request(client).await?;
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let response = {
-            let timeout_duration = std::time::Duration::from_secs(10);
-            tokio::time::timeout(timeout_duration, self.execute_request(client))
-                .await
-                .map_err(|_| Error::Timeout { seconds: 10 })??
+        let timeout_seconds = self.client_config.effective_request_timeout();
+        let request = async {
+            let response = self.execute_request(client).await?;
+            self.parse_response(response).await
         };
 
-        let config = self.parse_response(response).await?;
+        cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                #[allow(clippy::cast_possible_truncation)]
+                let timeout_millis = std::time::Duration::from_secs(timeout_seconds)
+                    .as_millis()
+                    .min(u128::from(u32::MAX)) as u32;
+                let request = request.fuse();
+                let timeout = gloo_timers::future::TimeoutFuture::new(timeout_millis).fuse();
+                futures::pin_mut!(request, timeout);
+                let config = match futures::future::select(request, timeout).await {
+                    Either::Left((result, _)) => result?,
+                    Either::Right(((), _)) => {
+                        return Err(Error::Timeout { seconds: timeout_seconds });
+                    }
+                };
+            } else {
+                let config = tokio::time::timeout(
+                    std::time::Duration::from_secs(timeout_seconds),
+                    request,
+                )
+                .await
+                .map_err(|_| Error::Timeout { seconds: timeout_seconds })??;
+            }
+        }
         Ok(CacheItem {
             timestamp: Utc::now().timestamp(),
             config,
@@ -728,8 +821,8 @@ impl Cache {
     ///
     /// # Arguments
     ///
-    /// * `listener` - The event listener to register. It must be an `Arc`-wrapped, thread-safe
-    ///   closure (`Send + Sync`).
+    /// * `listener` - The event listener to register. Native callbacks must be
+    ///   `Send + Sync`; WASM callbacks run on the local JavaScript thread.
     ///
     /// # Example
     ///
@@ -882,147 +975,41 @@ mod tests {
     use super::*;
     use crate::setup;
     #[cfg(not(target_arch = "wasm32"))]
-    use crate::{TempDir, client_config::ClientConfig};
+    use crate::{
+        TempDir,
+        client_config::ClientConfig,
+        test_support::{MockHttpsServer as TestHttpServer, MockResponse},
+    };
     #[cfg(not(target_arch = "wasm32"))]
     use std::{
-        io::{Read, Write as IoWrite},
-        net::{SocketAddr, TcpListener, TcpStream},
         sync::{
-            Arc, Mutex as StdMutex,
-            atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
+            Arc,
+            atomic::{AtomicUsize, Ordering as AtomicOrdering},
         },
-        thread,
         time::Duration,
     };
-
-    #[cfg(not(target_arch = "wasm32"))]
-    type ResponseHandler = dyn Fn(usize, &str) -> (u16, String, Duration) + Send + Sync;
-
-    #[cfg(not(target_arch = "wasm32"))]
-    struct TestHttpServer {
-        address: SocketAddr,
-        requests: Arc<AtomicUsize>,
-        captured: Arc<StdMutex<Vec<String>>>,
-        running: Arc<AtomicBool>,
-        thread: Option<thread::JoinHandle<()>>,
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    impl TestHttpServer {
-        fn new(handler: Arc<ResponseHandler>) -> Self {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            listener.set_nonblocking(true).unwrap();
-            let address = listener.local_addr().unwrap();
-            let requests = Arc::new(AtomicUsize::new(0));
-            let captured = Arc::new(StdMutex::new(Vec::new()));
-            let running = Arc::new(AtomicBool::new(true));
-            let requests_in_thread = requests.clone();
-            let captured_in_thread = captured.clone();
-            let running_in_thread = running.clone();
-            let thread = thread::spawn(move || {
-                while running_in_thread.load(AtomicOrdering::Acquire) {
-                    match listener.accept() {
-                        Ok((stream, _)) => {
-                            let handler = handler.clone();
-                            let requests = requests_in_thread.clone();
-                            let captured = captured_in_thread.clone();
-                            thread::spawn(move || {
-                                Self::respond(stream, handler.as_ref(), &requests, &captured);
-                            });
-                        }
-                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                            thread::sleep(Duration::from_millis(2));
-                        }
-                        Err(_) => break,
-                    }
-                }
-            });
-            Self {
-                address,
-                requests,
-                captured,
-                running,
-                thread: Some(thread),
-            }
-        }
-
-        fn respond(
-            mut stream: TcpStream,
-            handler: &ResponseHandler,
-            requests: &AtomicUsize,
-            captured: &StdMutex<Vec<String>>,
-        ) {
-            let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-            let mut request = Vec::new();
-            let mut buffer = [0_u8; 1024];
-            loop {
-                match stream.read(&mut buffer) {
-                    Ok(0) | Err(_) => break,
-                    Ok(count) => {
-                        request.extend_from_slice(&buffer[..count]);
-                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
-                            break;
-                        }
-                    }
-                }
-            }
-            let request = String::from_utf8_lossy(&request).into_owned();
-            captured.lock().unwrap().push(request.clone());
-            let index = requests.fetch_add(1, AtomicOrdering::AcqRel) + 1;
-            let (status, body, delay) = handler(index, &request);
-            thread::sleep(delay);
-            let reason = if (200..300).contains(&status) {
-                "OK"
-            } else {
-                "Error"
-            };
-            let response = format!(
-                "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
-            let _ = stream.write_all(response.as_bytes());
-            let _ = stream.flush();
-        }
-
-        fn url(&self) -> String {
-            format!("http://{}", self.address)
-        }
-
-        async fn wait_for_requests(&self, expected: usize) {
-            tokio::time::timeout(Duration::from_secs(2), async {
-                while self.requests.load(AtomicOrdering::Acquire) < expected {
-                    tokio::time::sleep(Duration::from_millis(5)).await;
-                }
-            })
-            .await
-            .expect("server did not receive the expected request count");
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    impl Drop for TestHttpServer {
-        fn drop(&mut self) {
-            self.running.store(false, AtomicOrdering::Release);
-            let _ = TcpStream::connect(self.address);
-            if let Some(thread) = self.thread.take() {
-                let _ = thread.join();
-            }
-        }
-    }
 
     #[cfg(not(target_arch = "wasm32"))]
     fn test_config(server: &TestHttpServer, cache_dir: &std::path::Path) -> ClientConfig {
         ClientConfig::builder("test-app", server.url())
             .cache_dir(cache_dir.to_string_lossy())
+            .allow_insecure_https(true)
             .build()
             .unwrap()
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     fn fixed_server(status: u16, body: &'static str) -> TestHttpServer {
-        TestHttpServer::new(Arc::new(move |_, _| {
-            (status, body.to_string(), Duration::ZERO)
-        }))
+        TestHttpServer::new(Arc::new(move |_, _| MockResponse::json(status, body)))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn test_http_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true)
+            .build()
+            .unwrap()
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1030,26 +1017,12 @@ mod tests {
     async fn test_concurrent_get_value() {
         setup();
         let temp_dir = TempDir::new("apollo_concurrent_get_test");
-
-        let config = ClientConfig {
-            app_id: String::from("101010101"),
-            cluster: String::from("default"),
-            config_server: std::env::var("APOLLO_TEST_SERVER")
-                .unwrap_or_else(|_| String::from("http://localhost:8080")),
-            secret: None,
-            cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()),
-            label: None,
-            ip: None,
-            allow_insecure_https: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            cache_ttl: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            refresh_interval: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            http_client: None,
-        };
-
-        let cache = Arc::new(Cache::new(config, "application", reqwest::Client::new()));
+        let server = fixed_server(200, r#"{"value":"shared"}"#);
+        let cache = Arc::new(Cache::new(
+            test_config(&server, temp_dir.path()),
+            "application",
+            test_http_client(),
+        ));
 
         let mut handles = Vec::new();
         for _ in 0..10 {
@@ -1079,7 +1052,7 @@ mod tests {
             .label("canary/a")
             .build()
             .unwrap();
-        let cache = Cache::new(base.clone(), "../public.properties", reqwest::Client::new());
+        let cache = Cache::new(base.clone(), "../public.properties", test_http_client());
         let url = cache.build_request_url().unwrap();
         assert_eq!(
             url.path(),
@@ -1103,7 +1076,7 @@ mod tests {
         let mut target = base.clone();
         target.ip = None;
         for other in [cluster, server_config, target] {
-            let other = Cache::new(other, "../public.properties", reqwest::Client::new());
+            let other = Cache::new(other, "../public.properties", test_http_client());
             assert_ne!(cache.file_path, other.file_path);
         }
     }
@@ -1116,7 +1089,7 @@ mod tests {
         let cache = Cache::new(
             test_config(&server, temp_dir.path()),
             "application",
-            reqwest::Client::new(),
+            test_http_client(),
         );
         let error = cache.get_value().await.unwrap_err();
         assert!(matches!(error, Error::HttpStatus { status: 500, .. }));
@@ -1133,7 +1106,7 @@ mod tests {
         let cache = Cache::new(
             test_config(&server, &blocked),
             "application",
-            reqwest::Client::new(),
+            test_http_client(),
         );
         assert_eq!(cache.get_value().await.unwrap()["value"], "remote");
     }
@@ -1145,7 +1118,7 @@ mod tests {
         let temp_dir = TempDir::new("stale_persistent_fallback");
         let mut config = test_config(&server, temp_dir.path());
         config.cache_ttl = Some(1);
-        let cache = Cache::new(config, "application", reqwest::Client::new());
+        let cache = Cache::new(config, "application", test_http_client());
         tokio::fs::create_dir_all(cache.file_path.parent().unwrap())
             .await
             .unwrap();
@@ -1167,6 +1140,14 @@ mod tests {
             .await;
 
         assert_eq!(cache.get_value().await.unwrap()["value"], "stale");
+        server.wait_for_requests(1).await;
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while errors.load(AtomicOrdering::Acquire) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("stale revalidation error was not reported");
         assert_eq!(errors.load(AtomicOrdering::Acquire), 1);
     }
 
@@ -1174,17 +1155,15 @@ mod tests {
     #[tokio::test]
     async fn cancelled_initial_load_releases_single_flight() {
         let server = TestHttpServer::new(Arc::new(|_, _| {
-            (
-                200,
-                r#"{"value":"loaded"}"#.to_string(),
-                Duration::from_millis(250),
-            )
+            let mut response = MockResponse::json(200, r#"{"value":"loaded"}"#);
+            response.header_delay = Duration::from_millis(250);
+            response
         }));
         let temp_dir = TempDir::new("cancelled_initial_load");
         let cache = Arc::new(Cache::new(
             test_config(&server, temp_dir.path()),
             "application",
-            reqwest::Client::new(),
+            test_http_client(),
         ));
         let first_cache = cache.clone();
         let first = tokio::spawn(async move { first_cache.get_value().await });
@@ -1195,7 +1174,7 @@ mod tests {
             .expect("second load was blocked by the cancelled loader")
             .unwrap();
         assert_eq!(value["value"], "loaded");
-        assert!(server.requests.load(AtomicOrdering::Acquire) >= 2);
+        assert!(server.request_count() >= 2);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1212,13 +1191,15 @@ mod tests {
             } else {
                 Duration::ZERO
             };
-            (200, body.to_string(), delay)
+            let mut response = MockResponse::json(200, body);
+            response.header_delay = delay;
+            response
         }));
         let temp_dir = TempDir::new("readers_not_blocked_by_refresh");
         let cache = Arc::new(Cache::new(
             test_config(&server, temp_dir.path()),
             "application",
-            reqwest::Client::new(),
+            test_http_client(),
         ));
         assert_eq!(cache.get_value().await.unwrap()["value"], "first");
         let refresh_cache = cache.clone();
@@ -1234,7 +1215,8 @@ mod tests {
         tokio::fs::remove_file(&cache.file_path).await.unwrap();
         cache.memory.write().await.as_mut().unwrap().timestamp -= 1_000;
         assert_eq!(cache.get_value().await.unwrap()["value"], "second");
-        assert_eq!(server.requests.load(AtomicOrdering::Acquire), 3);
+        server.wait_for_requests(3).await;
+        assert_eq!(server.request_count(), 3);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1242,16 +1224,16 @@ mod tests {
     async fn listeners_receive_changes_and_errors_but_not_unchanged_values() {
         let server = TestHttpServer::new(Arc::new(|index, _| {
             if index < 3 {
-                (200, r#"{"value":"same"}"#.to_string(), Duration::ZERO)
+                MockResponse::json(200, r#"{"value":"same"}"#)
             } else {
-                (429, "rate limited".to_string(), Duration::ZERO)
+                MockResponse::json(429, "rate limited")
             }
         }));
         let temp_dir = TempDir::new("listener_change_semantics");
         let cache = Cache::new(
             test_config(&server, temp_dir.path()),
             "application",
-            reqwest::Client::new(),
+            test_http_client(),
         );
         let changes = Arc::new(AtomicUsize::new(0));
         let errors = Arc::new(AtomicUsize::new(0));
@@ -1284,15 +1266,9 @@ mod tests {
         let temp_dir = TempDir::new("authenticated_request_headers");
         let mut config = test_config(&server, temp_dir.path());
         config.secret = Some("secret".to_string());
-        let cache = Cache::new(config, "application", reqwest::Client::new());
+        let cache = Cache::new(config, "application", test_http_client());
         cache.get_value().await.unwrap();
-        let request = server
-            .captured
-            .lock()
-            .unwrap()
-            .first()
-            .unwrap()
-            .to_lowercase();
+        let request = server.captured_requests().first().unwrap().to_lowercase();
         assert!(request.contains("\r\ntimestamp:"));
         assert!(request.contains("\r\nauthorization: apollo test-app:"));
     }
@@ -1328,6 +1304,128 @@ mod tests {
         while let Some(entry) = directory.next_entry().await.unwrap() {
             assert!(!entry.file_name().to_string_lossy().ends_with(".tmp"));
         }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn stale_reads_are_immediate_and_schedule_one_revalidation() {
+        let server = TestHttpServer::new(Arc::new(|index, _| {
+            if index == 1 {
+                MockResponse::json(200, r#"{"value":"cached"}"#)
+            } else {
+                let mut response = MockResponse::json(503, "unavailable");
+                response.header_delay = Duration::from_millis(250);
+                response
+            }
+        }));
+        let temp_dir = TempDir::new("stale_while_revalidate");
+        let mut config = test_config(&server, temp_dir.path());
+        config.cache_ttl = Some(1);
+        let cache = Arc::new(Cache::new(config, "application", test_http_client()));
+        assert_eq!(cache.get_value().await.unwrap()["value"], "cached");
+        cache.memory.write().await.as_mut().unwrap().timestamp -= 60;
+
+        let started = std::time::Instant::now();
+        let readers = (0..32).map(|_| {
+            let cache = cache.clone();
+            tokio::spawn(async move { cache.get_value().await.unwrap() })
+        });
+        for result in futures::future::join_all(readers).await {
+            assert_eq!(result.unwrap()["value"], "cached");
+        }
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "stale readers waited for revalidation"
+        );
+        server.wait_for_requests(2).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(server.request_count(), 2);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn concurrent_refresh_callers_share_one_request() {
+        let server = TestHttpServer::new(Arc::new(|_, _| {
+            let mut response = MockResponse::json(200, r#"{"value":"fresh"}"#);
+            response.header_delay = Duration::from_millis(150);
+            response
+        }));
+        let temp_dir = TempDir::new("coalesced_refresh");
+        let cache = Arc::new(Cache::new(
+            test_config(&server, temp_dir.path()),
+            "application",
+            test_http_client(),
+        ));
+        let callers = (0..16).map(|_| {
+            let cache = cache.clone();
+            tokio::spawn(async move { cache.refresh().await })
+        });
+        for result in futures::future::join_all(callers).await {
+            result.unwrap().unwrap();
+        }
+        assert_eq!(server.request_count(), 1);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn zero_ttl_serves_cached_data_and_revalidates() {
+        let server = TestHttpServer::new(Arc::new(|index, _| {
+            MockResponse::json(200, format!(r#"{{"request":{index}}}"#))
+        }));
+        let temp_dir = TempDir::new("zero_ttl");
+        let mut config = test_config(&server, temp_dir.path());
+        config.cache_ttl = Some(0);
+        let cache = Cache::new(config, "application", test_http_client());
+
+        assert_eq!(cache.get_value().await.unwrap()["request"], 1);
+        assert_eq!(cache.get_value().await.unwrap()["request"], 1);
+        server.wait_for_requests(2).await;
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while cache.memory.read().await.as_ref().unwrap().config["request"] != 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("zero-TTL revalidation did not update memory");
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn read_path_failures_do_not_notify_listeners() {
+        let server = fixed_server(500, "unavailable");
+        let temp_dir = TempDir::new("read_failure_listener");
+        let cache = Cache::new(
+            test_config(&server, temp_dir.path()),
+            "application",
+            test_http_client(),
+        );
+        let errors = Arc::new(AtomicUsize::new(0));
+        let listener_errors = errors.clone();
+        cache
+            .add_listener(Arc::new(move |result| {
+                if result.is_err() {
+                    listener_errors.fetch_add(1, AtomicOrdering::AcqRel);
+                }
+            }))
+            .await;
+
+        assert!(cache.get_value().await.is_err());
+        assert_eq!(errors.load(AtomicOrdering::Acquire), 0);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn startup_cleanup_removes_only_cache_temp_files() {
+        let temp_dir = TempDir::new("temp_cleanup");
+        let stale = temp_dir.path().join("v2-entry.cache.json.1.2.tmp");
+        let unrelated = temp_dir.path().join("notes.tmp");
+        std::fs::write(&stale, b"stale").unwrap();
+        std::fs::write(&unrelated, b"keep").unwrap();
+
+        cleanup_stale_temp_files(temp_dir.path());
+
+        assert!(!stale.exists());
+        assert!(unrelated.exists());
     }
 
     #[test]

@@ -120,7 +120,16 @@ pub struct Json {
 
 impl From<Json> for wasm_bindgen::JsValue {
     fn from(val: Json) -> Self {
-        serde_wasm_bindgen::to_value(&val.value).unwrap()
+        match val
+            .value
+            .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        {
+            Ok(value) => value,
+            Err(error) => {
+                log::error!("Unable to serialize JSON for JavaScript conversion: {error}");
+                wasm_bindgen::JsValue::NULL
+            }
+        }
     }
 }
 
