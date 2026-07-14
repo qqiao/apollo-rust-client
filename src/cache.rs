@@ -40,7 +40,8 @@ use log::{debug, trace, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU32, AtomicI64, Ordering};
+use std::hash::BuildHasher;
 use std::{fmt::Write, sync::Arc};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::io::AsyncWriteExt;
@@ -239,6 +240,12 @@ pub(crate) struct Cache {
     /// Completed refresh generation used to coalesce concurrent waiters.
     refresh_generation: Arc<AtomicU64>,
 
+    /// Count of consecutive refresh failures for backoff.
+    consecutive_failures: Arc<AtomicU32>,
+
+    /// Timestamp in Unix seconds after which a refresh is allowed.
+    next_allowed_refresh_timestamp: Arc<AtomicI64>,
+
     /// Error snapshot for waiters that shared a failed refresh.
     last_refresh_error: Arc<RwLock<Option<String>>>,
 
@@ -325,6 +332,8 @@ impl Cache {
             load_lock: Arc::new(Mutex::new(())),
             refresh_lock: Arc::new(Mutex::new(())),
             refresh_generation: Arc::new(AtomicU64::new(0)),
+            consecutive_failures: Arc::new(AtomicU32::new(0)),
+            next_allowed_refresh_timestamp: Arc::new(AtomicI64::new(0)),
             last_refresh_error: Arc::new(RwLock::new(None)),
 
             #[cfg(not(target_arch = "wasm32"))]
@@ -507,9 +516,21 @@ impl Cache {
             Ok(item) => {
                 self.persist_best_effort(&item).await;
                 self.replace_memory(item).await;
+                self.consecutive_failures.store(0, Ordering::Release);
+                self.next_allowed_refresh_timestamp.store(0, Ordering::Release);
                 Ok(())
             }
-            Err(error) => Err(error),
+            Err(error) => {
+                let failures = self.consecutive_failures.fetch_add(1, Ordering::SeqCst) + 1;
+                let base_interval = self.client_config.effective_refresh_interval().max(1);
+                let mut state = std::collections::hash_map::RandomState::new().hash_one(());
+                let random = next_random(&mut state);
+                let delay = refresh_delay_seconds(base_interval, failures, random);
+                #[allow(clippy::cast_possible_wrap)]
+                let next_time = Utc::now().timestamp() + delay as i64;
+                self.next_allowed_refresh_timestamp.store(next_time, Ordering::Release);
+                Err(error)
+            }
         };
         *self.last_refresh_error.write().await = result.as_ref().err().map(ToString::to_string);
         self.refresh_generation.fetch_add(1, Ordering::Release);
@@ -613,7 +634,7 @@ impl Cache {
             } else {
                 if let Ok(content) = serde_json::to_string(item)
                     && save_to_local_storage(&self.wasm_cache_key, &content).is_none() {
-                    warn!("Unable to persist localStorage cache entry {}", self.wasm_cache_key);
+                    log::debug!("Unable to persist localStorage cache entry {}", self.wasm_cache_key);
                 }
             }
         }
@@ -854,6 +875,16 @@ impl Cache {
     pub(crate) fn wasm_cache_key(&self) -> &str {
         &self.wasm_cache_key
     }
+
+    /// Checks if this cache is currently backing off from a previous failure.
+    pub(crate) fn is_backing_off(&self) -> bool {
+        let next_time = self.next_allowed_refresh_timestamp.load(Ordering::Acquire);
+        if next_time == 0 {
+            false
+        } else {
+            Utc::now().timestamp() < next_time
+        }
+    }
 }
 
 fn invoke_listener(
@@ -928,6 +959,31 @@ pub(crate) fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Er
     // Convert the result to a string using base64
     let code = Base64Display::new(&result, &base64::engine::general_purpose::STANDARD);
     Ok(code.to_string())
+}
+
+fn next_random(state: &mut u64) -> u64 {
+    if *state == 0 {
+        *state = 0x9e37_79b9_7f4a_7c15;
+    }
+    *state ^= *state << 13;
+    *state ^= *state >> 7;
+    *state ^= *state << 17;
+    *state
+}
+
+fn refresh_delay_seconds(base_interval: u64, consecutive_failures: u32, random: u64) -> u64 {
+    let factor = 1_u64 << consecutive_failures.min(4);
+    let delay = base_interval
+        .saturating_mul(factor)
+        .min(base_interval.max(300));
+    let jitter_window = delay / 10;
+    if jitter_window == 0 {
+        return delay;
+    }
+    let jitter_span = jitter_window.saturating_mul(2).saturating_add(1);
+    delay
+        .saturating_sub(jitter_window)
+        .saturating_add(random % jitter_span)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1443,5 +1499,49 @@ mod tests {
         let secret = "df23df3f59884980844ff3dada30fa97";
         let signature = sign(1_576_478_257_344, url, secret).unwrap();
         assert_eq!(signature, "EoKyziXvKqzHgwx+ijDJwgVTDgE=");
+    }
+    #[test]
+    fn refresh_backoff_uses_bounded_symmetric_jitter() {
+        assert_eq!(refresh_delay_seconds(100, 0, 0), 90);
+        assert_eq!(refresh_delay_seconds(100, 0, 20), 110);
+        let backed_off = refresh_delay_seconds(100, 2, 0);
+        assert_eq!(backed_off, 270);
+        assert!((270..=330).contains(&refresh_delay_seconds(100, 2, u64::MAX)));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_cache_backoff_and_skipping() {
+        setup();
+        let server = TestHttpServer::new(Arc::new(|index, _| {
+            if index == 1 {
+                MockResponse::json(500, "error")
+            } else {
+                MockResponse::json(200, "{}")
+            }
+        }));
+        let temp_dir = TempDir::new("backoff_test");
+        let cache = Cache::new(
+            test_config(&server, temp_dir.path()),
+            "application",
+            test_http_client(),
+        );
+
+        assert!(!cache.is_backing_off());
+        assert_eq!(cache.consecutive_failures.load(Ordering::Acquire), 0);
+
+        let res = cache.refresh().await;
+        assert!(res.is_err());
+        assert_eq!(cache.consecutive_failures.load(Ordering::Acquire), 1);
+        assert!(cache.is_backing_off());
+
+        cache.next_allowed_refresh_timestamp.store(0, Ordering::Release);
+        assert!(!cache.is_backing_off());
+
+        let res2 = cache.refresh().await;
+        assert!(res2.is_ok());
+        assert_eq!(cache.consecutive_failures.load(Ordering::Acquire), 0);
+        assert_eq!(cache.next_allowed_refresh_timestamp.load(Ordering::Acquire), 0);
+        assert!(!cache.is_backing_off());
     }
 }

@@ -50,7 +50,6 @@ use futures::{StreamExt, stream};
 use log::{error, trace};
 use std::{
     collections::HashMap,
-    hash::{BuildHasher, RandomState},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -199,6 +198,21 @@ cfg_if::cfg_if! {
         /// typed namespace or an owned refresh error.
         pub type EventListener = Arc<dyn Fn(Result<Namespace, Error>) + Send + Sync>;
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn check_local_storage_availability() -> bool {
+    let global = js_sys::global();
+    let Ok(storage) = js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("localStorage")) else {
+        return false;
+    };
+    if storage.is_undefined() || storage.is_null() {
+        return false;
+    }
+    let Ok(get_item_fn) = js_sys::Reflect::get(&storage, &wasm_bindgen::JsValue::from_str("getItem")) else {
+        return false;
+    };
+    get_item_fn.is_function()
 }
 
 /// The main Apollo configuration client.
@@ -543,19 +557,18 @@ async fn refresh_loop(
     refresh_interval: u64,
 ) {
     let base_interval = refresh_interval.max(1);
-    let mut consecutive_failures = 0_u32;
-    let mut random_state = RandomState::new().hash_one(());
 
     while running.load(Ordering::Acquire) {
         let cache_refs: Vec<_> = {
             let namespaces = namespaces.read().await;
             namespaces
                 .iter()
+                .filter(|(_, cache)| !cache.is_backing_off())
                 .map(|(name, cache)| (name.clone(), cache.clone()))
                 .collect()
         };
 
-        let results = stream::iter(cache_refs)
+        let _results = stream::iter(cache_refs)
             .map(|(namespace, cache)| async move {
                 let result = cache.refresh().await;
                 if let Err(error) = &result {
@@ -569,41 +582,8 @@ async fn refresh_loop(
             .collect::<Vec<_>>()
             .await;
 
-        if results.iter().any(Result::is_err) {
-            consecutive_failures = consecutive_failures.saturating_add(1);
-        } else {
-            consecutive_failures = 0;
-        }
-
-        let random = next_random(&mut random_state);
-        let delay = refresh_delay_seconds(base_interval, consecutive_failures, random);
-        platform_sleep(std::time::Duration::from_secs(delay)).await;
+        platform_sleep(std::time::Duration::from_secs(base_interval)).await;
     }
-}
-
-fn next_random(state: &mut u64) -> u64 {
-    if *state == 0 {
-        *state = 0x9e37_79b9_7f4a_7c15;
-    }
-    *state ^= *state << 13;
-    *state ^= *state >> 7;
-    *state ^= *state << 17;
-    *state
-}
-
-fn refresh_delay_seconds(base_interval: u64, consecutive_failures: u32, random: u64) -> u64 {
-    let factor = 1_u64 << consecutive_failures.min(4);
-    let delay = base_interval
-        .saturating_mul(factor)
-        .min(base_interval.max(300));
-    let jitter_window = delay / 10;
-    if jitter_window == 0 {
-        return delay;
-    }
-    let jitter_span = jitter_window.saturating_mul(2).saturating_add(1);
-    delay
-        .saturating_sub(jitter_window)
-        .saturating_add(random % jitter_span)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -636,6 +616,14 @@ impl Client {
     #[wasm_bindgen(constructor)]
     pub fn new(config: ClientConfig) -> Result<Self, Error> {
         config.validate()?;
+        #[cfg(target_arch = "wasm32")]
+        {
+            if check_local_storage_availability() {
+                log::info!("localStorage is available for persistent configuration caching.");
+            } else {
+                log::info!("localStorage is not available. Falling back to in-memory configuration caching.");
+            }
+        }
         #[cfg(not(target_arch = "wasm32"))]
         cache::cleanup_stale_temp_files(&config.get_cache_dir());
         let http_client = {
@@ -939,15 +927,6 @@ mod tests {
     use super::*;
 
     use std::sync::Mutex;
-
-    #[test]
-    fn refresh_backoff_uses_bounded_symmetric_jitter() {
-        assert_eq!(refresh_delay_seconds(100, 0, 0), 90);
-        assert_eq!(refresh_delay_seconds(100, 0, 20), 110);
-        let backed_off = refresh_delay_seconds(100, 2, 0);
-        assert_eq!(backed_off, 270);
-        assert!((270..=330).contains(&refresh_delay_seconds(100, 2, u64::MAX)));
-    }
 
     #[cfg(not(target_arch = "wasm32"))]
     fn test_server_url() -> String {
@@ -2172,5 +2151,60 @@ mod tests {
             err_str.contains("timeout") || err_str.contains("error") || err_str.contains("reqwest"),
             "Expected error to mention timeout or request failure, got: {err_str}"
         );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_decoupled_failures_in_refresh_loop() {
+        use crate::test_support::{MockHttpsServer as TestHttpServer, MockResponse};
+        setup();
+        let server = TestHttpServer::new(Arc::new(|_, request| {
+            if request.contains("/application") {
+                MockResponse::json(200, r#"{"value":"ok"}"#)
+            } else if request.contains("/failing") {
+                MockResponse::json(500, "error")
+            } else {
+                MockResponse::json(404, "not found")
+            }
+        }));
+
+        let temp_dir = TempDir::new("decoupled_refresh_test");
+
+        let config = ClientConfig {
+            app_id: String::from("101010101"),
+            cluster: String::from("default"),
+            config_server: server.url(),
+            secret: None,
+            cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()),
+            label: None,
+            ip: None,
+            allow_insecure_https: Some(true),
+            cache_ttl: None,
+            refresh_interval: Some(1), // 1 second interval
+            request_timeout: None,
+            http_client: None,
+        };
+
+        let mut client = Client::new(config).expect("test client configuration should be valid");
+        let _ = client.namespace("application").await;
+        let _ = client.namespace("failing").await;
+
+        let before_app = server.request_count_for_path("/configfiles/json/101010101/default/application");
+        let before_fail = server.request_count_for_path("/configfiles/json/101010101/default/failing");
+
+        client.start().await.expect("Failed to start client background task");
+
+        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+
+        client.stop().await;
+
+        let after_app = server.request_count_for_path("/configfiles/json/101010101/default/application");
+        let after_fail = server.request_count_for_path("/configfiles/json/101010101/default/failing");
+
+        let app_refreshes = after_app.saturating_sub(before_app);
+        let fail_refreshes = after_fail.saturating_sub(before_fail);
+
+        assert!(app_refreshes >= 2, "Expected at least 2 refreshes for healthy namespace, got {app_refreshes}");
+        assert!(fail_refreshes <= 1, "Expected at most 1 refresh for failing namespace due to backoff, got {fail_refreshes}");
     }
 }
