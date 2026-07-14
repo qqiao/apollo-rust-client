@@ -13,7 +13,7 @@ Configuration contents are represented internally using the `serde_json::Value` 
 - When object mapping is called via `Json::to_object` or `Yaml::to_object`, serialization maps JSON or YAML documents into strongly-typed Rust structures using `serde` reflection.
 
 ### 1.2 On-Disk Serialized Schema (`CacheItem`)
-On native targets, configuration data is persisted locally in JSON files inside `{cache_dir}/{app_id}/config-cache/` to ensure offline resilience and speed up application start times.
+On native targets, configuration data is persisted locally in JSON files inside `{cache_dir}/apollo-rust-client/config-cache/` to ensure offline resilience and speed up application start times.
 
 Each file contains a serialized representation of the `CacheItem` struct:
 
@@ -52,19 +52,20 @@ The caching layer operates as an asynchronous read-through cache using three dis
 ```
 
 ### Tier 1: In-Memory Cache
-- Implemented via `Arc<RwLock<Option<Value>>>` in `Cache::memory`.
+- Implemented via `Arc<RwLock<Option<CacheItem>>>` in `Cache::memory`, so TTL applies to memory as well as persistent storage.
 - Non-blocking reads: Multiple threads can concurrently read configurations via read locks without blocking each other.
 - Thread-safe updates: Exclusive write locks are acquired only when modifying cached values.
 
 ### Tier 2: Persistent Local Cache (Native / WebAssembly)
-- **Native Targets**: Located at `{cache_dir}/{app_id}_{cluster}_{namespace}.cache.json`. Serves as backup if the memory cache is empty. If the file exists, the client parses it and checks the file age against `cache_ttl` to determine staleness.
-- **WebAssembly Targets (Browser)**: Utilizes the browser's global `localStorage` wrapper to store configurations as JSON strings under an isolated key: `apollo_cache_{app_id}_{cluster}_{namespace}[_{ip}][_{label}]`. This avoids collisions across applications, clusters, and grayscale targeting while still eliminating cold-start fetch latencies upon page refreshes or route changes.
+- **Native Targets**: Uses `v2-{sha1(identity)}.cache.json`, where the length-delimited identity includes cache version, configuration server, app, cluster, namespace, IP, and label. Raw caller identifiers never become path components.
+- **WebAssembly Targets (Browser)**: Uses the same versioned identity under `apollo_cache_v2_{sha1(identity)}`. Entries use the configured TTL and stale data is retained as an availability fallback.
 - **WebAssembly Targets (Node.js)**: Safely and silently falls back to Tier 1 in-memory caching if no browser `localStorage` is found at runtime, ensuring complete cross-platform execution compatibility without crashes.
 
 ### Tier 3: Remote Server Fetch
 - Reaches out to Apollo Server via HTTPS.
 - Triggered if Tiers 1 and 2 are empty or if local persistent caches are stale/not found.
-- On success, the response updates the memory cache and writes back to the active persistent cache (on-disk file or browser `localStorage`).
+- Non-success HTTP statuses are returned as typed errors and are never cached.
+- On success, memory is updated and persistence is attempted on a best-effort basis. A persistence failure cannot discard a valid remote response.
 
 ---
 
@@ -72,18 +73,14 @@ The caching layer operates as an asynchronous read-through cache using three dis
 
 Multi-threaded safety is critical in high-throughput native services. `apollo-rust-client` implements precise lock synchronization patterns.
 
-### 3.1 Double-Checked Locking (DCL)
-To prevent multiple threads from concurrently requesting the same namespace configuration (the **Thundering Herd** problem), `Cache::get_value` implements double-checked locking:
+### 3.1 Cancellation-Safe Single Flight
+To prevent multiple tasks from concurrently requesting the same namespace configuration (the **Thundering Herd** problem), `Cache::get_value` uses a Tokio mutex as a cancellation-safe single-flight gate:
 
 1. **Fast-Path Check**: Acquire the read lock on `memory` to check if a value is present. If it is, return it immediately without writing.
-2. **Loop and Wait Coordination**:
-   - If memory is empty, the thread attempts to become the loader by acquiring the write lock on `self.loading`.
-   - If another thread is already loading (`*loading == true`), the thread releases its lock and blocks on `self.loading_complete.notified().await`.
-   - Once the loading thread completes the network fetch, it resets `*loading = false` and calls `self.loading_complete.notify_waiters()`.
-   - The blocked threads wake up, loop back, re-run the fast-path check, and retrieve the newly populated configuration from memory.
+2. **Load Gate**: A stale/missing reader acquires `load_lock`, then repeats the freshness check. Cancellation automatically drops the mutex guard, so later callers cannot be stranded by a boolean or lost notification.
 
 ### 3.2 Deadlock Prevention in Observers
 Event listener callbacks (observers) are notified upon successful configuration updates. Because these callbacks might execute user-defined logic that queries the same `Client` (causing re-entrant read requests), locks must be managed carefully:
 
 - In `load_and_cache()` and `refresh()`, the client releases the write lock on `memory` **before** calling `notify_listeners()`.
-- On native targets, `notify_listeners()` spawns each observer callback as an independent, concurrent asynchronous task via `tokio::spawn`. This decouples listener execution from the cache's execution flow, ensuring re-entrant requests do not deadlock the client.
+- Listeners are invoked synchronously in registration order after locks are released. Success is emitted only when the configuration value changed; refresh errors are emitted as owned `Error::Refresh` values. Panics are caught and logged so one listener cannot suppress later listeners.

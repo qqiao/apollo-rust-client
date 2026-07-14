@@ -11,27 +11,19 @@ use apollo_rust_client::client_config::ClientConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client_config = ClientConfig {
-        app_id: "your_app_id".to_string(), // 你的应用ID
-        cluster: "default".to_string(), // 集群名称
-        secret: Some("your_apollo_secret".to_string()), // 你的 Apollo 密钥
-        config_server: "http://your-apollo-server:8080".to_string(), // 配置服务器地址
-        cache_dir: None, // 本地缓存目录
-        label: None, // 实例标签
-        ip: None, // 应用IP地址
-        allow_insecure_https: None, // 是否允许不安全的HTTPS连接
-    };
-    let mut client = Client::new(client_config);
+    let client_config = ClientConfig::builder(
+        "your_app_id", "http://your-apollo-server:8080"
+    ).secret("your_apollo_secret").build()?;
+    let mut client = Client::new(client_config)?;
     // 启动后台轮询以获取配置更新。
     client.start().await?;
 
     // 获取 "application" 命名空间的配置。
-    let cache = client.namespace("application").await;
+    let namespace = client.namespace("application").await?;
 
     // 示例：检索字符串属性。
-    match cache.get_property::<String>("some_key") {
-        Some(value) => println!("属性 'some_key': {}", value),
-        None => println!("未找到属性 'some_key'"),
+    if let apollo_rust_client::namespace::Namespace::Properties(properties) = namespace {
+        println!("属性: {:?}", properties.get_string("some_key"));
     }
 
     // 示例：检索整数属性。

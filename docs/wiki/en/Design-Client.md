@@ -21,9 +21,9 @@ The `Client` struct is the primary user-facing interface for interacting with th
 - **`handle: Option<tokio::task::JoinHandle<()>>`**:
   _(Non-WASM only)_ An optional handle to the background task that periodically refreshes configurations. This is `Some` when the background task is running and `None` otherwise. It's used to `abort()` the task when `stop()` is called. For WASM, this is always `None` as task management differs.
 
-- **`running: Arc<RwLock<bool>>`**:
+- **`running: Arc<AtomicBool>`**:
   A flag to control the execution of the background refresh task.
-  - `Arc<RwLock<...>>`: Shared between the `Client` and the background task. The `Client` sets it to `false` to signal the task to stop, and the task reads it to know when to exit.
+  - Shared between the `Client` and background task for lock-free lifecycle coordination.
 
 ## Core Methods
 
@@ -33,10 +33,10 @@ Starts a background task that periodically refreshes all registered namespace ca
 
 This method spawns an asynchronous task using `tokio::spawn` on native targets or `wasm_bindgen_futures::spawn_local` on wasm32 targets. The task loops indefinitely (until `stop` is called) and performs the following actions in each iteration:
 
-1. Iterates through all namespaces currently managed by the client.
-2. Calls the `refresh` method on each namespace's `Cache` instance.
-3. Logs any errors encountered during the refresh process.
-4. Sleeps for a predefined interval (defaults to 30 seconds) before the next refresh cycle.
+1. Copies cache references without retaining the namespace-map lock.
+2. Refreshes up to four namespaces concurrently.
+3. Logs errors and applies bounded exponential backoff with jitter.
+4. Sleeps for the configured interval (default 30 seconds).
 
 **Returns:**
 
@@ -47,7 +47,7 @@ This method spawns an asynchronous task using `tokio::spawn` on native targets o
 
 Stops the background cache refresh task.
 
-This method sets the `running` flag to `false`, signaling the background task to terminate its refresh loop. On non-wasm32 targets, it also attempts to explicitly cancel the spawned task by calling `abort()` on its `JoinHandle` if it exists.
+This method sets `running` to false and aborts the native `JoinHandle` or WASM `AbortHandle`. `Drop` provides the same cancellation guarantee.
 
 ### `namespace(&self, namespace: &str) -> Result<Namespace, Error>` (Native Rust)
 

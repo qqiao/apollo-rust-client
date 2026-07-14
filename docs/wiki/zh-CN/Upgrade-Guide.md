@@ -28,17 +28,9 @@ let custom_client = reqwest::Client::builder()
     .user_agent("my-custom-user-agent")
     .build()?;
 
-let config = ClientConfig {
-    app_id: "my-app".to_string(),
-    config_server: "http://apollo-server:8080".to_string(),
-    cluster: "default".to_string(),
-    secret: None,
-    cache_dir: None,
-    label: None,
-    ip: None,
-    allow_insecure_https: None,
-    http_client: Some(custom_client), // 注入自定义客户端
-};
+let config = ClientConfig::builder("my-app", "http://apollo-server:8080")
+    .http_client(custom_client)
+    .build()?;
 ```
 
 ## 从 v0.5.x 升级到 v0.6.0
@@ -89,7 +81,7 @@ let settings: ServerConfig = yaml_namespace.to_object()?;
 let client = Client::new(client_config);
 
 // 之后
-let client = Client::new(config);
+let client = Client::new(config)?;
 ```
 
 #### 4. 函数可见性变更
@@ -170,7 +162,7 @@ match namespace {
 use apollo_rust_client::{Client, client_config::ClientConfig};
 
 let config = ClientConfig::from_env()?;
-let mut client = Client::new(config);
+let mut client = Client::new(config)?;
 
 let namespace = client.namespace("application").await?;
 match namespace {
@@ -213,16 +205,9 @@ match namespace {
 2. **添加缓存 TTL 配置**（可选）：
 
    ```rust
-   let config = ClientConfig {
-       app_id: "my-app".to_string(),
-       config_server: "http://apollo-server:8080".to_string(),
-       cluster: "default".to_string(),
-       secret: None,
-       cache_dir: None,
-       label: None,
-       ip: None,
-       cache_ttl: Some(300), // 5 分钟，或使用 APOLLO_CACHE_TTL 环境变量
-   };
+   let config = ClientConfig::builder("my-app", "http://apollo-server:8080")
+       .cache_ttl(300)
+       .build()?;
    ```
 
 3. **无需代码更改** - 所有新字段都是可选的且向后兼容
@@ -246,17 +231,10 @@ let config = ClientConfig {
     ip: None,
 };
 
-// 之后 (0.5.0) - 添加 cache_ttl 字段
-let config = ClientConfig {
-    app_id: "my-app".to_string(),
-    config_server: "http://apollo-server:8080".to_string(),
-    cluster: "default".to_string(),
-    secret: None,
-    cache_dir: None,
-    label: None,
-    ip: None,
-    cache_ttl: Some(600), // 10 分钟默认值
-};
+// 当前 API：推荐构建器，新增可选字段不会使此代码失效。
+let config = ClientConfig::builder("my-app", "http://apollo-server:8080")
+    .cache_ttl(600)
+    .build()?;
 ```
 
 ## 从 v0.3.x 升级到 v0.4.0

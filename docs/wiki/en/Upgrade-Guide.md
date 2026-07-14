@@ -28,17 +28,9 @@ let custom_client = reqwest::Client::builder()
     .user_agent("my-custom-user-agent")
     .build()?;
 
-let config = ClientConfig {
-    app_id: "my-app".to_string(),
-    config_server: "http://apollo-server:8080".to_string(),
-    cluster: "default".to_string(),
-    secret: None,
-    cache_dir: None,
-    label: None,
-    ip: None,
-    allow_insecure_https: None,
-    http_client: Some(custom_client), // Inject custom client
-};
+let config = ClientConfig::builder("my-app", "http://apollo-server:8080")
+    .http_client(custom_client)
+    .build()?;
 ```
 
 ## Upgrading from v0.5.x to v0.6.0
@@ -89,7 +81,7 @@ let settings: ServerConfig = yaml_namespace.to_object()?;
 let client = Client::new(client_config);
 
 // After
-let client = Client::new(config);
+let client = Client::new(config)?;
 ```
 
 #### 4. Function Visibility Changes
@@ -170,7 +162,7 @@ match namespace {
 use apollo_rust_client::{Client, client_config::ClientConfig};
 
 let config = ClientConfig::from_env()?;
-let mut client = Client::new(config);
+let mut client = Client::new(config)?;
 
 let namespace = client.namespace("application").await?;
 match namespace {
@@ -213,16 +205,9 @@ match namespace {
 2. **Add cache TTL configuration** (optional):
 
    ```rust
-   let config = ClientConfig {
-       app_id: "my-app".to_string(),
-       config_server: "http://apollo-server:8080".to_string(),
-       cluster: "default".to_string(),
-       secret: None,
-       cache_dir: None,
-       label: None,
-       ip: None,
-       cache_ttl: Some(300), // 5 minutes, or use APOLLO_CACHE_TTL env var
-   };
+   let config = ClientConfig::builder("my-app", "http://apollo-server:8080")
+       .cache_ttl(300)
+       .build()?;
    ```
 
 3. **No code changes required** - all new fields are optional and backward compatible
@@ -246,17 +231,10 @@ let config = ClientConfig {
     ip: None,
 };
 
-// After (0.5.0) - Add cache_ttl field
-let config = ClientConfig {
-    app_id: "my-app".to_string(),
-    config_server: "http://apollo-server:8080".to_string(),
-    cluster: "default".to_string(),
-    secret: None,
-    cache_dir: None,
-    label: None,
-    ip: None,
-    cache_ttl: Some(600), // 10 minutes default
-};
+// Current API: prefer the builder so future optional fields do not break this code.
+let config = ClientConfig::builder("my-app", "http://apollo-server:8080")
+    .cache_ttl(600)
+    .build()?;
 ```
 
 ## Upgrading from v0.3.x to v0.4.0

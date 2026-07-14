@@ -91,7 +91,7 @@ let config = ClientConfig {
 
 - **Description**: Directory for local cache files (native targets only)
 - **Purpose**: Persistent storage for configuration data
-- **Default**: `/opt/data/{app_id}/config-cache` (native), `None` (WASM)
+- **Default**: Platform-standard application cache directory (native); browser localStorage on WASM
 - **Platform**: Native Rust only, ignored on WebAssembly
 - **Environment Variable**: `APOLLO_CACHE_DIR`
 
@@ -148,21 +148,26 @@ let config = ClientConfig {
 };
 ```
 
-#### `cache_ttl` (Option<u64>) - Native targets only
+#### `cache_ttl` (Option<u64>)
 
-- **Description**: Time-to-live for the file cache in seconds.
-- **Purpose**: Prevents the client from using a stale cache.
+- **Description**: Time-to-live for memory and persistent cache entries in seconds.
+- **Purpose**: Controls when native files or WASM localStorage values are revalidated.
 - **Default**: When using `from_env`, this defaults to 600 seconds (10 minutes) if the `APOLLO_CACHE_TTL` environment variable is not set.
 - **Environment Variable**: `APOLLO_CACHE_TTL`
-- **Platform Support**: This field is only available on native targets (not WebAssembly) as disk caching is not supported in WASM environments.
+- **Platform Support**: Native and WebAssembly.
+- **Zero**: Supported always-revalidate mode. The cached value is returned immediately while one background refresh runs per namespace.
 
 ```rust
-let config = ClientConfig {
-    #[cfg(not(target_arch = "wasm32"))]
-    cache_ttl: Some(300), // 5 minutes
-    // ... other fields
-};
+let config = ClientConfig::builder("my-app", "http://apollo-server:8080")
+    .cache_ttl(300)
+    .build()?;
 ```
+
+#### `refresh_interval` and `request_timeout`
+
+- `refresh_interval` controls periodic polling and defaults to 30 seconds. It must be greater than zero.
+- `request_timeout` bounds the complete request and response-body read and defaults to 10 seconds. It also wraps custom native HTTP clients and must be greater than zero.
+- These values are independent: cache expiry controls read-path revalidation, while polling controls proactive background updates.
 
 ## Configuration Examples
 
@@ -171,16 +176,7 @@ let config = ClientConfig {
 ```rust
 use apollo_rust_client::client_config::ClientConfig;
 
-let config = ClientConfig {
-    app_id: "my-app".to_string(),
-    config_server: "http://apollo-server:8080".to_string(),
-    cluster: "default".to_string(),
-    secret: None,
-    cache_dir: None,
-    label: None,
-    ip: None,
-    allow_insecure_https: None,
-};
+let config = ClientConfig::builder("my-app", "http://apollo-server:8080").build()?;
 ```
 
 ### Production Configuration
@@ -188,16 +184,13 @@ let config = ClientConfig {
 ```rust
 use apollo_rust_client::client_config::ClientConfig;
 
-let config = ClientConfig {
-    app_id: "production-service".to_string(),
-    config_server: "https://apollo.company.com".to_string(),
-    cluster: "production".to_string(),
-    secret: Some("production-secret-key".to_string()),
-    cache_dir: Some("/var/cache/apollo".to_string()),
-    label: Some("datacenter-east,version-2.1".to_string()),
-    ip: Some("10.0.1.100".to_string()),
-    allow_insecure_https: None, // Secure by default in production
-};
+let config = ClientConfig::builder("production-service", "https://apollo.company.com")
+    .cluster("production")
+    .secret("production-secret-key")
+    .cache_dir("/var/cache/apollo")
+    .label("datacenter-east,version-2.1")
+    .ip("10.0.1.100")
+    .build()?;
 ```
 
 ### Development Configuration
@@ -205,16 +198,11 @@ let config = ClientConfig {
 ```rust
 use apollo_rust_client::client_config::ClientConfig;
 
-let config = ClientConfig {
-    app_id: "dev-app".to_string(),
-    config_server: "http://localhost:8080".to_string(),
-    cluster: "development".to_string(),
-    secret: None,
-    cache_dir: Some("/tmp/apollo-cache".to_string()),
-    label: Some("developer-workstation".to_string()),
-    ip: None,
-    allow_insecure_https: None,
-};
+let config = ClientConfig::builder("dev-app", "http://localhost:8080")
+    .cluster("development")
+    .cache_dir("/tmp/apollo-cache")
+    .label("developer-workstation")
+    .build()?;
 ```
 
 ## Environment Variable Configuration
@@ -243,7 +231,9 @@ let config = ClientConfig::from_env()?;
 - **`APOLLO_ACCESS_KEY_SECRET`**: The secret key for authentication (optional)
 - **`APOLLO_LABEL`**: Comma-separated list of labels for grayscale rules (optional)
 - **`APOLLO_CACHE_DIR`**: Directory to store local cache (optional)
-- **`APOLLO_CACHE_TTL`**: Time-to-live for the cache in seconds (optional, defaults to 600, native targets only)
+- **`APOLLO_CACHE_TTL`**: Time-to-live for native and WASM cache entries (optional, defaults to 600; `0` means always revalidate)
+- **`APOLLO_REFRESH_INTERVAL`**: Periodic polling interval (optional, defaults to 30; must be greater than zero)
+- **`APOLLO_REQUEST_TIMEOUT`**: Complete request timeout (optional, defaults to 10; must be greater than zero)
 - **`APOLLO_ALLOW_INSECURE_HTTPS`**: Whether to allow insecure HTTPS connections (optional, defaults to false)
 
 #### Setting Environment Variables
@@ -603,7 +593,7 @@ println!("Configuration loaded: {:?}", config);
    let client = Client::new(client_config);
 
    // After
-   let client = Client::new(config);
+   let client = Client::new(config)?;
    ```
 
 #### Version 0.4.x to 0.5.0
@@ -631,10 +621,9 @@ println!("Configuration loaded: {:?}", config);
 2. Add cache TTL configuration (optional):
 
    ```rust
-   let config = ClientConfig {
-       // ... existing fields ...
-       cache_ttl: Some(300), // 5 minutes, or use APOLLO_CACHE_TTL env var
-   };
+   let config = ClientConfig::builder("my-app", "http://apollo-server:8080")
+       .cache_ttl(300)
+       .build()?;
    ```
 
 3. No code changes required - all new fields are optional and backward compatible

@@ -28,17 +28,9 @@ let custom_client = reqwest::Client::builder()
     .user_agent("my-custom-user-agent")
     .build()?;
 
-let config = ClientConfig {
-    app_id: "my-app".to_string(),
-    config_server: "http://apollo-server:8080".to_string(),
-    cluster: "default".to_string(),
-    secret: None,
-    cache_dir: None,
-    label: None,
-    ip: None,
-    allow_insecure_https: None,
-    http_client: Some(custom_client), // 注入自定義客戶端
-};
+let config = ClientConfig::builder("my-app", "http://apollo-server:8080")
+    .http_client(custom_client)
+    .build()?;
 ```
 
 ## 從 v0.5.x 升級到 v0.6.0
@@ -89,7 +81,7 @@ let settings: ServerConfig = yaml_namespace.to_object()?;
 let client = Client::new(client_config);
 
 // 之後
-let client = Client::new(config);
+let client = Client::new(config)?;
 ```
 
 #### 4. 函數可見性變更
@@ -170,7 +162,7 @@ match namespace {
 use apollo_rust_client::{Client, client_config::ClientConfig};
 
 let config = ClientConfig::from_env()?;
-let mut client = Client::new(config);
+let mut client = Client::new(config)?;
 
 let namespace = client.namespace("application").await?;
 match namespace {

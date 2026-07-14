@@ -142,7 +142,7 @@ fn main() {
         ip: None,
     };
 
-    let client = Client::new(config);
+    let client = Client::new(config)?;
     println!("Apollo Rust Client installed successfully!");
 }
 ```

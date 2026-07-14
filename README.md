@@ -14,7 +14,7 @@ A robust Rust client for the Apollo Configuration Centre, with support for WebAs
 - **Type-Safe Configuration Management**: Compile-time guarantees and runtime type conversion
 - **Cross-Platform Support**: Native Rust and WebAssembly targets
 - **TLS Support**: Switchable TLS implementations (native-tls by default, rustls via feature flag)
-- **Real-Time Updates**: Background polling with configurable intervals and event listeners
+- **Periodic Updates**: Bounded-concurrency background polling with configurable intervals, jittered backoff, and event listeners
 - **Comprehensive Caching**: Multi-level caching with file persistence (native) and persistent localStorage caching with high-performance Node.js in-memory fallback (WASM)
 - **Async/Await Support**: Full asynchronous API for non-blocking operations
 - **Error Handling**: Detailed error diagnostics with comprehensive error types
@@ -67,21 +67,14 @@ use apollo_rust_client::client_config::ClientConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create client configuration
-    let client_config = ClientConfig {
-        app_id: "your_app_id".to_string(),
-        cluster: "default".to_string(),
-        config_server: "http://your-apollo-server:8080".to_string(),
-        secret: Some("your_apollo_secret".to_string()),
-        cache_dir: None, // Uses default: /opt/data/{app_id}/config-cache
-        label: None,     // For grayscale releases
-        ip: None,        // For grayscale releases
-        allow_insecure_https: None, // Allow self-signed certificates
-        #[cfg(not(target_arch = "wasm32"))]
-        cache_ttl: None, // Uses default: 600 seconds (10 minutes)
-    };
+    let client_config = ClientConfig::builder(
+        "your_app_id",
+        "http://your-apollo-server:8080",
+    )
+    .secret("your_apollo_secret")
+    .build()?;
 
-    let mut client = Client::new(client_config);
+    let mut client = Client::new(client_config)?;
 
     // Start background polling for configuration updates
     client.start().await?;
@@ -115,6 +108,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let config: Config = json.to_object()?;
             println!("Config: {} v{}", config.name, config.version);
+        }
+        apollo_rust_client::namespace::Namespace::Yaml(yaml) => {
+            println!("YAML content: {:?}", yaml);
         }
         apollo_rust_client::namespace::Namespace::Text(text) => {
             // Text format - plain text content
@@ -151,7 +147,9 @@ let client_config = ClientConfig::from_env()?;
 - `APOLLO_ACCESS_KEY_SECRET`: The secret key for authentication (optional)
 - `APOLLO_LABEL`: Comma-separated list of labels for grayscale rules (optional)
 - `APOLLO_CACHE_DIR`: Directory to store local cache (optional)
-- `APOLLO_CACHE_TTL`: Time-to-live for cache in seconds (optional, defaults to 600, native targets only)
+- `APOLLO_CACHE_TTL`: Memory and persistent-cache TTL in seconds on native and WASM (optional, defaults to 600; `0` means always revalidate)
+- `APOLLO_REFRESH_INTERVAL`: Background polling interval in seconds (optional, defaults to 30; must be greater than zero)
+- `APOLLO_REQUEST_TIMEOUT`: Complete request and response-body timeout in seconds (optional, defaults to 10; must be greater than zero)
 - `APOLLO_ALLOW_INSECURE_HTTPS`: Whether to allow insecure HTTPS connections (optional, defaults to false)
 
 ### JavaScript/WebAssembly Usage
@@ -177,19 +175,18 @@ async function main() {
   // Start background polling
   await client.start();
 
-  // Get configuration cache
-  const cache = await client.namespace("application");
+  // Get a typed namespace
+  const namespace = await client.namespace("application");
 
   // Retrieve different data types
-  const appName = await cache.get_string("app.name");
-  const serverPort = await cache.get_int("server.port");
-  const debugEnabled = await cache.get_bool("debug.enabled");
-  const timeout = await cache.get_float("timeout.seconds");
+  const appName = namespace.get_string("app.name");
+  const serverPort = namespace.get_int("server.port");
+  const debugEnabled = namespace.get_bool("debug.enabled");
 
   console.log(`App: ${appName}, Port: ${serverPort}, Debug: ${debugEnabled}`);
 
   // Add event listener for configuration changes
-  await cache.add_listener((data, error) => {
+  await client.add_listener("application", (data, error) => {
     if (error) {
       console.error("Configuration update error:", error);
     } else {
@@ -197,8 +194,10 @@ async function main() {
     }
   });
 
-  // IMPORTANT: Release memory when done
-  cache.free();
+  // IMPORTANT: Properties namespaces are WASM class instances and must be freed.
+  // JSON, YAML, and Text values are ordinary JavaScript values.
+  client.stop();
+  namespace.free();
   client.free();
   clientConfig.free();
 }
@@ -277,11 +276,16 @@ if let apollo_rust_client::namespace::Namespace::Yaml(yaml) = namespace {
 - **`config_server`**: The Apollo config server URL (required)
 - **`cluster`**: The cluster name (required, typically "default")
 - **`secret`**: Optional secret key for authentication
-- **`cache_dir`**: Directory for local cache files (native only)
-  - Default: `/opt/data/{app_id}/config-cache`
+- **`cache_dir`**: Base directory for local cache files (native only)
+  - Default: the platform-standard application cache directory; versioned hashed filenames isolate server, app, cluster, namespace, IP, and label
   - WASM: Always `None` (uses browser localStorage or Node.js in-memory fallback)
 - **`label`**: Label for grayscale releases (optional)
 - **`ip`**: IP address for grayscale releases (optional)
+- **`allow_insecure_https`**: Accept invalid certificates on native targets (optional; use only in trusted development environments)
+- **`cache_ttl`**: Memory and persistent cache TTL (default: 600 seconds on native and WASM; `0` returns cached values immediately and revalidates in the background)
+- **`refresh_interval`**: Periodic polling interval (default: 30 seconds)
+- **`request_timeout`**: Outer timeout covering the request and response body (default: 10 seconds, including custom native HTTP clients)
+- **`http_client`**: Optional preconfigured `reqwest::Client` (native Rust only)
 
 ## Error Handling
 
@@ -314,13 +318,21 @@ match client.namespace("application").await {
 For WebAssembly environments, explicit memory management is required:
 
 ```javascript
-// Always call free() on WASM objects when done
-cache.free();
+// Class instances allocated by wasm-bindgen must be freed when done.
+namespace.free(); // Properties only
 client.free();
 clientConfig.free();
 ```
 
 This prevents memory leaks by releasing Rust-allocated memory on the WebAssembly heap.
+
+## Update Model
+
+The client deliberately uses periodic polling of Apollo's cached `configfiles`
+endpoint. It does not implement Apollo notification long-polling or `releaseKey`,
+so update latency is bounded by `refresh_interval` and unchanged polls still transfer
+the full namespace. Poll intervals include per-client symmetric ±10% jitter and
+temporary failures use exponential backoff.
 
 ## Advanced Usage
 
@@ -338,7 +350,7 @@ client.add_listener("application", std::sync::Arc::new(|result| {
 
 ```javascript
 // JavaScript - Add event listener
-await cache.add_listener((data, error) => {
+await client.add_listener("application", (data, error) => {
   if (error) {
     console.error("Update error:", error);
   } else {
@@ -350,17 +362,10 @@ await cache.add_listener((data, error) => {
 ### Grayscale Releases
 
 ```rust
-let client_config = ClientConfig {
-    app_id: "my-app".to_string(),
-    config_server: "http://apollo-server:8080".to_string(),
-    cluster: "default".to_string(),
-    secret: None,
-    cache_dir: None,
-    label: Some("canary,beta".to_string()),  // Multiple labels
-    ip: Some("192.168.1.100".to_string()),  // Client IP
-    #[cfg(not(target_arch = "wasm32"))]
-    cache_ttl: None,
-};
+let client_config = ClientConfig::builder("my-app", "http://apollo-server:8080")
+    .label("canary,beta")
+    .ip("192.168.1.100")
+    .build()?;
 ```
 
 ### Custom JSON Deserialization
@@ -384,7 +389,7 @@ if let apollo_rust_client::namespace::Namespace::Json(json) = namespace {
 ## API Changes in v0.6.0
 
 - **Typed Namespaces**: Support for multiple configuration formats with automatic detection
-- **Event Listeners**: Real-time configuration change notifications
+- **Event Listeners**: Ordered configuration-change and refresh-error notifications
 - **Enhanced Error Handling**: Comprehensive error types and better error reporting
 - **WASM Improvements**: Better memory management and JavaScript interop
 - **Background Polling**: Configurable automatic configuration refresh

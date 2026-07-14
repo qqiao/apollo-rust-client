@@ -174,7 +174,7 @@ let text = client.namespace("readme.txt").await?;
 - Automatic cleanup of Rust-allocated memory
 - Clear API for resource management
 
-## Real-Time Updates
+## Periodic Updates
 
 ### Background Polling
 
@@ -201,7 +201,7 @@ client.stop().await;
 
 ### Event Listeners
 
-#### Real-Time Notifications
+#### Change Notifications
 
 - Subscribe to configuration change events
 - Immediate notification when configurations update

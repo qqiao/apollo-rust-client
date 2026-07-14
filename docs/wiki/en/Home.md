@@ -31,7 +31,7 @@ A robust Rust client for the Apollo Configuration Centre, with support for WebAs
 - **WebAssembly**: Optimized for browser environments with memory-only caching
 - **JavaScript Interop**: Seamless integration with JavaScript and TypeScript
 
-### Real-Time Updates
+### Periodic Updates
 
 - **Background Polling**: Automatic configuration refresh with configurable intervals
 - **Event Listeners**: Subscribe to configuration change notifications
@@ -93,8 +93,8 @@ The library automatically detects configuration formats based on namespace names
 use apollo_rust_client::{Client, client_config::ClientConfig};
 
 // Create and configure client
-let config = ClientConfig { /* ... */ };
-let mut client = Client::new(config);
+let config = ClientConfig::builder("my-app", "http://localhost:8080").build()?;
+let mut client = Client::new(config)?;
 
 // Start background refresh
 client.start().await?;

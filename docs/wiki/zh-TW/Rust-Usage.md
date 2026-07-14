@@ -11,27 +11,19 @@ use apollo_rust_client::client_config::ClientConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client_config = ClientConfig {
-        app_id: "your_app_id".to_string(), // 您的應用ID
-        cluster: "default".to_string(), // 叢集名稱
-        secret: Some("your_apollo_secret".to_string()), // 您的 Apollo 金鑰
-        config_server: "http://your-apollo-server:8080".to_string(), // 設定伺服器位址
-        cache_dir: None, // 本地快取目錄
-        label: None, // 實例標籤
-        ip: None, // 應用IP位址
-        allow_insecure_https: None, // 是否允許不安全的HTTPS連接
-    };
-    let mut client = Client::new(client_config);
+    let client_config = ClientConfig::builder(
+        "your_app_id", "http://your-apollo-server:8080"
+    ).secret("your_apollo_secret").build()?;
+    let mut client = Client::new(client_config)?;
     // 啟動後台輪詢以獲取設定更新。
     client.start().await?;
 
     // 獲取 "application" 命名空間的設定。
-    let cache = client.namespace("application").await;
+    let namespace = client.namespace("application").await?;
 
     // 範例：檢索字串屬性。
-    match cache.get_property::<String>("some_key") {
-        Some(value) => println!("屬性 'some_key': {}", value),
-        None => println!("未找到屬性 'some_key'"),
+    if let apollo_rust_client::namespace::Namespace::Properties(properties) = namespace {
+        println!("屬性: {:?}", properties.get_string("some_key"));
     }
 
     // 範例：檢索整數屬性。

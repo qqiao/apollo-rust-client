@@ -13,12 +13,13 @@ Client (Main Entry)
   ├── ClientConfig (Connection and Settings)
   └── Namespaces (HashMap inside RwLock)
         └── Cache (Namespace-specific cache instances)
-              ├── memory (RwLock<Option<serde_json::Value>>)
+              ├── memory (RwLock<Option<CacheItem>>)
+              ├── load_lock (Mutex single-flight gate)
               ├── listeners (RwLock<Vec<EventListener>>)
               └── Namespace (Typed format representations)
                     ├── Properties (Key-Value Strings)
                     ├── Json (serde_json::Value wrapper)
-                    ├── Yaml (serde_yaml::Value wrapper)
+                    ├── Yaml (noyalib-backed document)
                     └── Text (Raw plain String)
 ```
 
@@ -35,15 +36,16 @@ Encapsulates all server connectivity settings, credentials, local file path para
   - `config_server: String` (Required): Fully qualified URL of the configuration service endpoint.
   - `cluster: String` (Required): Cluster designation. Defaults to `"default"`.
   - `secret: Option<String>` (Optional): Encryption secret key used to compute authentication signatures.
-  - `cache_dir: Option<String>` (Optional, Native-only): Override path for local cache directories. Default evaluates to `/opt/data/{app_id}/config-cache`.
-  - `cache_ttl: Option<u64>` (Optional, Native-only): Number of seconds cached values are kept before they are marked stale.
-  - `refresh_interval: Option<u64>` (Optional, Native-only): Refresh interval in seconds for the background cache refresh loop. Defaults to 30.
+  - `cache_dir: Option<String>` (Optional, Native-only): Override the cache base directory. The default follows platform cache-directory conventions; versioned hashed filenames isolate request identities.
+  - `cache_ttl: Option<u64>` (Optional): Number of seconds memory, disk, and localStorage values remain fresh. Defaults to 600; zero means always revalidate cached values in the background.
+  - `refresh_interval: Option<u64>` (Optional): Native/WASM polling interval in seconds. Defaults to 30 and must be greater than zero.
+  - `request_timeout: Option<u64>` (Optional): Complete request and body timeout. Defaults to 10 and must be greater than zero.
   - `label: Option<String>` (Optional): Metadata tag for canary releases.
   - `ip: Option<String>` (Optional): Client node IP address for grayscale routing.
   - `allow_insecure_https: Option<bool>` (Optional): Cert bypass flag for development testing. On WebAssembly (`wasm32`) targets, this is ignored and triggers a warning log because SSL/TLS validation is strictly controlled by the browser sandbox environment.
   - `http_client: Option<reqwest::Client>` (Optional, Native-only): Injected custom HTTP client instance containing pre-configured corporate proxies, custom request headers, or tracing interceptors. Skip in WASM.
 - **Key Methods**:
-  - `from_env() -> Result<Self, Error>`: Instantiates configuration by pulling matching environment variables.
+  - `from_env() -> Result<Self, Error>`: Reads matching native environment variables or Node.js `globalThis.process.env`; browsers return a clear environment error.
   - `get_cache_dir() -> PathBuf`: Computes the actual folder path for cached files.
 
 ---
@@ -56,10 +58,10 @@ The primary operational coordinator and entry point. It manages lifecycle worker
   - `config: ClientConfig`: Active connection settings.
   - `namespaces: Arc<RwLock<HashMap<String, Arc<Cache>>>>`: Live registry mapping namespace keys (e.g. `application`, `app.json`) to `Cache` instances.
   - `handle: Option<tokio::task::JoinHandle<()>>` (Native-only): Reference hook to clean up/cancel background polling tasks.
-  - `running: Arc<RwLock<bool>>`: Thread-safe boolean controlling background thread execution.
+  - `running: Arc<AtomicBool>`: Lock-free lifecycle state shared with the background task.
   - `http_client: reqwest::Client`: Reused HTTP worker client sharing connection pools.
 - **Key Methods**:
-  - `new(config: ClientConfig) -> Self`: Prepares structures and constructs HTTP Client with SSL overrides if configured.
+  - `new(config: ClientConfig) -> Result<Self, Error>`: Validates configuration and constructs the HTTP client without silent fallback.
   - `start(&mut self) -> Result<(), Error>`: Spawns the background worker task that refreshes all caches every 30 seconds.
   - `stop(&mut self)`: Shuts down background loops and cancels task execution handles.
   - `preload(&self, namespaces: &[impl AsRef<str>]) -> Result<(), Error>`: Concurrently fetches configurations for selected namespaces at initialization.
@@ -74,17 +76,17 @@ Handles retrieving, updating, and holding configuration data for a single namesp
 - **State Properties**:
   - `client_config: ClientConfig`: Copy of credentials and connection URLs.
   - `namespace: String`: The namespace name.
-  - `memory: Arc<RwLock<Option<serde_json::Value>>>`: Active in-memory JSON document cache.
-  - `listeners: Arc<RwLock<Vec<EventListener>>>`: Observers notified on successful cache refresh.
+  - `memory: Arc<RwLock<Option<CacheItem>>>`: Timestamped in-memory JSON document cache.
+  - `listeners: Arc<RwLock<Vec<EventListener>>>`: Ordered observers notified on changes and refresh errors.
   - `wasm_cache_key: String` (WASM-only): The unique key used for browser localStorage.
-  - `loading: Arc<RwLock<bool>>`: Safety lock preventing parallel network requests for the same namespace.
-  - `loading_complete: Arc<Notify>`: Trigger notifying threads waiting for current active remote fetches.
+  - `load_lock: Arc<Mutex<()>>`: Cancellation-safe single-flight gate for cold loads.
+  - `refresh_lock: Arc<Mutex<()>>`: Coalesces manual, polling, and stale-while-revalidate refreshes.
   - `file_path: PathBuf` (Native-only): Dedicated storage path on disk.
   - `http_client: reqwest::Client`: Reused HTTP client instance.
 - **Key Methods**:
-  - `get_value(&self) -> Result<Value, Error>`: Executes double-check locking read flow (Memory -> Local Disk (Native) / localStorage (WASM) -> Remote Server).
-  - `refresh(&self) -> Result<(), Error>`: Forces remote synchronization by pulling from Apollo HTTP endpoint.
-  - `notify_listeners(&self, config: &Value, listeners: &[EventListener])`: Distributes updated configuration values. Spawns tokio async tasks natively or triggers synchronously in WASM.
+  - `get_value(&self) -> Result<Value, Error>`: Executes the TTL-aware read flow, returning stale values immediately while one background revalidation runs.
+  - `refresh(&self) -> Result<(), Error>`: Requests remote synchronization, coalescing with an in-flight refresh.
+  - `notify_listeners(&self, config: &Value, listeners: &[EventListener])`: Invokes listeners synchronously in registration order after internal locks are released.
 
 ---
 
@@ -112,4 +114,4 @@ Maintains a `serde_json::Value`.
 
 #### `Yaml`
 Holds a YAML formatted string.
-- `to_object<T: DeserializeOwned>(&self) -> Result<T, serde_yaml::Error>`: Converts raw YAML document directly to typed Rust structs.
+- `to_object<T: DeserializeOwned + 'static>(&self) -> Result<T, noyalib::Error>`: Converts YAML 1.1-compatible documents directly to typed Rust structs.

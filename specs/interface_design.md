@@ -19,7 +19,10 @@ The client exports standard JavaScript classes to enable integration within Node
   - `secret: string | null` (Getter/Setter)
   - `label: string | null` (Getter/Setter)
   - `ip: string | null` (Getter/Setter)
-  - `allowInsecureHttps: boolean | null` (Getter/Setter)
+  - `allow_insecure_https: boolean | undefined` (Getter/Setter)
+  - `cache_ttl: bigint | undefined` (Getter/Setter)
+  - `refresh_interval: bigint | undefined` (Getter/Setter)
+  - `request_timeout: bigint | undefined` (Getter/Setter)
 
 #### Class `Client` (JavaScript API)
 - **Constructor**:
@@ -27,10 +30,10 @@ The client exports standard JavaScript classes to enable integration within Node
   constructor(config: ClientConfig);
   ```
 - **Methods**:
-  - `start(): Promise<void>`: Spawns the async listener refresh loop (WASM).
-  - `stop(): Promise<void>`: Stops the background loop.
-  - `namespace(namespace: string): Promise<any>`: Retrieves the Javascript representation of the `Namespace` variant (`Properties` class, raw JSON object, YAML string, or raw text string).
-  - `add_listener(namespace: string, callback: (data: any, error: string | null) => void): Promise<void>`: Registers an observer callback.
+  - `start(): void`: Spawns the non-blocking refresh loop (WASM), or throws if already running.
+  - `stop(): void`: Stops the background loop.
+  - `namespace(namespace: string): Promise<any>`: Retrieves the JavaScript representation of the `Namespace` variant (`Properties` class, plain JSON/YAML object, or text string).
+  - `add_listener(namespace: string, callback: (data: any | undefined, error: string | undefined) => void): Promise<void>`: Registers an observer callback.
 
 #### Class `Properties` (JavaScript API)
 - **Methods**:
@@ -40,7 +43,7 @@ The client exports standard JavaScript classes to enable integration within Node
   - `get_bool(key: string): boolean | null` (synchronous)
 
 > [!WARNING]
-> **Manual Memory Management**: JS runtimes must call `.free()` on all instances of `ClientConfig`, `Client`, and `Properties` (when returned from `namespace()`) created from WASM once they are out of scope. If ignored, the underlying memory allocated in the WebAssembly heap will leak. Other returned namespace formats (such as raw JSON objects, YAML strings, or raw text) are standard JavaScript values/objects managed automatically by JavaScript garbage collection and do not need to be freed manually.
+> **Manual Memory Management**: JS runtimes must call `.free()` on all instances of `ClientConfig`, `Client`, and `Properties` (when returned from `namespace()`) created from WASM once they are out of scope. If ignored, the underlying memory allocated in the WebAssembly heap will leak. Other returned namespace formats (plain JSON/YAML objects and text strings) are managed by JavaScript garbage collection.
 
 ---
 
@@ -79,13 +82,9 @@ The HMAC-SHA1 signature is constructed as follows:
 fn sign(timestamp: i64, url: &str, secret: &str) -> Result<String, Error>;
 ```
 
-### 1.3 Testing Mock Server (Docker Compose / WireMock)
-To decouple the test suite from external, remote Apollo servers (such as the now retired CTrip Apollo community demo server), the client repository includes a standard local Docker Mock Server setup using WireMock.
+### 1.3 Testing Mock Server
 
-- **Docker Service Orchestration**: Defined in the [docker-compose.yml](../docker-compose.yml) in the root directory.
-- **WireMock Stub Mappings**: Stored as JSON definitions under [tests/wiremock/mappings/](../tests/wiremock/mappings/).
-- **Dynamic Config Routing**: Test clients read the server destination from the `APOLLO_TEST_SERVER` environment variable, falling back to `http://localhost:8080` (where the local WireMock Docker container is mapped).
-- **Self-Managed Test Lifecycle**: The [scripts/test.sh](../scripts/test.sh) script automatically starts the WireMock Docker container before testing (`docker compose up -d`), waits for the server to be fully responsive, executes the test suite, and reliably tears down all containers on completion using a shell `trap` handler. This keeps the GitHub Actions workflow extremely simple and requires zero manual container management by local developers.
+Native tests start a private, random-port HTTPS server in-process. It uses a generated self-signed certificate and models Apollo payloads, authentication headers, status errors, malformed bodies, delayed bodies, and concurrent request counts without Docker or a fixed port. WASM tests install a deterministic mocked global `fetch`, because Node's wasm test runtime cannot connect an in-module native server. The [scripts/test.sh](../scripts/test.sh) entry point runs native, Rustls, documentation, and WASM checks directly.
 
 ---
 

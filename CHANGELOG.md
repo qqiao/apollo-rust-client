@@ -4,6 +4,29 @@ All notable changes to the apollo-rust-client project will be documented in this
 
 ## [Unreleased]
 
+### Added
+
+- Configurable `request_timeout` across the Rust builder, environment variables, and WASM API. The timeout covers request headers and response-body reads, including when a custom native HTTP client is supplied.
+- Native tests now use a random-port, self-signed in-process HTTPS server; WASM tests use a mocked global `fetch`. The automated test suite no longer requires Docker or a fixed port.
+- Platform-standard native cache directories and startup cleanup for orphaned versioned temporary files.
+
+### Changed
+
+- Expired cache entries use stale-while-revalidate: readers return stale data immediately while one refresh runs per namespace. Manual, polling, and read-triggered refreshes are coalesced.
+- Background polling uses per-client symmetric ±10% jitter with exponential failure backoff.
+- YAML parsing migrated from unmaintained `serde_yaml` to pure-Rust `noyalib`, preserving YAML 1.1 scalar compatibility. YAML now reaches JavaScript as a structured plain object.
+- JavaScript listener payloads use plain objects for Properties namespaces, while direct `namespace()` calls preserve the existing `Properties` class API.
+- `ClientConfig::from_env()` reads `globalThis.process.env` under Node.js WASM and reports a clear error in browsers.
+- `cache_ttl = 0` is a documented always-revalidate mode. Cache TTL and periodic refresh remain separate controls.
+
+### Fixed
+
+- Complete HTTP requests cannot hang indefinitely on stalled response bodies on native or WASM targets.
+- Read-path failures no longer spam listeners; listener errors are limited to manual and background refreshes.
+- Properties getters accept JSON string, number, and boolean scalars.
+- Native custom HTTP clients now produce a warning when `allow_insecure_https` would otherwise be silently ignored.
+- JavaScript serialization failures are logged and return `null` instead of panicking the WASM module.
+
 ## [0.7.0] - 2026-05-25
 
 ### Performance Improvements
@@ -16,7 +39,7 @@ All notable changes to the apollo-rust-client project will be documented in this
   - Corrected all usage examples (both Rust and JavaScript/WASM) to utilize synchronous property getters instead of outdated asynchronous ones.
   - Aligned WebAssembly return signatures: corrected the claim that `client.namespace()` returns a `Cache` class, documenting that it returns the JS-wrapped representation of the `Namespace` enum (such as `Properties` or a raw JS object).
   - Clarified WASM memory cleanup: specified that only WASM class instances (`Client`, `ClientConfig`, `Properties`) need manual memory management (`.free()`), whereas raw JSON, YAML, or Text configurations are returned as standard JS values/objects managed automatically by JS garbage collection.
-  - Documented browser `localStorage` persistent caching on WebAssembly targets (using the correct isolated `apollo_cache_{app_id}_{cluster}_{namespace}` key).
+  - Documented browser `localStorage` persistent caching on WebAssembly targets (using the correct isolated `apollo_cache_v2_{sha1(identity)}` key).
   - Corrected WebAssembly event listener registration to the `Client` level (`add_listener`) instead of the non-existent `Cache` level.
   - Aligned native execution parameters to accurately reference `tokio::spawn` background task management instead of `async-std`.
   - Added upgrade guidelines for `v0.7.0` (detailing TCP connection reuse and native custom `reqwest::Client` injection).

@@ -131,19 +131,12 @@ Create a simple test to verify the installation:
 ```rust
 use apollo_rust_client::{Client, client_config::ClientConfig};
 
-fn main() {
-    let config = ClientConfig {
-        app_id: "test-app".to_string(),
-        config_server: "http://localhost:8080".to_string(),
-        cluster: "default".to_string(),
-        secret: None,
-        cache_dir: None,
-        label: None,
-        ip: None,
-    };
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = ClientConfig::builder("test-app", "http://localhost:8080").build()?;
 
-    let client = Client::new(config);
+    let client = Client::new(config)?;
     println!("Apollo Rust Client installed successfully!");
+    Ok(())
 }
 ```
 
@@ -404,7 +397,7 @@ localStorage.setItem("debug", "apollo-rust-client:*");
 #### New Features
 
 - Typed namespaces with automatic format detection
-- Event listeners for real-time configuration updates
+- Event listeners for periodic configuration changes and refresh errors
 - Enhanced error handling with comprehensive error types
 - Improved WebAssembly support with better memory management
 

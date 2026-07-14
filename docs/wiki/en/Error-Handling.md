@@ -126,9 +126,9 @@ function getConfigWithPromise() {
   );
   const client = new Client(clientConfig);
 
+  client.start();
   return client
-    .start()
-    .then(() => client.namespace("application"))
+    .namespace("application")
     .then((properties) => {
       const result = properties.get_string("app.name");
       properties.free();

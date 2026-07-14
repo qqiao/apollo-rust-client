@@ -1,26 +1,30 @@
 //! YAML namespace implementation for handling structured YAML configuration data.
 //!
-//! This module provides the `Yaml` struct which wraps a `serde_yaml::Value` and
+//! This module provides the `Yaml` struct backed by `noyalib` and
 //! provides methods for working with YAML-formatted configuration data. It supports
 //! deserialization into custom types and maintains the original YAML structure.
 //!
 //! # Usage
 //!
 //! The `Yaml` struct is typically created automatically by the namespace detection
-//! system when a namespace name contains a `.yml` or `.yaml` extension, but can also be
-//! created directly from any `serde_yaml::Value`.
+//! system when a namespace name contains a `.yml` or `.yaml` extension. It can also be
+//! constructed from the JSON response envelope returned by Apollo.
 //!
 //! # Examples
 //!
-//! ```ignore
-//! use serde_yaml;
-//! use apollo_client::namespace::yaml::Yaml;
+//! ```rust
+//! use serde_json::json;
+//! use apollo_rust_client::namespace::yaml::Yaml;
 //!
-//! let yaml_data = serde_yaml::from_str("name: MyApp\nversion: 1.0.0").unwrap();
-//! let yaml_namespace = Yaml::from(yaml_data);
+//! let response = json!({"content": "name: MyApp\nversion: 1.0.0"});
+//! let yaml_namespace = Yaml::try_from(response).unwrap();
+//! let value: noyalib::Value = yaml_namespace.to_object().unwrap();
+//! assert_eq!(value["name"].as_str(), Some("MyApp"));
 //! ```
 
 use log::trace;
+use noyalib::{ParserConfig, YamlVersion};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 /// Comprehensive error types that can occur when working with YAML namespaces.
@@ -78,10 +82,10 @@ pub enum Error {
     /// requested type due to format mismatches, missing fields, or type
     /// conversion failures.
     #[error("Failed to deserialize YAML value: {0}")]
-    DeserializeError(#[from] serde_yaml::Error),
+    DeserializeError(#[from] noyalib::Error),
 }
 
-/// A wrapper around `serde_yaml::Value` for YAML-formatted configuration data.
+/// A wrapper around YAML-formatted configuration data parsed by `noyalib`.
 ///
 /// This struct provides a type-safe interface for working with YAML configuration
 /// data retrieved from Apollo. It maintains the original YAML structure while
@@ -94,13 +98,16 @@ pub enum Error {
 ///
 /// # Examples
 ///
-/// ```ignore
-/// use serde_yaml;
-/// use apollo_client::namespace::yaml::Yaml;
+/// ```rust
+/// use serde_json::json;
+/// use apollo_rust_client::namespace::yaml::Yaml;
 ///
-/// let yaml_data = serde_yaml::from_str("database:\n  host: localhost\n  port: 5432").unwrap();
-///
-/// let yaml_namespace = Yaml::from(yaml_data);
+/// let response = json!({
+///     "content": "database:\n  host: localhost\n  port: 5432"
+/// });
+/// let yaml_namespace = Yaml::try_from(response).unwrap();
+/// let value: noyalib::Value = yaml_namespace.to_object().unwrap();
+/// assert_eq!(value["database"]["port"].as_u64(), Some(5432));
 /// ```
 #[derive(Clone, Debug)]
 pub struct Yaml {
@@ -110,8 +117,28 @@ pub struct Yaml {
 
 impl From<Yaml> for wasm_bindgen::JsValue {
     fn from(val: Yaml) -> Self {
-        serde_wasm_bindgen::to_value(&val.string).unwrap()
+        // Deserialize through serde_json::Value so serde-wasm-bindgen sees plain
+        // maps, sequences, and scalars rather than noyalib's internal Value enum.
+        let value: serde_json::Value =
+            match noyalib::from_str_with_config(&val.string, &yaml_1_1_parser_config()) {
+                Ok(value) => value,
+                Err(error) => {
+                    log::error!("Unable to parse YAML for JavaScript conversion: {error}");
+                    return wasm_bindgen::JsValue::NULL;
+                }
+            };
+        match value.serialize(&serde_wasm_bindgen::Serializer::json_compatible()) {
+            Ok(value) => value,
+            Err(error) => {
+                log::error!("Unable to serialize YAML for JavaScript conversion: {error}");
+                wasm_bindgen::JsValue::NULL
+            }
+        }
     }
+}
+
+fn yaml_1_1_parser_config() -> ParserConfig {
+    ParserConfig::new().version(YamlVersion::V1_1)
 }
 
 impl Yaml {
@@ -128,7 +155,7 @@ impl Yaml {
     /// # Returns
     ///
     /// * `Ok(T)` - The deserialized configuration object
-    /// * `Err(serde_yaml::Error)` - If deserialization fails due to format mismatches,
+    /// * `Err(noyalib::Error)` - If deserialization fails due to format mismatches,
     ///   missing fields, or type conversion failures
     ///
     /// # Errors
@@ -141,25 +168,28 @@ impl Yaml {
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// use serde::{Deserialize, Serialize};
-    /// use serde_yaml;
-    /// use apollo_client::namespace::yaml::Yaml;
+    /// ```rust
+    /// use serde::Deserialize;
+    /// use serde_json::json;
+    /// use apollo_rust_client::namespace::yaml::Yaml;
     ///
-    /// #[derive(Deserialize, Serialize)]
+    /// #[derive(Debug, Deserialize, PartialEq)]
     /// struct DatabaseConfig {
     ///     host: String,
     ///     port: u16,
     /// }
     ///
-    /// let yaml_data = serde_yaml::from_str("host: localhost\nport: 5432").unwrap();
-    ///
-    /// let yaml_namespace = Yaml::from(yaml_data);
-    /// let config: DatabaseConfig = yaml_namespace.to_object()?;
+    /// let response = json!({"content": "host: localhost\nport: 5432"});
+    /// let yaml_namespace = Yaml::try_from(response).unwrap();
+    /// let config: DatabaseConfig = yaml_namespace.to_object().unwrap();
+    /// assert_eq!(config, DatabaseConfig {
+    ///     host: "localhost".to_string(),
+    ///     port: 5432,
+    /// });
     /// ```
-    pub fn to_object<T: DeserializeOwned>(&self) -> Result<T, serde_yaml::Error> {
+    pub fn to_object<T: DeserializeOwned + 'static>(&self) -> Result<T, noyalib::Error> {
         trace!("string: {:?}", self.string);
-        serde_yaml::from_str(&self.string)
+        noyalib::from_str_with_config(&self.string, &yaml_1_1_parser_config())
     }
 }
 
@@ -185,12 +215,14 @@ impl Yaml {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```rust
 /// use serde_json::json;
-/// use apollo_client::namespace::yaml::Yaml;
+/// use apollo_rust_client::namespace::yaml::Yaml;
 ///
 /// let json_data = json!({"content": "name: MyApp\nversion: 1.0.0"});
 /// let yaml_namespace = Yaml::try_from(json_data).unwrap();
+/// let value: noyalib::Value = yaml_namespace.to_object().unwrap();
+/// assert_eq!(value["version"].as_str(), Some("1.0.0"));
 /// ```
 impl TryFrom<serde_json::Value> for Yaml {
     type Error = crate::namespace::yaml::Error;
@@ -209,8 +241,10 @@ impl TryFrom<serde_json::Value> for Yaml {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_arch = "wasm32"))]
     use serde::Deserialize;
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[derive(Debug, Deserialize, PartialEq)]
     struct TestStruct {
         host: String,
@@ -238,10 +272,52 @@ mod tests {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn preserves_yaml_1_1_boolean_scalars() {
+        #[derive(serde::Deserialize)]
+        struct LegacyBooleans {
+            enabled: bool,
+            disabled: bool,
+        }
+
+        let yaml = crate::namespace::yaml::Yaml::try_from(serde_json::json!({
+            "content": "enabled: yes\ndisabled: off"
+        }))
+        .unwrap();
+        let value: LegacyBooleans = yaml.to_object().unwrap();
+
+        assert!(value.enabled);
+        assert!(!value.disabled);
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen_test::wasm_bindgen_test]
+    fn wasm_conversion_returns_a_structured_value() {
+        let yaml = crate::namespace::yaml::Yaml::try_from(serde_json::json!({
+            "content": "enabled: true\nretries: 3"
+        }))
+        .unwrap();
+        let value: wasm_bindgen::JsValue = yaml.into();
+
+        assert_eq!(
+            js_sys::Reflect::get(&value, &wasm_bindgen::JsValue::from_str("enabled"))
+                .unwrap()
+                .as_bool(),
+            Some(true)
+        );
+        assert_eq!(
+            js_sys::Reflect::get(&value, &wasm_bindgen::JsValue::from_str("retries"))
+                .unwrap()
+                .as_f64(),
+            Some(3.0)
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_namespace_to_object() {
         crate::setup();
-        let namespace = crate::tests::CLIENT_NO_SECRET
+        let namespace = crate::tests::client_no_secret()
             .namespace("application.yml")
             .await
             .unwrap();

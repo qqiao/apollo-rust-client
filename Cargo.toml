@@ -17,11 +17,11 @@ futures = "0.3.32"
 hmac = "0.13.0"
 log = "0.4.32"
 reqwest = { version = "0.12.28", default-features = false, features = ["http2", "json"] }
-serde_yaml = "0.9.34"
+noyalib = { version = "0.0.15", features = ["compat-serde-yaml"] }
 serde_json = "1.0.149"
 sha1 = "0.11.0"
 thiserror = "2.0.18"
-tokio = { version = "1.52.1", features = ["sync", "rt", "time"] }
+tokio = { version = "1.52.1", features = ["sync", "rt", "time", "io-util"] }
 chrono = "0.4.45"
 wasm-bindgen = "0.2.122"
 url = "2.5.8"
@@ -34,16 +34,25 @@ native-tls = ["reqwest/default-tls"]
 rustls = ["reqwest/rustls-tls"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-console_error_panic_hook = "0.1.7"
-chrono = { version = "0.4.44", features = ["wasmbind"] }
-wasm-bindgen-test = "0.3.72"
-wasm-logger = "0.2.0"
+chrono = { version = "0.4.45", features = ["wasmbind"] }
+gloo-timers = { version = "0.3.0", features = ["futures"] }
 js-sys = "0.3.99"
 wasm-bindgen-futures = "0.4.72"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+directories = "6.0.0"
+tokio = { version = "1.52.1", features = ["fs"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+rcgen = "0.14.8"
+rustls = "0.23.41"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3.72"
+wasm-logger = "0.2.0"
+
 [dev-dependencies]
 env_logger = "0.11.10"
-lazy_static = "1.5.0"
 tokio = { version = "1.52.1", features = ["macros"] }
 web-sys = { version = "0.3.95", features = ["Window", "console"] }
 
