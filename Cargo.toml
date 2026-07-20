@@ -35,7 +35,7 @@ rustls = ["reqwest/rustls-tls"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 chrono = { version = "0.4.45", features = ["wasmbind"] }
-gloo-timers = { version = "0.3.0", features = ["futures"] }
+gloo-timers = { version = "0.4.0", features = ["futures"] }
 js-sys = "0.3.99"
 wasm-bindgen-futures = "0.4.72"
 
