@@ -707,12 +707,6 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.15.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
-
-[[package]]
-name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
@@ -984,7 +978,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
 dependencies = [
  "equivalent",
- "hashbrown 0.17.1",
+ "hashbrown",
  "serde",
  "serde_core",
 ]
@@ -1166,11 +1160,11 @@ dependencies = [
 
 [[package]]
 name = "noyalib"
-version = "0.0.22"
+version = "0.0.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "213c922c1762f1e25cdd85773b2a7968b96e5b88058265733a847e2be3b589ce"
+checksum = "eaf7471054ff3fcc857fe8c5c674df7d107d2cb3072ac664a244f20b6d8dae01"
 dependencies = [
- "hashbrown 0.15.5",
+ "hashbrown",
  "indexmap",
  "itoa",
  "libm",
