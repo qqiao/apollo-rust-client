@@ -47,7 +47,7 @@ The library is built around a few core modules/structs:
 3.  **Namespace Format Detection**:
 
     - The library automatically detects the configuration format based on the namespace name:
-      - No extension → Properties format (default)
+      - No extension or unknown extension → Properties format (default)
       - `.json` → JSON format
       - `.txt` → Text format
       - `.yaml` or `.yml` → YAML format
@@ -105,7 +105,7 @@ The library supports multiple configuration formats with automatic detection:
 ### Properties Format
 
 ```rust
-// Detected for: "application", "config.properties"
+// Detected for: "application", "config.properties", or unknown extensions
 match namespace {
     Namespace::Properties(props) => {
         let value = props.get_string("app.name");

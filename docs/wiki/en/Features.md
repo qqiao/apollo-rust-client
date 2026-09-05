@@ -13,7 +13,7 @@ The library supports various configuration formats with automatic detection:
 
 #### Properties Format (Default)
 
-- **Detection**: No extension, `.properties` extension
+- **Detection**: No extension, `.properties` extension, or unknown extensions
 - **Use Case**: Traditional key-value configuration
 - **Type Support**: String, integer, float, boolean with automatic parsing
 - **Example**: `{"app.name": "MyApp", "server.port": "8080"}`
