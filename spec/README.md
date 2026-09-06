@@ -12,6 +12,9 @@ These feature specifications describe what application developers and operators 
 | [002 — Retain configuration](002-retain-configuration/spec.md) | Reuse configuration through slow responses, outages, and restarts; warm and refresh it explicitly | 001 |
 | [003 — Observe updates](003-observe-updates/spec.md) | Receive changes and control automatic refresh through the application's lifetime | 001, 002 |
 | [004 — JavaScript client](004-javascript-client/spec.md) | Use these capabilities from browser and Node-style JavaScript applications | 001, 002, 003 |
+| [005 — Real Apollo integration testing](005-real-apollo-testing/spec.md) | Reproduce client compatibility checks against automatically initialized real Apollo instances locally and in GitHub Actions | 001, 002, 003, 004 |
+
+Feature 005 is a prospective change requested on 2026-09-06, rather than part of the retrospective reconstruction above. Its [technical plan](005-real-apollo-testing/plan.md) and [implementation tasks](005-real-apollo-testing/tasks.md) are separate planning deliverables. It remains a draft for review; implementation was explicitly deferred to a later agent session.
 
 Read in numerical order. These boundaries follow consumer capabilities; they do not propose source modules or an implementation schedule. Each story can be demonstrated independently with the underlying dependency contracts/fixtures available; “independent” does not mean implementing a subscription without any retrieval mechanism.
 
