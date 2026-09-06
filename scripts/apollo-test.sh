@@ -338,6 +338,30 @@ if [ "$MODE" = "all" ]; then
   echo "[apollo-test] Fast checks passed. Proceeding to integration test lifecycle..."
 fi
 
+# Pre-build integration test artifacts and validate filter before spinning up Docker
+if [ -n "$FILTER" ] && [ "$SUITE" != "wasm" ]; then
+  echo "[apollo-test] Validating test filter '${FILTER}' before starting services..."
+  FILTER_MATCHES=$(cargo test --test apollo_integration -- --list --ignored "$FILTER" 2>/dev/null | grep ': test$' || true)
+  if [ -z "$FILTER_MATCHES" ]; then
+    echo "ERROR: Test filter '${FILTER}' matched zero tests in apollo_integration suite." >&2
+    echo "Available integration tests:" >&2
+    cargo test --test apollo_integration -- --list --ignored 2>/dev/null | grep ': test$' >&2 || true
+    exit 1
+  fi
+  echo "[apollo-test] Filter '${FILTER}' matches:"
+  echo "$FILTER_MATCHES" | sed 's/^/  - /'
+fi
+
+if [ -z "$SUITE" ] || [ "$SUITE" = "native" ]; then
+  echo "[apollo-test] Pre-building native integration test binaries..."
+  cargo test --test apollo_integration --no-run
+fi
+
+if [ -z "$SUITE" ] || [ "$SUITE" = "rustls" ]; then
+  echo "[apollo-test] Pre-building rustls integration test binaries..."
+  cargo test --no-default-features --features rustls --test apollo_integration --no-run
+fi
+
 # Initialize unique project and run directory
 TIMESTAMP="$(date +%s)"
 RAND_SUFFIX="$(od -vAn -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || head -c 8 /dev/urandom | od -tx1 -An | tr -d ' \n' | head -c 8)"
