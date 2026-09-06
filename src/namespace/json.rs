@@ -266,27 +266,4 @@ mod tests {
         );
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_namespace_to_object() {
-        crate::setup();
-        let namespace = crate::tests::client_no_secret()
-            .namespace("application.json")
-            .await
-            .unwrap();
-
-        let result = match namespace {
-            crate::namespace::Namespace::Json(json_namespace) => json_namespace.to_object(),
-            _ => panic!("Namespace is not a JSON namespace"),
-        };
-        let result: TestStruct = result.unwrap();
-        assert_eq!(
-            result,
-            TestStruct {
-                host: "localhost".to_string(),
-                port: 8080,
-                run: true,
-            }
-        );
-    }
 }

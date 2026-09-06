@@ -195,7 +195,7 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 ## T08 — Migrate native compatibility mocks and retain precise regressions
 
-- [ ] **T08 complete**
+- [x] **T08 complete**
 
 **Purpose**: Replace existing native claims of Apollo compatibility with passing real-server cases while preserving fault, parser, cache, and lifecycle coverage.
 
@@ -209,9 +209,9 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 **Acceptance**:
 
-- [ ] Every removed native compatibility assertion maps to a passing real replacement; pure format/conversion and cache/fault tests retain their intended coverage.
-- [ ] Native test helpers no longer present a fake Apollo implementation as compatibility evidence; dedicated fault cases still exercise their failures deterministically.
-- [ ] Fast checks and both native real suites pass; no public API or cache/poller behavior changes were smuggled into test migration.
+- [x] Every removed native compatibility assertion maps to a passing real replacement; pure format/conversion and cache/fault tests retain their intended coverage.
+- [x] Native test helpers no longer present a fake Apollo implementation as compatibility evidence; dedicated fault cases still exercise their failures deterministically.
+- [x] Fast checks and both native real suites pass; no public API or cache/poller behavior changes were smuggled into test migration.
 
 **Verification**: `scripts/test.sh fast`; `scripts/test.sh integration --suite native`; `scripts/test.sh integration --suite rustls`; review the diff against the migration table and compare before/after test inventory. A missing mapped scenario is unfinished work, not a reason to delete the row.
 
