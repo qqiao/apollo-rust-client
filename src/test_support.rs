@@ -54,6 +54,7 @@ pub(crate) struct MockHttpsServer {
 
 impl MockHttpsServer {
     pub(crate) fn new(handler: Arc<ResponseHandler>) -> Self {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let certified = generate_simple_self_signed(vec!["localhost".to_string()])
             .expect("test certificate generation should succeed");
         let private_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(

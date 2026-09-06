@@ -217,7 +217,7 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 ## T09 — Finish the WASM mock boundary and fast suite
 
-- [ ] **T09 complete**
+- [x] **T09 complete**
 
 **Purpose**: Preserve targeted WASM regression tests without allowing them to substitute for the real generated-package suite.
 
@@ -231,17 +231,17 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 **Acceptance**:
 
-- [ ] Removed WASM compatibility cases have mapped real replacements; error/global/storage/lifecycle regressions remain and cannot leak fake fetch into Node integration.
-- [ ] Fast mode succeeds without Docker and labels its scope; full mode requires all three real runtime suites after the fast checks.
-- [ ] Runtime feature selection is mutually valid (Rustls native only), and zero/unselected integration tests cannot yield full-suite success.
+- [x] Removed WASM compatibility cases have mapped real replacements; error/global/storage/lifecycle regressions remain and cannot leak fake fetch into Node integration.
+- [x] Fast mode succeeds without Docker and labels its scope; full mode requires all three real runtime suites after the fast checks.
+- [x] Runtime feature selection is mutually valid (Rustls native only), and zero/unselected integration tests cannot yield full-suite success.
 
 **Verification**: `scripts/test.sh fast` with Docker unavailable; `scripts/test.sh integration --suite wasm`; `scripts/test.sh` on a working runtime. Inspect the selected-test summary and generated API export smoke evidence. Use meaningful behavior assertions, not tests that merely grep implementation strings.
 
 ### Checkpoint C — Test boundaries are complete
 
-- [ ] All default-TLS/Rustls/Node compatibility cases pass against the real server.
-- [ ] Every migrated assertion has a destination; fault tests remain deterministic and Docker-independent.
-- [ ] Full, focused, and fast commands report their actual coverage without silent skipping.
+- [x] All default-TLS/Rustls/Node compatibility cases pass against the real server.
+- [x] Every migrated assertion has a destination; fault tests remain deterministic and Docker-independent.
+- [x] Full, focused, and fast commands report their actual coverage without silent skipping.
 
 ## T10 — Integrate the same lifecycle with GitHub Actions
 

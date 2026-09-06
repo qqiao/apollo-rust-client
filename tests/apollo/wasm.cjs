@@ -52,6 +52,16 @@ async function waitForConfigServiceValue(appId, cluster, namespace, expectedKey,
   throw new Error(`Timed out waiting for ConfigService at ${url} to return ${expectedKey}=${expectedVal}`);
 }
 
+test('real_apollo_wasm_export_smoke', () => {
+  assert.equal(typeof wasm.Client, 'function', 'Client should be exported as a constructor');
+  assert.equal(typeof wasm.ClientConfig, 'function', 'ClientConfig should be exported as a constructor');
+  assert.equal(typeof wasm.Properties, 'function', 'Properties should be exported as a constructor');
+  assert.equal(typeof wasm.Client.prototype.namespace, 'function', 'Client.prototype.namespace should be a function');
+  assert.equal(typeof wasm.Client.prototype.add_listener, 'function', 'Client.prototype.add_listener should be a function');
+  assert.equal(typeof wasm.Client.prototype.start, 'function', 'Client.prototype.start should be a function');
+  assert.equal(typeof wasm.Client.prototype.stop, 'function', 'Client.prototype.stop should be a function');
+});
+
 test('real_apollo_wasm_formats_and_identity', async () => {
   // App 101010101, default cluster: formats and associated namespaces
   const config1 = new ClientConfig('101010101', CONFIG_URL, 'default');

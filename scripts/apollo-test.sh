@@ -182,6 +182,7 @@ run_recovery_cleanup() {
 
 run_fast_checks() {
   echo "[apollo-test] Running fast checks (Clippy, unit tests, doc tests, wasm unit tests)..."
+  echo "[apollo-test] NOTICE: Real Apollo integration tests (Docker) are explicitly excluded in fast mode."
   if ! command -v cargo >/dev/null 2>&1; then
     echo "ERROR: 'cargo' is required but not found in PATH." >&2
     exit 1
@@ -195,8 +196,10 @@ run_fast_checks() {
   cargo clippy --no-default-features --features rustls --all-targets -- -D warnings
   cargo clippy --target wasm32-unknown-unknown --all-targets -- -D warnings
   RUST_LOG=apollo_rust_client=trace cargo test --all-targets -- --nocapture
+  cargo test --no-default-features --features rustls --lib -- --nocapture
   cargo test --doc
   RUST_BACKTRACE=1 wasm-pack test --node --lib -- --nocapture
+  echo "[apollo-test] Fast checks completed successfully."
 }
 
 # Parse mode and options
@@ -593,6 +596,7 @@ for s in "${TARGET_SUITES[@]}"; do
     echo "[apollo-test] Running: ${WASM_CMD[*]}"
     TEST_OUTPUT_FILE="${RUN_DIR}/logs/suite-wasm.log"
     REQUIRED_WASM_CASES=(
+      "real_apollo_wasm_export_smoke"
       "real_apollo_wasm_formats_and_identity"
       "real_apollo_wasm_access_key"
       "real_apollo_wasm_grayscale"

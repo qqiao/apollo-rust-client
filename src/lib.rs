@@ -869,6 +869,9 @@ pub(crate) fn setup() {
                 &requests,
             )
             .expect("mock fetch request log should be writable");
+            // Scoped mock fetch specifically for unit and fault tests in wasm32 target.
+            // Does not claim to simulate live Apollo routing. Real integration tests run
+            // via tests/apollo/wasm.cjs against a live server.
             let fetch = js_sys::Function::new_with_args(
                 "input, _init",
                 r#"
@@ -876,38 +879,16 @@ const url = typeof input === 'string' ? input : input.url;
 globalThis.__apolloFetchRequests.push(url);
 let status = 200;
 let body;
-if (url.includes('/http-401/')) {
-  status = 401; body = JSON.stringify({message: 'unauthorized'});
-} else if (url.includes('/http-429/')) {
-  status = 429; body = JSON.stringify({message: 'rate limited'});
-} else if (url.includes('/http-500/')) {
-  status = 500; body = JSON.stringify({message: 'internal error'});
-} else if (url.includes('/malformed/')) {
-  body = '{not valid json';
-} else if (url.includes('/timeout/')) {
+if (url.includes('/timeout/')) {
   return new Promise(() => {});
-} else if (url.endsWith('/application.json')) {
-  body = JSON.stringify({content: JSON.stringify({host: 'localhost', port: 8080, run: true})});
-} else if (url.endsWith('/application.yml') || url.endsWith('/application.yaml')) {
-  body = JSON.stringify({content: 'host: "localhost"\nport: 8080\nrun: true'});
-} else if (url.endsWith('/config.properties')) {
-  body = JSON.stringify({publicValue: 'properties'});
-} else if (url.endsWith('/FX.apollo')) {
-  body = JSON.stringify({publicValue: 'associated'});
-} else if (url.endsWith('/readme.txt')) {
-  body = JSON.stringify({content: 'plain text configuration'});
 } else {
-  const grayscale = url.includes('ip=1.2.3.4') || url.includes('label=GrayScale');
-  body = JSON.stringify({
-    stringValue: 'string value', intValue: '42', floatValue: '4.20',
-    boolValue: 'false', grayScaleValue: String(grayscale)
-  });
+  body = JSON.stringify({"stringValue": "string value"});
 }
 const response = new Response(body, {
   status,
-  headers: {'Content-Type': 'application/json'}
+  headers: {"Content-Type": "application/json"}
 });
-Object.defineProperty(response, 'url', {value: url});
+Object.defineProperty(response, "url", {value: url});
 return Promise.resolve(response);
 "#,
             );
@@ -1031,263 +1012,8 @@ mod tests {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_missing_value_wasm() {
-        setup();
-        let client = create_client_no_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_string("missingValue"), None);
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_string_value_wasm() {
-        setup();
-        let client = create_client_no_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(
-                        properties.get_string("stringValue"),
-                        Some("string value".to_string())
-                    );
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_string_value_with_secret_wasm() {
-        setup();
-        let client = create_client_with_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(
-                        properties.get_string("stringValue"),
-                        Some("string value".to_string())
-                    );
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_int_value_wasm() {
-        setup();
-        let client = create_client_no_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_int("intValue"), Some(42));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_int_value_with_secret_wasm() {
-        setup();
-        let client = create_client_with_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_int("intValue"), Some(42));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_float_value_wasm() {
-        setup();
-        let client = create_client_no_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_float("floatValue"), Some(4.20));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_float_value_with_secret_wasm() {
-        setup();
-        let client = create_client_with_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_float("floatValue"), Some(4.20));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_bool_value_wasm() {
-        setup();
-        let client = create_client_no_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("boolValue"), Some(false));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_bool_value_with_secret_wasm() {
-        setup();
-        let client = create_client_with_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("boolValue"), Some(false));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_bool_value_with_grayscale_ip_wasm() {
-        setup();
-        let client1 = create_client_with_grayscale_ip();
-        let namespace = client1.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("grayScaleValue"), Some(true));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-
-        let client2 = create_client_no_secret();
-        let namespace = client2.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("grayScaleValue"), Some(false));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_bool_value_with_grayscale_label_wasm() {
-        setup();
-        let client1 = create_client_with_grayscale_label();
-        let namespace = client1.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("grayScaleValue"), Some(true));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-
-        let client2 = create_client_no_secret();
-        let namespace = client2.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("grayScaleValue"), Some(false));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn create_client_no_secret() -> Client {
+    fn create_unit_test_client() -> Client {
         let config = ClientConfig::builder("101010101", test_server_url())
-            .build()
-            .expect("test client configuration should be valid");
-        Client::new(config).expect("test client configuration should be valid")
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn create_client_with_secret() -> Client {
-        let config = ClientConfig::builder("101010102", test_server_url())
-            .secret("53bf47631db540ac9700f0020d2192c8")
-            .build()
-            .expect("test client configuration should be valid");
-        Client::new(config).expect("test client configuration should be valid")
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn create_client_with_grayscale_ip() -> Client {
-        let config = ClientConfig::builder("101010101", test_server_url())
-            .ip("1.2.3.4")
-            .build()
-            .expect("test client configuration should be valid");
-        Client::new(config).expect("test client configuration should be valid")
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn create_client_with_grayscale_label() -> Client {
-        let config = ClientConfig::builder("101010101", test_server_url())
-            .label("GrayScale")
             .build()
             .expect("test client configuration should be valid");
         Client::new(config).expect("test client configuration should be valid")
@@ -1307,7 +1033,7 @@ mod tests {
             "globalThis.__apolloListenerData = data; globalThis.__apolloListenerError = error;",
         );
 
-        let client = create_client_no_secret();
+        let client = create_unit_test_client();
         client.add_listener_wasm("application", js_listener).await;
 
         let cache = client.cache("application").await;
@@ -1338,7 +1064,7 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     async fn namespace_wasm_preserves_properties_class_api() {
         setup();
-        let client = create_client_no_secret();
+        let client = create_unit_test_client();
         let value = client.namespace_wasm("application").await.unwrap();
 
         assert!(
@@ -1736,7 +1462,7 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn test_wasm_lifecycle_starts_stops_and_rejects_duplicate_start() {
         setup();
-        let mut client = create_client_no_secret();
+        let mut client = create_unit_test_client();
         client.start_wasm().unwrap();
         assert!(client.running.load(Ordering::Acquire));
         assert!(client.abort_handle.is_some());
