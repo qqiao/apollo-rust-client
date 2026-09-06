@@ -29,7 +29,7 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 ## T01 — Prove the pinned real-server stack
 
-- [ ] **T01 complete**
+- [x] **T01 complete**
 
 **Purpose**: Resolve deployment uncertainty before rewriting existing tests. Implement the three-service Compose definition, pin the schema/images, and demonstrate one real publish/read cycle using source-verified AdminService calls.
 
@@ -43,9 +43,9 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 **Acceptance**:
 
-- [ ] All image references are immutable with verified architectures; schema/source/hash and effective profiles are recorded; no latest tags or placeholder digests remain.
-- [ ] A clean volume initializes and an AdminService-created **published** value is returned by ConfigService on the host's discovered port; saved-only data is not falsely counted as published.
-- [ ] Services use only owned resources and loopback host ports; proof cleanup removes that project and volume only.
+- [x] All image references are immutable with verified architectures; schema/source/hash and effective profiles are recorded; no latest tags or placeholder digests remain.
+- [x] A clean volume initializes and an AdminService-created **published** value is returned by ConfigService on the host's discovered port; saved-only data is not falsely counted as published.
+- [x] Services use only owned resources and loopback host ports; proof cleanup removes that project and volume only.
 
 **Verification**: `docker compose -f tests/apollo/compose.yaml config --quiet`; `docker buildx imagetools inspect <each selected image>`; explicit uniquely named Compose up/probe/down proof with request/response evidence. This is infrastructure qualification, not a substitute invocation of Rust tests. Run the proof on available ARM64 and Linux amd64 environments, or explicitly record the missing architecture for T11b. If the chosen DB/image fails, update the pinned candidate and repeat before proceeding.
 
