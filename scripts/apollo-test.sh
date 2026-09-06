@@ -148,8 +148,8 @@ trap cleanup EXIT
 run_recovery_cleanup() {
   local target_dir="$1"
   if [ ! -d "$target_dir" ]; then
-    echo "ERROR: Run directory does not exist: ${target_dir}" >&2
-    exit 1
+    echo "[apollo-test] Run directory does not exist or was already removed: ${target_dir}. Fallback cleanup is safe."
+    exit 0
   fi
   local ownership_file="${target_dir}/ownership.json"
   if [ ! -f "$ownership_file" ]; then
@@ -279,8 +279,13 @@ fi
 
 if [ "$MODE" = "cleanup" ]; then
   if [ -z "$RECOVERY_RUN_DIR" ]; then
-    echo "ERROR: 'cleanup' mode requires --run-dir <directory>" >&2
-    exit 1
+    if [ -f "${REPO_ROOT}/target/apollo-test-run-dir.txt" ]; then
+      RECOVERY_RUN_DIR=$(cat "${REPO_ROOT}/target/apollo-test-run-dir.txt")
+    fi
+  fi
+  if [ -z "$RECOVERY_RUN_DIR" ]; then
+    echo "[apollo-test] No run directory specified or recorded. Fallback cleanup is safe."
+    exit 0
   fi
   run_recovery_cleanup "$RECOVERY_RUN_DIR"
 fi
@@ -370,8 +375,20 @@ TIMESTAMP="$(date +%s)"
 RAND_SUFFIX="$(od -vAn -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || head -c 8 /dev/urandom | od -tx1 -An | tr -d ' \n' | head -c 8)"
 PROJECT_NAME="apollo-test-${TIMESTAMP}-${RAND_SUFFIX}"
 RUN_ID="run-${TIMESTAMP}-${RAND_SUFFIX}"
-RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${PROJECT_NAME}.XXXXXX")"
+RUN_BASE="${APOLLO_TEST_RUN_DIR_BASE:-${TMPDIR:-/tmp}}"
+mkdir -p "$RUN_BASE"
+RUN_DIR="$(mktemp -d "${RUN_BASE}/${PROJECT_NAME}.XXXXXX")"
 mkdir -p "${RUN_DIR}/logs" "${RUN_DIR}/wasm" "${RUN_DIR}/cache"
+
+mkdir -p "${REPO_ROOT}/target"
+echo "${RUN_DIR}" > "${REPO_ROOT}/target/apollo-test-run-dir.txt"
+ln -sfn "${RUN_DIR}" "${REPO_ROOT}/target/apollo-test-latest" 2>/dev/null || true
+if [ -n "${GITHUB_ENV:-}" ] && [ -f "${GITHUB_ENV}" ]; then
+  echo "APOLLO_TEST_RUN_DIR=${RUN_DIR}" >> "${GITHUB_ENV}"
+fi
+if [ -n "${GITHUB_OUTPUT:-}" ] && [ -f "${GITHUB_OUTPUT}" ]; then
+  echo "run_dir=${RUN_DIR}" >> "${GITHUB_OUTPUT}"
+fi
 
 cat > "${RUN_DIR}/ownership.json" <<EOF
 {

@@ -245,7 +245,7 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 ## T10 — Integrate the same lifecycle with GitHub Actions
 
-- [ ] **T10 complete**
+- [x] **T10 complete**
 
 **Purpose**: Make ordinary CI use the local test lifecycle and retain useful diagnostics for setup and assertion failures.
 
@@ -259,9 +259,9 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 **Acceptance**:
 
-- [ ] PR/main test runs execute identical local orchestration and all three real runtimes; existing quality/build/export checks remain.
-- [ ] Setup/assertion failures preserve logs/metadata as downloadable artifacts and leave the job failed; fallback cleanup is safe when setup never started or already cleaned up.
-- [ ] The workflow requires no credentials unavailable to fork PRs and never uses privileged PR triggers to bypass that constraint.
+- [x] PR/main test runs execute identical local orchestration and all three real runtimes; existing quality/build/export checks remain.
+- [x] Setup/assertion failures preserve logs/metadata as downloadable artifacts and leave the job failed; fallback cleanup is safe when setup never started or already cleaned up.
+- [x] The workflow requires no credentials unavailable to fork PRs and never uses privileged PR triggers to bypass that constraint.
 
 **Verification**: Validate workflow syntax with available repository-compatible tooling; execute on an authorized PR branch and inspect job logs/artifacts. Exercise one intentional controlled failure in a disposable verification branch if authorized, or record that CI failure-path verification remains pending. Record actual PR/main run links as they become available; do not merge/push/create external activity solely to manufacture evidence without session authorization.
 
