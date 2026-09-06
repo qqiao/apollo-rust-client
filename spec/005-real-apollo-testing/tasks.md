@@ -73,7 +73,7 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 ## T03 — Prove authentication enforcement and grayscale routing
 
-- [ ] **T03 complete**
+- [x] **T03 complete**
 
 **Purpose**: Make it impossible for server-compatibility tests to pass because the server ignores authentication or simply returns the same response to every audience.
 
@@ -87,17 +87,17 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 **Acceptance**:
 
-- [ ] Correct signed requests succeed; missing/wrong-secret requests fail with real 401 responses after enforcement converges; repeated seed does not accumulate keys.
-- [ ] Matching IP or label receives gray=true; nonmatches and no targeting receive gray=false; protected-app targeted requests also succeed with correct signatures.
-- [ ] Rule/key mismatches fail initialization with useful diagnostics; wildcard substitution, observer-only keys, and SQL release/rule insertion are absent.
+- [x] Correct signed requests succeed; missing/wrong-secret requests fail with real 401 responses after enforcement converges; repeated seed does not accumulate keys.
+- [x] Matching IP or label receives gray=true; nonmatches and no targeting receive gray=false; protected-app targeted requests also succeed with correct signatures.
+- [x] Rule/key mismatches fail initialization with useful diagnostics; wildcard substitution, observer-only keys, and SQL release/rule insertion are absent.
 
 **Verification**: Execute initializer/verification twice on a new project and compare branch/rule/key identities. Temporarily remove a required rule or disable the protected key via that disposable instance and demonstrate that verification detects the missing behavior. Restore by starting a fresh run. Record HTTP evidence and propagation duration.
 
 ### Checkpoint A — The server is a trustworthy fixture
 
-- [ ] T01–T03 evidence establishes real published values, enforced authentication, and server-selected gray responses.
-- [ ] Image/schema provenance and the admin API payload corrections are recorded in the plan/fixture README.
-- [ ] Deployment failures or unsupported candidates are resolved before any compatibility test is removed.
+- [x] T01–T03 evidence establishes real published values, enforced authentication, and server-selected gray responses.
+- [x] Image/schema provenance and the admin API payload corrections are recorded in the plan/fixture README.
+- [x] Deployment failures or unsupported candidates are resolved before any compatibility test is removed.
 
 ## T04 — Implement the owned lifecycle and test entry modes
 

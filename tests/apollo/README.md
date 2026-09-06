@@ -117,8 +117,74 @@ node scripts/apollo-fixtures.mjs set-and-publish \
     --name my-release
 ```
 
-## Startup Performance Measurements
+## Authentication Enforcement (Apollo 2.5.2)
+
+- **Access Key Management**:
+  - Keys are provisioned via `POST /apps/{appId}/accesskeys` with `mode: 0` (`FILTER`), `enabled: true`, and test secret (e.g. `apollo-integration-only-secret-v1`).
+  - Mode `0` enforces authentication at ConfigService via `ClientAuthenticationFilter`.
+  - Re-seeding checks existing keys via `GET /apps/{appId}/accesskeys` and updates them in-place if needed via `PUT /apps/{appId}/accesskeys/{id}/enable?mode=0`, preventing key accumulation.
+- **Wire Authorization Protocol**:
+  - Request headers:
+    - `Timestamp`: Milliseconds since Unix epoch.
+    - `Authorization`: `Apollo <appId>:<signature>`.
+  - Signature calculation:
+    `signature = Base64(HMAC-SHA1(secret, timestamp + "\n" + pathAndQuery))`
+  - Negative controls:
+    - Unsigned requests to protected apps fail with HTTP `401 Unauthorized`.
+    - Requests signed with an invalid secret fail with HTTP `401 Unauthorized`.
+
+## Grayscale Routing and Branching
+
+- **Branch Creation and Publication**:
+  - A child branch is created via `POST /apps/{appId}/clusters/{cluster}/namespaces/{namespace}/branches?operator=apollo-test`.
+  - Overridden configurations (e.g. `grayScaleValue="true"`) are created via `POST .../clusters/{branchCluster}/namespaces/{namespace}/items`.
+  - The branch release is published via `POST .../clusters/{branchCluster}/namespaces/{namespace}/releases`.
+- **Rule Installation and Convergence**:
+  - Rules are installed via `PUT .../clusters/{cluster}/namespaces/{namespace}/branches/{branchCluster}/rules`.
+  - Target rules specify `clientIpList=["1.2.3.4"]` and `clientLabelList=["GrayScale"]` using `GrayReleaseRuleItemDTO`.
+  - Propagation occurs via database message notifications (`ReleaseMessageScanner`) within 1–2 seconds.
+- **ConfigService Resolution**:
+  - Matching queries (`?ip=1.2.3.4`, `?label=GrayScale`, or both) route to the branch release (`grayScaleValue="true"`).
+  - Non-matching queries (`?ip=1.2.3.5`, `?label=OtherLabel`, or no query parameters) route to the parent baseline release (`grayScaleValue="false"`).
+  - Targeted queries on protected apps also require valid signatures; unsigned targeting fails with HTTP 401.
+
+## Startup and Lifecycle Performance
 
 - Cold start (initial image pull + initialization): ~134s.
-- Warm start (images cached locally): ~21-22s until all services healthy.
-- Peak memory for stack: ~2-3 GiB.
+- Warm start (images cached locally): ~21-27s until all services healthy.
+- Seed operation: ~1s for all apps, clusters, namespaces, releases, branches, and rules.
+- Verify operation: ~1s for full suite across all formats, authentication controls, and grayscale routing.
+- Memory footprint: ~2-3 GiB across MySQL and Apollo Java services.
+
+## T03 Qualification Evidence
+
+The end-to-end proof script (`scratch/t03_proof.sh`) was executed on a fresh disposable stack (`apollo-test-t03-proof-10202`) with the following verified outcomes:
+
+1. **Clean Stack Startup**: Dynamic ports discovered (`ConfigService: 8080`, `AdminService: 8090`). Stack ready in ~27s.
+2. **First Seed Pass**: All entities, access keys, baseline releases, child branches, branch releases, and grayscale rules initialized in 1s.
+3. **Authentication Convergence Verification**:
+   - `auth-unsigned-rejected`: HTTP 401 verified.
+   - `auth-wrong-secret-rejected`: HTTP 401 verified.
+   - `auth-valid-secret-accepted`: HTTP 200 verified with valid HMAC-SHA1 signature.
+4. **Grayscale Routing Verification**:
+   - Both `plain-app` (101010101) and `secret-app` (101010102) verified.
+   - Matching IP (`?ip=1.2.3.4`) -> `grayScaleValue="true"` with baseline inheritance (`stringValue="string value"`).
+   - Matching Label (`?label=GrayScale`) -> `grayScaleValue="true"` with baseline inheritance.
+   - Matching Both (`?ip=1.2.3.4&label=GrayScale`) -> `grayScaleValue="true"`.
+   - Combinatorial OR: `?ip=1.2.3.4&label=OtherLabel` -> `grayScaleValue="true"`.
+   - Combinatorial OR: `?ip=1.2.3.5&label=GrayScale` -> `grayScaleValue="true"`.
+   - Non-matching IP (`?ip=1.2.3.5`) -> `grayScaleValue="false"`.
+   - Non-matching Label (`?label=OtherLabel`) -> `grayScaleValue="false"`.
+   - Non-matching Both (`?ip=1.2.3.5&label=OtherLabel`) -> `grayScaleValue="false"`.
+   - No targeting -> `grayScaleValue="false"`.
+   - Protected app targeted security: unsigned IP (`?ip=1.2.3.4`), unsigned Label (`?label=GrayScale`), and wrong-secret queries all rejected with HTTP 401.
+5. **Idempotency (Pass 2)**:
+   - Second seed pass ran in <1s.
+   - Diff between state from pass 1 and pass 2: 0 differences (all IDs, cluster names, and release keys stable).
+   - Access key count on `101010102`: exactly 1 key (no key accumulation).
+6. **Negative Fault Injection & Failure Detection**:
+   - Disabled key on `101010102`: verification failed immediately (`Expected HTTP 401 for unsigned request to protected app 101010102, got HTTP 200`).
+   - Altered grayscale rule on `101010101`: verification failed immediately (`Expected grayScaleValue="true", got "false"`).
+   - Automatic reconciliation restored both controls to green status upon re-seed.
+7. **Clean Teardown**: Project-scoped network and MySQL volume removed completely.
+

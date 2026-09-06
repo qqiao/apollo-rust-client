@@ -450,6 +450,7 @@ impl Client {
     /// Returns [`Error::AlreadyRunning`] if polling is already active.
     #[cfg(not(target_arch = "wasm32"))]
     #[allow(clippy::unused_async)]
+    #[allow(clippy::unused_async_trait_impl)]
     pub async fn start(&mut self) -> Result<(), Error> {
         self.start_background()
     }

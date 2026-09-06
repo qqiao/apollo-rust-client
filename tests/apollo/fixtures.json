@@ -26,6 +26,21 @@
             "boolValue": "false",
             "grayScaleValue": "false",
             "identity": "plain-default"
+          },
+          "branch": {
+            "items": {
+              "grayScaleValue": "true"
+            },
+            "rules": [
+              {
+                "clientIpList": [
+                  "1.2.3.4"
+                ],
+                "clientLabelList": [
+                  "GrayScale"
+                ]
+              }
+            ]
           }
         },
         {
@@ -120,6 +135,11 @@
       "orgName": "Test Org",
       "ownerName": "apollo-test",
       "ownerEmail": "apollo-test@example.com",
+      "accessKey": {
+        "secret": "apollo-integration-only-secret-v1",
+        "mode": 0,
+        "enabled": true
+      },
       "namespaces": [
         {
           "cluster": "default",
@@ -133,6 +153,21 @@
             "boolValue": "false",
             "grayScaleValue": "false",
             "identity": "secret-default"
+          },
+          "branch": {
+            "items": {
+              "grayScaleValue": "true"
+            },
+            "rules": [
+              {
+                "clientIpList": [
+                  "1.2.3.4"
+                ],
+                "clientLabelList": [
+                  "GrayScale"
+                ]
+              }
+            ]
           }
         }
       ]

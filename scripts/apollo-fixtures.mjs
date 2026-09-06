@@ -5,6 +5,7 @@
  * and validates published values via ConfigService.
  */
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +16,18 @@ const DEFAULT_FIXTURES_PATH = path.resolve(__dirname, '../tests/apollo/fixtures.
 
 const AUDIT_USER = 'apollo-test';
 const REQUEST_TIMEOUT_MS = 5000;
+
+export function signRequest(appId, secret, urlString) {
+  const parsed = new URL(urlString, 'http://localhost');
+  const pathAndQuery = parsed.pathname + parsed.search;
+  const timestamp = Date.now().toString();
+  const input = `${timestamp}\n${pathAndQuery}`;
+  const signature = crypto.createHmac('sha1', secret).update(input).digest('base64');
+  return {
+    'Timestamp': timestamp,
+    'Authorization': `Apollo ${appId}:${signature}`,
+  };
+}
 
 function validateLoopbackUrl(urlString, name) {
   if (!urlString) {
@@ -181,6 +194,154 @@ async function ensureAssociatedNamespace(adminUrl, consumerAppId, clusterName, p
   return createRes.data;
 }
 
+function areRuleItemsEqual(itemsA, itemsB) {
+  if (!Array.isArray(itemsA) || !Array.isArray(itemsB)) return false;
+  if (itemsA.length !== itemsB.length) return false;
+  for (const a of itemsA) {
+    const b = itemsB.find(item => item.clientAppId === a.clientAppId);
+    if (!b) return false;
+    const ipsA = new Set(a.clientIpList || []);
+    const ipsB = new Set(b.clientIpList || []);
+    if (ipsA.size !== ipsB.size) return false;
+    for (const ip of ipsA) {
+      if (!ipsB.has(ip)) return false;
+    }
+    const labelsA = new Set(a.clientLabelList || []);
+    const labelsB = new Set(b.clientLabelList || []);
+    if (labelsA.size !== labelsB.size) return false;
+    for (const label of labelsA) {
+      if (!labelsB.has(label)) return false;
+    }
+  }
+  return true;
+}
+
+export async function ensureAccessKey(adminUrl, appId, keyDef) {
+  const listRes = await requestJson(`${adminUrl}/apps/${encodeURIComponent(appId)}/accesskeys`);
+  if (!listRes.ok) {
+    throw new Error(`Failed listing access keys for ${appId}: HTTP ${listRes.status}`);
+  }
+  const existingKeys = Array.isArray(listRes.data) ? listRes.data : [];
+  const existing = existingKeys.find(k => k.secret === keyDef.secret);
+  const desiredMode = keyDef.mode !== undefined ? keyDef.mode : 0;
+  const desiredEnabled = keyDef.enabled !== false;
+
+  // Detect and reject unexpected key conflicts
+  if (existingKeys.length > 1 || (existingKeys.length === 1 && !existing)) {
+    throw new Error(`Access key mismatch on app ${appId}: unexpected keys present (${JSON.stringify(existingKeys)})`);
+  }
+
+  if (existing) {
+    if (existing.mode !== desiredMode || existing.enabled !== desiredEnabled) {
+      const mode = desiredMode;
+      const url = desiredEnabled
+        ? `${adminUrl}/apps/${encodeURIComponent(appId)}/accesskeys/${existing.id}/enable?mode=${mode}&operator=${encodeURIComponent(AUDIT_USER)}`
+        : `${adminUrl}/apps/${encodeURIComponent(appId)}/accesskeys/${existing.id}/disable?operator=${encodeURIComponent(AUDIT_USER)}`;
+      const updateRes = await requestJson(url, { method: 'PUT' });
+      if (!updateRes.ok) {
+        throw new Error(`Failed updating access key ${existing.id} for ${appId}: HTTP ${updateRes.status}`);
+      }
+      existing.mode = desiredMode;
+      existing.enabled = desiredEnabled;
+    }
+    return existing;
+  }
+
+  const createRes = await requestJson(`${adminUrl}/apps/${encodeURIComponent(appId)}/accesskeys`, {
+    method: 'POST',
+    body: {
+      appId,
+      secret: keyDef.secret,
+      mode: desiredMode,
+      enabled: desiredEnabled,
+      dataChangeCreatedBy: AUDIT_USER,
+      dataChangeLastModifiedBy: AUDIT_USER,
+    },
+  });
+  if (!createRes.ok) {
+    throw new Error(`Failed creating access key for ${appId}: HTTP ${createRes.status}: ${JSON.stringify(createRes.data)}`);
+  }
+  return createRes.data;
+}
+
+export async function ensureBranch(adminUrl, appId, clusterName, namespaceName) {
+  const getRes = await requestJson(
+    `${adminUrl}/apps/${encodeURIComponent(appId)}/clusters/${encodeURIComponent(clusterName)}/namespaces/${encodeURIComponent(namespaceName)}/branches`
+  );
+  if (getRes.status === 200 && getRes.data && getRes.data.clusterName) {
+    return getRes.data;
+  }
+  if (getRes.status !== 200 && getRes.status !== 404) {
+    throw new Error(`Failed checking branch for ${appId}/${clusterName}/${namespaceName}: HTTP ${getRes.status}: ${JSON.stringify(getRes.data)}`);
+  }
+  const createRes = await requestJson(
+    `${adminUrl}/apps/${encodeURIComponent(appId)}/clusters/${encodeURIComponent(clusterName)}/namespaces/${encodeURIComponent(namespaceName)}/branches?operator=${encodeURIComponent(AUDIT_USER)}`,
+    { method: 'POST' }
+  );
+  if (!createRes.ok) {
+    throw new Error(`Failed creating branch for ${appId}/${clusterName}/${namespaceName}: HTTP ${createRes.status}: ${JSON.stringify(createRes.data)}`);
+  }
+  return createRes.data;
+}
+
+export async function reconcileBranchRules(adminUrl, appId, clusterName, namespaceName, branchName, releaseId, rulesDef) {
+  if (!releaseId) {
+    throw new Error(`reconcileBranchRules requires valid releaseId for ${appId}/${clusterName}/${namespaceName}/${branchName}`);
+  }
+  const desiredRuleItems = (rulesDef || []).map(r => ({
+    clientAppId: appId,
+    clientIpList: r.clientIpList || [],
+    clientLabelList: r.clientLabelList || [],
+  }));
+
+  const getRes = await requestJson(
+    `${adminUrl}/apps/${encodeURIComponent(appId)}/clusters/${encodeURIComponent(clusterName)}/namespaces/${encodeURIComponent(namespaceName)}/branches/${encodeURIComponent(branchName)}/rules`
+  );
+
+  let needUpdate = true;
+  if (getRes.status === 200 && getRes.data && getRes.data.ruleItems) {
+    const existingReleaseId = getRes.data.releaseId;
+    const existingItems = getRes.data.ruleItems;
+    if (existingReleaseId === releaseId && areRuleItemsEqual(existingItems, desiredRuleItems)) {
+      needUpdate = false;
+      return getRes.data;
+    }
+  }
+
+  if (needUpdate) {
+    const updateRes = await requestJson(
+      `${adminUrl}/apps/${encodeURIComponent(appId)}/clusters/${encodeURIComponent(clusterName)}/namespaces/${encodeURIComponent(namespaceName)}/branches/${encodeURIComponent(branchName)}/rules`,
+      {
+        method: 'PUT',
+        body: {
+          appId,
+          clusterName,
+          namespaceName,
+          branchName,
+          releaseId,
+          ruleItems: desiredRuleItems,
+          dataChangeCreatedBy: AUDIT_USER,
+          dataChangeLastModifiedBy: AUDIT_USER,
+        },
+      }
+    );
+    if (!updateRes.ok) {
+      throw new Error(`Failed updating rules for ${appId}/${clusterName}/${namespaceName}/${branchName}: HTTP ${updateRes.status}: ${JSON.stringify(updateRes.data)}`);
+    }
+  }
+
+  const readBackRes = await requestJson(
+    `${adminUrl}/apps/${encodeURIComponent(appId)}/clusters/${encodeURIComponent(clusterName)}/namespaces/${encodeURIComponent(namespaceName)}/branches/${encodeURIComponent(branchName)}/rules`
+  );
+  if (!readBackRes.ok || !readBackRes.data) {
+    throw new Error(`Failed reading back rules for ${appId}/${clusterName}/${namespaceName}/${branchName}: HTTP ${readBackRes.status}`);
+  }
+  if (readBackRes.data.releaseId !== releaseId || !areRuleItemsEqual(readBackRes.data.ruleItems, desiredRuleItems)) {
+    throw new Error(`Rule reconciliation verification failed for ${appId}/${clusterName}/${namespaceName}/${branchName}: expected releaseId=${releaseId}, got ${readBackRes.data.releaseId}`);
+  }
+  return readBackRes.data;
+}
+
 async function getNamespace(adminUrl, appId, clusterName, namespaceName) {
   const res = await requestJson(
     `${adminUrl}/apps/${encodeURIComponent(appId)}/clusters/${encodeURIComponent(clusterName)}/namespaces/${encodeURIComponent(namespaceName)}`
@@ -301,6 +462,16 @@ export async function seedFixtures({ adminUrl, configUrl, runId, fixturesPath, s
       clusters: {},
     };
 
+    // Access Key
+    if (app.accessKey) {
+      const keyEntity = await ensureAccessKey(adminUrl, app.appId, app.accessKey);
+      resolvedState.apps[app.appId].accessKey = {
+        id: keyEntity.id,
+        mode: keyEntity.mode,
+        enabled: keyEntity.enabled,
+      };
+    }
+
     // Clusters
     if (app.clusters) {
       for (const cl of app.clusters) {
@@ -353,6 +524,38 @@ export async function seedFixtures({ adminUrl, configUrl, runId, fixturesPath, s
           format: ns.format,
           latestReleaseId: relResult.release ? relResult.release.id : null,
         };
+
+        // Branch and Gray Rules
+        if (ns.branch) {
+          const branchEntity = await ensureBranch(adminUrl, app.appId, cluster, ns.name);
+          const branchCluster = branchEntity.clusterName;
+          await reconcileItems(adminUrl, app.appId, branchCluster, ns.name, branchEntity.id, ns.branch.items || {});
+          const branchMergedConfigs = { ...desiredItems, ...(ns.branch.items || {}) };
+          const branchRelResult = await reconcileRelease(
+            adminUrl,
+            app.appId,
+            branchCluster,
+            ns.name,
+            branchMergedConfigs,
+            `seed-gray-${ns.name}`
+          );
+          const branchReleaseId = branchRelResult.release ? branchRelResult.release.id : null;
+          const rulesEntity = await reconcileBranchRules(
+            adminUrl,
+            app.appId,
+            cluster,
+            ns.name,
+            branchCluster,
+            branchReleaseId,
+            ns.branch.rules
+          );
+          resolvedState.apps[app.appId].clusters[cluster].namespaces[ns.name].branch = {
+            clusterName: branchCluster,
+            namespaceId: branchEntity.id,
+            releaseId: branchReleaseId,
+            rules: rulesEntity,
+          };
+        }
       }
     }
   }
@@ -365,73 +568,118 @@ export async function seedFixtures({ adminUrl, configUrl, runId, fixturesPath, s
   return resolvedState;
 }
 
+async function probeWithRetry(url, options, checkFn, maxAttempts = 20, delayMs = 500) {
+  let lastErr = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await requestJson(url, options);
+      const errMsg = checkFn(res);
+      if (!errMsg) {
+        return res;
+      }
+      lastErr = new Error(errMsg);
+    } catch (e) {
+      lastErr = e;
+    }
+    await new Promise(r => setTimeout(r, delayMs));
+  }
+  throw lastErr || new Error(`Probe timed out after ${maxAttempts} attempts: ${url}`);
+}
+
 export async function verifyFixtures({ configUrl, runId, fixturesPath }) {
   const fixturesRaw = fs.readFileSync(fixturesPath, 'utf8');
   const fixtures = JSON.parse(fixturesRaw);
 
   const verificationResults = [];
 
+  // 1. Authentication convergence & controls for protected apps FIRST
+  // This guarantees authentication enforcement has converged on ConfigService before any authenticated read.
+  for (const app of fixtures.apps) {
+    if (!app.accessKey) continue;
+    const targetUrl = `${configUrl}/configfiles/json/${encodeURIComponent(app.appId)}/default/application`;
+
+    // 1a. Unsigned request must return 401 (retry until cache converges)
+    await probeWithRetry(targetUrl, {}, res => {
+      if (res.status !== 401) {
+        return `Expected HTTP 401 for unsigned request to protected app ${app.appId}, got HTTP ${res.status}`;
+      }
+      return null;
+    }, 30, 500);
+    verificationResults.push({ appId: app.appId, probe: 'auth-unsigned-rejected', status: 'OK (401 Unauthorized)' });
+
+    // 1b. Wrong secret request must return 401
+    const wrongHeaders = signRequest(app.appId, 'wrong-secret-token-invalid', targetUrl);
+    await probeWithRetry(targetUrl, { headers: wrongHeaders }, res => {
+      if (res.status !== 401) {
+        return `Expected HTTP 401 for wrong-secret request to protected app ${app.appId}, got HTTP ${res.status}`;
+      }
+      return null;
+    }, 10, 500);
+    verificationResults.push({ appId: app.appId, probe: 'auth-wrong-secret-rejected', status: 'OK (401 Unauthorized)' });
+
+    // 1c. Valid signed request must succeed (HTTP 200)
+    const validHeaders = signRequest(app.appId, app.accessKey.secret, targetUrl);
+    await probeWithRetry(targetUrl, { headers: validHeaders }, res => {
+      if (res.status !== 200 || !res.data) {
+        return `Expected HTTP 200 for valid-secret request to protected app ${app.appId}, got HTTP ${res.status}`;
+      }
+      return null;
+    }, 10, 500);
+    verificationResults.push({ appId: app.appId, probe: 'auth-valid-secret-accepted', status: 'OK (200 OK)' });
+  }
+
+  // 2. Standard published namespace verification across all apps
   for (const app of fixtures.apps) {
     if (!app.namespaces) continue;
     for (const ns of app.namespaces) {
       const cluster = ns.cluster || 'default';
       const probeUrl = `${configUrl}/configfiles/json/${encodeURIComponent(app.appId)}/${encodeURIComponent(cluster)}/${encodeURIComponent(ns.name)}`;
+      const headers = app.accessKey ? signRequest(app.appId, app.accessKey.secret, probeUrl) : {};
 
-      let lastError = null;
-      let ok = false;
-      // Retry probe up to 10 times with 500ms sleep in case of release propagation
-      for (let attempt = 1; attempt <= 10; attempt++) {
-        try {
-          const res = await requestJson(probeUrl);
-          if (res.status === 200 && res.data) {
-            if (ns.format === 'properties') {
-              const expectedItems = { ...(ns.items || {}), fixtureRunId: runId };
-              for (const [k, v] of Object.entries(expectedItems)) {
-                if (String(res.data[k]) !== String(v)) {
-                  throw new Error(`Namespace ${app.appId}/${cluster}/${ns.name} key "${k}": expected "${v}", got "${res.data[k]}"`);
-                }
-              }
-              if (res.data.missingValue !== undefined) {
-                throw new Error(`Namespace ${app.appId}/${cluster}/${ns.name} contained unexpected "missingValue"`);
-              }
-            } else {
-              // Non-properties namespace returns JSON wrapper or parsed content
-              if (res.data.content === undefined) {
-                throw new Error(`Namespace ${app.appId}/${cluster}/${ns.name} missing "content" field in response: ${JSON.stringify(res.data)}`);
-              }
-              if (res.data.content !== ns.content) {
-                throw new Error(`Namespace ${app.appId}/${cluster}/${ns.name} content mismatch.\nExpected: ${JSON.stringify(ns.content)}\nGot: ${JSON.stringify(res.data.content)}`);
-              }
-            }
-            ok = true;
-            break;
-          } else {
-            throw new Error(`HTTP ${res.status}: ${JSON.stringify(res.data)}`);
-          }
-        } catch (err) {
-          lastError = err;
-          await new Promise(r => setTimeout(r, 500));
+      const checkFn = (res) => {
+        if (res.status !== 200 || !res.data) {
+          return `HTTP ${res.status}: ${JSON.stringify(res.data)}`;
         }
-      }
+        if (ns.format === 'properties') {
+          const expectedItems = { ...(ns.items || {}), fixtureRunId: runId };
+          for (const [k, v] of Object.entries(expectedItems)) {
+            if (String(res.data[k]) !== String(v)) {
+              return `Namespace ${app.appId}/${cluster}/${ns.name} key "${k}": expected "${v}", got "${res.data[k]}"`;
+            }
+          }
+          if (res.data.missingValue !== undefined) {
+            return `Namespace ${app.appId}/${cluster}/${ns.name} contained unexpected "missingValue"`;
+          }
+        } else {
+          if (res.data.content === undefined) {
+            return `Namespace ${app.appId}/${cluster}/${ns.name} missing "content" field: ${JSON.stringify(res.data)}`;
+          }
+          if (res.data.content !== ns.content) {
+            return `Namespace ${app.appId}/${cluster}/${ns.name} content mismatch. Expected: ${JSON.stringify(ns.content)}, got: ${JSON.stringify(res.data.content)}`;
+          }
+        }
+        return null;
+      };
 
-      if (!ok) {
-        throw new Error(`Verification failed for ${app.appId}/${cluster}/${ns.name}: ${lastError ? lastError.message : 'unknown error'}`);
-      }
+      await probeWithRetry(probeUrl, { headers }, checkFn);
       verificationResults.push({ appId: app.appId, cluster, namespace: ns.name, status: 'OK' });
 
       // If properties format, also verify query with .properties suffix behaves identically
       if (ns.format === 'properties' && !ns.name.endsWith('.properties')) {
         const suffixedUrl = `${configUrl}/configfiles/json/${encodeURIComponent(app.appId)}/${encodeURIComponent(cluster)}/${encodeURIComponent(ns.name)}.properties`;
-        const sufRes = await requestJson(suffixedUrl);
-        if (!sufRes.ok || !sufRes.data) {
-          throw new Error(`Suffixed verification failed for ${app.appId}/${cluster}/${ns.name}.properties: HTTP ${sufRes.status}`);
-        }
-        const expectedItems = { ...(ns.items || {}), fixtureRunId: runId };
-        for (const [k, v] of Object.entries(expectedItems)) {
-          if (String(sufRes.data[k]) !== String(v)) {
-            throw new Error(`Suffixed namespace ${app.appId}/${cluster}/${ns.name}.properties key "${k}": expected "${v}", got "${sufRes.data[k]}"`);
+        const sufHeaders = app.accessKey ? signRequest(app.appId, app.accessKey.secret, suffixedUrl) : {};
+        await probeWithRetry(suffixedUrl, { headers: sufHeaders }, res => {
+          if (res.status !== 200 || !res.data) {
+            return `HTTP ${res.status}: ${JSON.stringify(res.data)}`;
           }
-        }
+          const expectedItems = { ...(ns.items || {}), fixtureRunId: runId };
+          for (const [k, v] of Object.entries(expectedItems)) {
+            if (String(res.data[k]) !== String(v)) {
+              return `Suffixed namespace ${app.appId}/${cluster}/${ns.name}.properties key "${k}": expected "${v}", got "${res.data[k]}"`;
+            }
+          }
+          return null;
+        });
         verificationResults.push({ appId: app.appId, cluster, namespace: `${ns.name}.properties`, status: 'OK (suffixed)' });
       }
     }
@@ -441,42 +689,126 @@ export async function verifyFixtures({ configUrl, runId, fixturesPath }) {
       for (const assoc of app.associatedNamespaces) {
         const cluster = assoc.cluster || 'default';
         const probeUrl = `${configUrl}/configfiles/json/${encodeURIComponent(app.appId)}/${encodeURIComponent(cluster)}/${encodeURIComponent(assoc.namespaceName)}`;
-
-        let lastError = null;
-        let ok = false;
-        for (let attempt = 1; attempt <= 10; attempt++) {
-          try {
-            const res = await requestJson(probeUrl);
-            if (res.ok && res.data) {
-              if (res.data.publicValue !== 'associated') {
-                throw new Error(`Associated namespace ${app.appId}/${cluster}/${assoc.namespaceName} expected publicValue="associated", got "${res.data.publicValue}"`);
-              }
-              ok = true;
-              break;
-            } else {
-              throw new Error(`HTTP ${res.status}: ${JSON.stringify(res.data)}`);
-            }
-          } catch (err) {
-            lastError = err;
-            await new Promise(r => setTimeout(r, 500));
+        const headers = app.accessKey ? signRequest(app.appId, app.accessKey.secret, probeUrl) : {};
+        await probeWithRetry(probeUrl, { headers }, res => {
+          if (res.status !== 200 || !res.data) {
+            return `HTTP ${res.status}: ${JSON.stringify(res.data)}`;
           }
-        }
-
-        if (!ok) {
-          throw new Error(`Verification failed for associated namespace ${app.appId}/${cluster}/${assoc.namespaceName}: ${lastError ? lastError.message : 'unknown error'}`);
-        }
+          if (res.data.publicValue !== 'associated') {
+            return `Associated namespace ${app.appId}/${cluster}/${assoc.namespaceName} expected publicValue="associated", got "${res.data.publicValue}"`;
+          }
+          return null;
+        });
         verificationResults.push({ appId: app.appId, cluster, namespace: assoc.namespaceName, status: 'OK (associated)' });
       }
     }
   }
 
-  // Negative control: Nonexistent namespace must return 404
+  // 3. Negative control: Nonexistent namespace must return 404
   const negProbeUrl = `${configUrl}/configfiles/json/101010101/default/nonexistent.namespace`;
   const negRes = await requestJson(negProbeUrl);
   if (negRes.status !== 404) {
     throw new Error(`Negative control failed: expected HTTP 404 for nonexistent namespace, got ${negRes.status}`);
   }
   verificationResults.push({ probe: 'nonexistent.namespace', status: 'OK (404 Not Found)' });
+
+  // 4. Grayscale routing controls for namespaces with branch rules
+  for (const app of fixtures.apps) {
+    if (!app.namespaces) continue;
+    for (const ns of app.namespaces) {
+      if (!ns.branch) continue;
+      const cluster = ns.cluster || 'default';
+      const baseUrl = `${configUrl}/configfiles/json/${encodeURIComponent(app.appId)}/${encodeURIComponent(cluster)}/${encodeURIComponent(ns.name)}`;
+
+      function makeOptions(targetUrl) {
+        return app.accessKey ? { headers: signRequest(app.appId, app.accessKey.secret, targetUrl) } : {};
+      }
+
+      // Check function ensuring both gray value and baseline inheritance
+      function checkGray(expectedValue) {
+        return (res) => {
+          if (res.status !== 200 || !res.data) return `HTTP ${res.status}: ${JSON.stringify(res.data)}`;
+          if (res.data.grayScaleValue !== expectedValue) {
+            return `Expected grayScaleValue="${expectedValue}", got "${res.data?.grayScaleValue}"`;
+          }
+          if (res.data.stringValue !== 'string value' || res.data.intValue !== '42') {
+            return `Gray response failed to inherit baseline properties: ${JSON.stringify(res.data)}`;
+          }
+          return null;
+        };
+      }
+
+      // 4a. Matching IP -> grayScaleValue="true"
+      const ipMatchUrl = `${baseUrl}?ip=1.2.3.4`;
+      await probeWithRetry(ipMatchUrl, makeOptions(ipMatchUrl), checkGray('true'), 20, 500);
+      verificationResults.push({ appId: app.appId, probe: 'gray-match-ip', status: 'OK (grayScaleValue=true)' });
+
+      // 4b. Matching Label -> grayScaleValue="true"
+      const labelMatchUrl = `${baseUrl}?label=GrayScale`;
+      await probeWithRetry(labelMatchUrl, makeOptions(labelMatchUrl), checkGray('true'), 20, 500);
+      verificationResults.push({ appId: app.appId, probe: 'gray-match-label', status: 'OK (grayScaleValue=true)' });
+
+      // 4c. Matching Both -> grayScaleValue="true"
+      const bothMatchUrl = `${baseUrl}?ip=1.2.3.4&label=GrayScale`;
+      await probeWithRetry(bothMatchUrl, makeOptions(bothMatchUrl), checkGray('true'), 20, 500);
+      verificationResults.push({ appId: app.appId, probe: 'gray-match-both', status: 'OK (grayScaleValue=true)' });
+
+      // 4d. Combinatorial: Matching IP + Non-matching Label -> grayScaleValue="true" (OR rule)
+      const ipMatchLabelMismatchUrl = `${baseUrl}?ip=1.2.3.4&label=OtherLabel`;
+      await probeWithRetry(ipMatchLabelMismatchUrl, makeOptions(ipMatchLabelMismatchUrl), checkGray('true'), 20, 500);
+      verificationResults.push({ appId: app.appId, probe: 'gray-match-ip-mismatch-label', status: 'OK (grayScaleValue=true)' });
+
+      // 4e. Combinatorial: Non-matching IP + Matching Label -> grayScaleValue="true" (OR rule)
+      const ipMismatchLabelMatchUrl = `${baseUrl}?ip=1.2.3.5&label=GrayScale`;
+      await probeWithRetry(ipMismatchLabelMatchUrl, makeOptions(ipMismatchLabelMatchUrl), checkGray('true'), 20, 500);
+      verificationResults.push({ appId: app.appId, probe: 'gray-mismatch-ip-match-label', status: 'OK (grayScaleValue=true)' });
+
+      // 4f. Non-matching IP -> grayScaleValue="false"
+      const ipMismatchUrl = `${baseUrl}?ip=1.2.3.5`;
+      await probeWithRetry(ipMismatchUrl, makeOptions(ipMismatchUrl), checkGray('false'), 20, 500);
+      verificationResults.push({ appId: app.appId, probe: 'gray-mismatch-ip', status: 'OK (grayScaleValue=false)' });
+
+      // 4g. Non-matching Label -> grayScaleValue="false"
+      const labelMismatchUrl = `${baseUrl}?label=OtherLabel`;
+      await probeWithRetry(labelMismatchUrl, makeOptions(labelMismatchUrl), checkGray('false'), 20, 500);
+      verificationResults.push({ appId: app.appId, probe: 'gray-mismatch-label', status: 'OK (grayScaleValue=false)' });
+
+      // 4h. Non-matching Both -> grayScaleValue="false"
+      const bothMismatchUrl = `${baseUrl}?ip=1.2.3.5&label=OtherLabel`;
+      await probeWithRetry(bothMismatchUrl, makeOptions(bothMismatchUrl), checkGray('false'), 20, 500);
+      verificationResults.push({ appId: app.appId, probe: 'gray-mismatch-both', status: 'OK (grayScaleValue=false)' });
+
+      // 4i. No targeting -> grayScaleValue="false"
+      await probeWithRetry(baseUrl, makeOptions(baseUrl), checkGray('false'), 20, 500);
+      verificationResults.push({ appId: app.appId, probe: 'gray-no-targeting', status: 'OK (grayScaleValue=false)' });
+
+      // 4j. Protected app targeted security controls:
+      // Must verify that targeted requests cannot bypass authentication
+      if (app.accessKey) {
+        // Unsigned IP targeting -> 401
+        await probeWithRetry(ipMatchUrl, {}, res => {
+          if (res.status !== 401) return `Expected HTTP 401 for unsigned IP targeting, got ${res.status}`;
+          return null;
+        }, 10, 500);
+        verificationResults.push({ appId: app.appId, probe: 'auth-targeted-unsigned-ip-rejected', status: 'OK (401 Unauthorized)' });
+
+        // Unsigned Label targeting -> 401
+        await probeWithRetry(labelMatchUrl, {}, res => {
+          if (res.status !== 401) return `Expected HTTP 401 for unsigned Label targeting, got ${res.status}`;
+          return null;
+        }, 10, 500);
+        verificationResults.push({ appId: app.appId, probe: 'auth-targeted-unsigned-label-rejected', status: 'OK (401 Unauthorized)' });
+
+        // Wrong secret targeting -> 401
+        const wrongTargetHeaders = signRequest(app.appId, 'wrong-secret-token-invalid', ipMatchUrl);
+        await probeWithRetry(ipMatchUrl, { headers: wrongTargetHeaders }, res => {
+          if (res.status !== 401) return `Expected HTTP 401 for wrong-secret targeted request, got ${res.status}`;
+          return null;
+        }, 10, 500);
+        verificationResults.push({ appId: app.appId, probe: 'auth-targeted-wrong-secret-rejected', status: 'OK (401 Unauthorized)' });
+      }
+    }
+  }
 
   return verificationResults;
 }
