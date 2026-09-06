@@ -159,17 +159,17 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 **Acceptance**:
 
-- [ ] Saved-but-unpublished edits remain invisible; a real release becomes visible through explicit refresh with the expected callback; identical refresh adds no changed-content callback.
-- [ ] A further real release reaches the polling client without a manual refresh and every test stops/drops clients on success and failure.
-- [ ] Preload/persistence smoke assertions pass with test-local storage, isolated runtime mutation namespaces, and bounded state observation.
+- [x] Saved-but-unpublished edits remain invisible; a real release becomes visible through explicit refresh with the expected callback; identical refresh adds no changed-content callback.
+- [x] A further real release reaches the polling client without a manual refresh and every test stops/drops clients on success and failure.
+- [x] Preload/persistence smoke assertions pass with test-local storage, isolated runtime mutation namespaces, and bounded state observation.
 
 **Verification**: `scripts/test.sh integration --suite native` and `scripts/test.sh integration --suite rustls`, followed by a second clean native run. Inspect release IDs and value transitions in diagnostics. Ensure test names/listing includes all six native groups and a nonexistent release/value fails at its deadline rather than retrying the whole test.
 
 ### Checkpoint B — Native local lifecycle works
 
-- [ ] A full native lifecycle succeeds from a fresh volume for both TLS configurations.
-- [ ] Authentication and publication have negative controls; real polling observes changes.
-- [ ] Setup/test failure evidence and cleanup have been exercised; retained fast regressions remain intact.
+- [x] A full native lifecycle succeeds from a fresh volume for both TLS configurations.
+- [x] Authentication and publication have negative controls; real polling observes changes.
+- [x] Setup/test failure evidence and cleanup have been exercised; retained fast regressions remain intact.
 
 ## T07 — Exercise generated WASM through real Node networking
 

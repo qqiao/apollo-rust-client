@@ -499,11 +499,27 @@ for s in "${TARGET_SUITES[@]}"; do
     fi
     echo "[apollo-test] Running: ${CMD[*]}"
     TEST_OUTPUT_FILE="${RUN_DIR}/logs/suite-native.log"
+    REQUIRED_NATIVE_CASES=(
+      "real_apollo_formats_and_identity"
+      "real_apollo_access_key"
+      "real_apollo_grayscale"
+      "real_apollo_release_refresh_and_listener"
+      "real_apollo_polling"
+      "real_apollo_preload_and_persistence"
+    )
     if run_with_timeout 300 "${CMD[@]}" > "$TEST_OUTPUT_FILE" 2>&1; then
       cat "$TEST_OUTPUT_FILE"
       if grep -q "running 0 tests" "$TEST_OUTPUT_FILE"; then
         echo "ERROR [suite: native]: Zero tests were executed (filter='$FILTER'). Suite cannot pass with 0 tests." >&2
         STAGE_FAILED=1
+      fi
+      if [ -z "$FILTER" ]; then
+        for rc in "${REQUIRED_NATIVE_CASES[@]}"; do
+          if ! grep -q "test ${rc} \.\.\. ok" "$TEST_OUTPUT_FILE"; then
+            echo "ERROR [suite: native]: Missing or failed required integration case '${rc}' in full run." >&2
+            STAGE_FAILED=1
+          fi
+        done
       fi
     else
       cat "$TEST_OUTPUT_FILE"
@@ -525,11 +541,27 @@ for s in "${TARGET_SUITES[@]}"; do
     fi
     echo "[apollo-test] Running: ${CMD[*]}"
     TEST_OUTPUT_FILE="${RUN_DIR}/logs/suite-rustls.log"
+    REQUIRED_RUSTLS_CASES=(
+      "real_apollo_formats_and_identity"
+      "real_apollo_access_key"
+      "real_apollo_grayscale"
+      "real_apollo_release_refresh_and_listener"
+      "real_apollo_polling"
+      "real_apollo_preload_and_persistence"
+    )
     if run_with_timeout 300 "${CMD[@]}" > "$TEST_OUTPUT_FILE" 2>&1; then
       cat "$TEST_OUTPUT_FILE"
       if grep -q "running 0 tests" "$TEST_OUTPUT_FILE"; then
         echo "ERROR [suite: rustls]: Zero tests were executed (filter='$FILTER'). Suite cannot pass with 0 tests." >&2
         STAGE_FAILED=1
+      fi
+      if [ -z "$FILTER" ]; then
+        for rc in "${REQUIRED_RUSTLS_CASES[@]}"; do
+          if ! grep -q "test ${rc} \.\.\. ok" "$TEST_OUTPUT_FILE"; then
+            echo "ERROR [suite: rustls]: Missing or failed required integration case '${rc}' in full run." >&2
+            STAGE_FAILED=1
+          fi
+        done
       fi
     else
       cat "$TEST_OUTPUT_FILE"

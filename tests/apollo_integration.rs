@@ -9,7 +9,8 @@
 #[path = "apollo/support/mod.rs"]
 mod support;
 
-use apollo_rust_client::{Client, namespace::Namespace};
+use apollo_rust_client::{Client, client_config::ClientConfig, namespace::Namespace};
+use std::sync::{Arc, Mutex};
 use support::TestContext;
 
 #[tokio::test]
@@ -504,5 +505,330 @@ async fn real_apollo_grayscale() {
             );
         }
         other => panic!("expected Namespace::Properties, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires scripts/test.sh integration"]
+async fn real_apollo_release_refresh_and_listener() {
+    let ctx = TestContext::from_env();
+    let app_id = "101010101";
+    let update_ns = ctx.update_namespace();
+
+    // 1. Scoped precondition: Restore reserved update namespace to baseline
+    ctx.set_and_publish(app_id, update_ns, "value", "baseline")
+        .await;
+    ctx.wait_for_config_service_value(
+        app_id,
+        "default",
+        update_ns,
+        "value",
+        "baseline",
+        std::time::Duration::from_secs(60),
+    )
+    .await;
+
+    // Load with fresh client and isolated cache
+    let (builder, _guard) = ctx.client_builder(app_id, "release-listener");
+    let client =
+        Client::new(builder.build().expect("valid config")).expect("failed to create client");
+
+    // Capture listener events separately from changes
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let events_cb = events.clone();
+    let listener = Arc::new(move |res: Result<Namespace, apollo_rust_client::Error>| {
+        let Some(val) = res.ok().and_then(|ns| match ns {
+            Namespace::Properties(props) => props.get_string("value"),
+            _ => None,
+        }) else {
+            return;
+        };
+        events_cb.lock().unwrap().push(val);
+    });
+
+    client.add_listener(update_ns, listener).await;
+
+    // Initial namespace load: listener must receive initial event
+    let initial_ns = client
+        .namespace(update_ns)
+        .await
+        .expect("initial namespace load");
+    match initial_ns {
+        Namespace::Properties(props) => {
+            assert_eq!(props.get_string("value"), Some("baseline".to_string()));
+        }
+        other => panic!("expected Properties, got {other:?}"),
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(
+        events.lock().unwrap().as_slice(),
+        &["baseline".to_string()],
+        "initial load must trigger initial listener event"
+    );
+
+    // 2. Save value="edited-unpublished" with set-item (without publishing)
+    ctx.set_item(app_id, update_ns, "value", "edited-unpublished")
+        .await;
+
+    // Direct independent ConfigService request must still see baseline
+    let probe_client = reqwest::Client::new();
+    let probe_url = format!(
+        "{}/configfiles/json/{app_id}/default/{update_ns}",
+        ctx.config_url.trim_end_matches('/')
+    );
+    let probe_resp = probe_client
+        .get(&probe_url)
+        .send()
+        .await
+        .expect("probe request");
+    let probe_json: serde_json::Value = probe_resp.json().await.expect("probe json");
+    assert_eq!(
+        probe_json.get("value").and_then(|v| v.as_str()),
+        Some("baseline"),
+        "unpublished edit must NOT be visible to ConfigService"
+    );
+
+    // Explicit client refresh: still sees baseline and produces NO changed-value listener event
+    client.refresh(update_ns).await.expect("refresh succeeds");
+    let refreshed_ns = client.namespace(update_ns).await.expect("namespace read");
+    match refreshed_ns {
+        Namespace::Properties(props) => {
+            assert_eq!(props.get_string("value"), Some("baseline".to_string()));
+        }
+        other => panic!("expected Properties, got {other:?}"),
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(
+        events.lock().unwrap().as_slice(),
+        &["baseline".to_string()],
+        "refresh on unchanged server data must not trigger new listener event"
+    );
+
+    // 3. Publish that item
+    ctx.publish(app_id, update_ns, None).await;
+
+    // Independently wait until ConfigService exposes "edited-unpublished"
+    ctx.wait_for_config_service_value(
+        app_id,
+        "default",
+        update_ns,
+        "value",
+        "edited-unpublished",
+        std::time::Duration::from_secs(60),
+    )
+    .await;
+
+    // Explicitly refresh the client and require the corresponding event and value
+    client
+        .refresh(update_ns)
+        .await
+        .expect("refresh after publish succeeds");
+    let updated_ns = client.namespace(update_ns).await.expect("namespace read");
+    match updated_ns {
+        Namespace::Properties(props) => {
+            assert_eq!(
+                props.get_string("value"),
+                Some("edited-unpublished".to_string())
+            );
+        }
+        other => panic!("expected Properties, got {other:?}"),
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(
+        events.lock().unwrap().as_slice(),
+        &["baseline".to_string(), "edited-unpublished".to_string()],
+        "refresh after publish must trigger changed listener event"
+    );
+
+    // Refresh unchanged data once more and assert NO extra event from that operation
+    client
+        .refresh(update_ns)
+        .await
+        .expect("second refresh succeeds");
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(
+        events.lock().unwrap().as_slice(),
+        &["baseline".to_string(), "edited-unpublished".to_string()],
+        "subsequent refresh of identical data must not trigger extra listener event"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires scripts/test.sh integration"]
+async fn real_apollo_polling() {
+    let ctx = TestContext::from_env();
+    let app_id = "101010101";
+    let update_ns = ctx.update_namespace();
+
+    // 1. Scoped precondition: Restore reserved update namespace to baseline
+    ctx.set_and_publish(app_id, update_ns, "value", "baseline")
+        .await;
+    ctx.wait_for_config_service_value(
+        app_id,
+        "default",
+        update_ns,
+        "value",
+        "baseline",
+        std::time::Duration::from_secs(60),
+    )
+    .await;
+
+    // Create client with 1-second refresh interval and isolated cache
+    let (builder, _guard) = ctx.client_builder(app_id, "polling");
+    let mut client = Client::new(builder.refresh_interval(1).build().expect("valid config"))
+        .expect("failed to create client");
+
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let events_cb = events.clone();
+    let listener = Arc::new(move |res: Result<Namespace, apollo_rust_client::Error>| {
+        let Some(val) = res.ok().and_then(|ns| match ns {
+            Namespace::Properties(props) => props.get_string("value"),
+            _ => None,
+        }) else {
+            return;
+        };
+        events_cb.lock().unwrap().push(val);
+    });
+
+    client.add_listener(update_ns, listener).await;
+
+    // Load initial namespace
+    let initial_ns = client.namespace(update_ns).await.expect("initial load");
+    match initial_ns {
+        Namespace::Properties(props) => {
+            assert_eq!(props.get_string("value"), Some("baseline".to_string()));
+        }
+        other => panic!("expected Properties, got {other:?}"),
+    }
+
+    // Start background polling
+    client.start().await.expect("failed to start polling");
+
+    // Publish new value to Apollo
+    ctx.set_and_publish(app_id, update_ns, "value", "polling-published")
+        .await;
+    ctx.wait_for_config_service_value(
+        app_id,
+        "default",
+        update_ns,
+        "value",
+        "polling-published",
+        std::time::Duration::from_secs(60),
+    )
+    .await;
+
+    // Bounded observation: wait for polling background loop to update client without manual refresh
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(60);
+    let mut observed = false;
+
+    while start.elapsed() < timeout {
+        let is_updated = matches!(
+            client.namespace(update_ns).await,
+            Ok(Namespace::Properties(ref props)) if props.get_string("value").as_deref() == Some("polling-published")
+        );
+        if is_updated {
+            observed = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+
+    // Ensure client background polling is stopped promptly on success or failure
+    client.stop().await;
+
+    assert!(
+        observed,
+        "polling client failed to observe new published value within {timeout:?}"
+    );
+
+    // Verify listener captured the change event
+    let captured = events.lock().unwrap().clone();
+    assert!(
+        captured.contains(&"polling-published".to_string()),
+        "listener events must contain polling-published: {captured:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires scripts/test.sh integration"]
+async fn real_apollo_preload_and_persistence() {
+    let ctx = TestContext::from_env();
+    let app_id = "101010101";
+
+    // 1. Duplicate-preload assertions
+    let (builder1, guard1) = ctx.client_builder(app_id, "preload-duplicates");
+    let client1 = Client::new(builder1.build().expect("valid config")).expect("create client1");
+
+    // Preload duplicate namespaces and multiple formats simultaneously
+    client1
+        .preload(&["application", "application", "application.json", "config", "application"])
+        .await
+        .expect("preload with duplicate namespaces must succeed without error");
+
+    // Verify preloaded values
+    let app_ns = client1
+        .namespace("application")
+        .await
+        .expect("get application");
+    match app_ns {
+        Namespace::Properties(props) => {
+            assert_eq!(
+                props.get_string("stringValue"),
+                Some("string value".to_string())
+            );
+            assert_eq!(props.get_string("fixtureRunId"), Some(ctx.run_id.clone()));
+        }
+        other => panic!("expected Properties, got {other:?}"),
+    }
+
+    let json_ns = client1
+        .namespace("application.json")
+        .await
+        .expect("get application.json");
+    match json_ns {
+        Namespace::Json(json) => {
+            let obj: serde_json::Value = json.to_object().expect("deserialization to json value");
+            assert_eq!(obj["host"], "localhost");
+            assert_eq!(obj["port"], 8080);
+            assert_eq!(obj["run"], true);
+        }
+        other => panic!("expected Json, got {other:?}"),
+    }
+
+    // 2. Native same-identity completed-persistence smoke
+    // Confirm client1 wrote cache files into guard1's cache storage directory
+    let cache_storage_dir = guard1.path().join("apollo-rust-client").join("config-cache");
+    assert!(cache_storage_dir.exists(), "cache storage directory must exist: {:?}", cache_storage_dir);
+    let cache_files: Vec<_> = std::fs::read_dir(&cache_storage_dir)
+        .expect("read cache storage dir")
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".cache.json"))
+        .collect();
+    assert!(
+        !cache_files.is_empty(),
+        "cache storage directory must contain persisted cache artifacts (.cache.json)"
+    );
+
+    // Create a second matching client sharing the same cache directory
+    let client2_config = ClientConfig::builder(app_id, &ctx.config_url)
+        .cache_dir(guard1.as_str())
+        .build()
+        .expect("valid client2 config");
+    let client2 = Client::new(client2_config).expect("create client2");
+
+    let app_ns2 = client2
+        .namespace("application")
+        .await
+        .expect("client2 get application from persistent cache");
+    match app_ns2 {
+        Namespace::Properties(props) => {
+            assert_eq!(
+                props.get_string("stringValue"),
+                Some("string value".to_string())
+            );
+            assert_eq!(props.get_string("fixtureRunId"), Some(ctx.run_id.clone()));
+        }
+        other => panic!("expected Properties, got {other:?}"),
     }
 }
