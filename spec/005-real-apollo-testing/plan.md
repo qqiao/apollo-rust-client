@@ -86,7 +86,7 @@ SQL initializes Apollo's own schema and, only if necessary, test-local `ServerCo
 | `101010101` / `integration` | `application`, Properties | Distinct `identity="plain-integration"` and `stringValue="cluster value"`; explicitly publish this cluster. |
 | `101010101` / `default` | `application.json`, JSON | `content` is the JSON string encoding `{ "host": "localhost", "port": 8080, "run": true }`. |
 | `101010101` / `default` | `application.yml`, YAML | `content` is `host: "localhost"\nport: 8080\nrun: true\n`. Add `application.yaml` with the same values to exercise the other accepted suffix. |
-| `101010101` / `default` | `config.properties`, Properties | `publicValue="properties"`; this is a literal dotted Properties name, not proof of public association. |
+| `101010101` / `default` | `config`, Properties | `publicValue="properties"`; named `config` in Apollo, accessible with or without `.properties` suffix per Apollo wire normalization. |
 | `101010101` / `default` | `readme.txt`, Text | `content="plain text configuration\nsecond line\n"`; assert exact newlines. |
 | `101010103` / `default` | `FX.apollo`, public Properties | Owns `publicValue="associated"`, `identity="public-owner"`; consumer app `101010101` has an actual associated namespace. Verify ownership and association through AdminService, not just the dotted name. |
 | `101010101` / `default` | `updates-native`, `updates-rustls`, `updates-wasm`, Properties | Each starts with `value="baseline"` and `fixtureRunId=<run ID>`. Separate namespaces for runtime suites; lifecycle cases within each suite are sequential. |

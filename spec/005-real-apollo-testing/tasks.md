@@ -51,7 +51,7 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 ## T02 — Initialize and verify the basic published fixtures
 
-- [ ] **T02 complete**
+- [x] **T02 complete**
 
 **Purpose**: Convert the first publish proof into a repeatable data initializer for formats, application/cluster identity, public namespace association, and reserved update namespaces.
 
@@ -65,9 +65,9 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 **Acceptance**:
 
-- [ ] Every basic manifest value, cluster identity, format, and actual public association is published and correctly probed; JSON/YAML content is a string and Text preserves final newlines.
-- [ ] Two pre-mutation seed passes leave entity counts and active release IDs stable, with no broad “ignore conflict” error handling.
-- [ ] Corrupt/missing required fixture values, an incorrect endpoint, or failed publishing produce an identified nonzero error within a finite deadline.
+- [x] Every basic manifest value, cluster identity, format, and actual public association is published and correctly probed; JSON/YAML content is a string and Text preserves final newlines.
+- [x] Two pre-mutation seed passes leave entity counts and active release IDs stable, with no broad “ignore conflict” error handling.
+- [x] Corrupt/missing required fixture values, an incorrect endpoint, or failed publishing produce an identified nonzero error within a finite deadline.
 
 **Verification**: Run `node --check scripts/apollo-fixtures.mjs`; seed/verify twice against a uniquely owned T01 stack using the explicit run environment. Compare entity counts and latest releases, inspect all ConfigService values, then deliberately change one required expected value in a temporary manifest copy and verify failure. Preserve/delete only test-owned resources.
 

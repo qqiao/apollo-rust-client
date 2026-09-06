@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "apps": [
+    {
+      "appId": "101010101",
+      "name": "plain-app",
+      "orgId": "TEST",
+      "orgName": "Test Org",
+      "ownerName": "apollo-test",
+      "ownerEmail": "apollo-test@example.com",
+      "clusters": [
+        {
+          "name": "integration"
+        }
+      ],
+      "namespaces": [
+        {
+          "cluster": "default",
+          "name": "application",
+          "format": "properties",
+          "isPublic": false,
+          "items": {
+            "stringValue": "string value",
+            "intValue": "42",
+            "floatValue": "4.20",
+            "boolValue": "false",
+            "grayScaleValue": "false",
+            "identity": "plain-default"
+          }
+        },
+        {
+          "cluster": "integration",
+          "name": "application",
+          "format": "properties",
+          "isPublic": false,
+          "items": {
+            "stringValue": "cluster value",
+            "identity": "plain-integration"
+          }
+        },
+        {
+          "cluster": "default",
+          "name": "application.json",
+          "format": "json",
+          "isPublic": false,
+          "content": "{\"host\":\"localhost\",\"port\":8080,\"run\":true}"
+        },
+        {
+          "cluster": "default",
+          "name": "application.yml",
+          "format": "yml",
+          "isPublic": false,
+          "content": "host: \"localhost\"\nport: 8080\nrun: true\n"
+        },
+        {
+          "cluster": "default",
+          "name": "application.yaml",
+          "format": "yaml",
+          "isPublic": false,
+          "content": "host: \"localhost\"\nport: 8080\nrun: true\n"
+        },
+        {
+          "cluster": "default",
+          "name": "config",
+          "format": "properties",
+          "isPublic": false,
+          "items": {
+            "publicValue": "properties"
+          }
+        },
+        {
+          "cluster": "default",
+          "name": "readme.txt",
+          "format": "txt",
+          "isPublic": false,
+          "content": "plain text configuration\nsecond line\n"
+        },
+        {
+          "cluster": "default",
+          "name": "updates-native",
+          "format": "properties",
+          "isPublic": false,
+          "mutable": true,
+          "items": {
+            "value": "baseline"
+          }
+        },
+        {
+          "cluster": "default",
+          "name": "updates-rustls",
+          "format": "properties",
+          "isPublic": false,
+          "mutable": true,
+          "items": {
+            "value": "baseline"
+          }
+        },
+        {
+          "cluster": "default",
+          "name": "updates-wasm",
+          "format": "properties",
+          "isPublic": false,
+          "mutable": true,
+          "items": {
+            "value": "baseline"
+          }
+        }
+      ],
+      "associatedNamespaces": [
+        {
+          "cluster": "default",
+          "namespaceName": "FX.apollo"
+        }
+      ]
+    },
+    {
+      "appId": "101010102",
+      "name": "secret-app",
+      "orgId": "TEST",
+      "orgName": "Test Org",
+      "ownerName": "apollo-test",
+      "ownerEmail": "apollo-test@example.com",
+      "namespaces": [
+        {
+          "cluster": "default",
+          "name": "application",
+          "format": "properties",
+          "isPublic": false,
+          "items": {
+            "stringValue": "string value",
+            "intValue": "42",
+            "floatValue": "4.20",
+            "boolValue": "false",
+            "grayScaleValue": "false",
+            "identity": "secret-default"
+          }
+        }
+      ]
+    },
+    {
+      "appId": "101010103",
+      "name": "public-owner-app",
+      "orgId": "TEST",
+      "orgName": "Test Org",
+      "ownerName": "apollo-test",
+      "ownerEmail": "apollo-test@example.com",
+      "namespaces": [
+        {
+          "cluster": "default",
+          "name": "FX.apollo",
+          "format": "properties",
+          "isPublic": true,
+          "items": {
+            "publicValue": "associated",
+            "identity": "public-owner"
+          }
+        }
+      ]
+    }
+  ]
+}

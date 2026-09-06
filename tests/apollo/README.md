@@ -57,11 +57,65 @@ To run:
    - Mandatory fields: `appId`, `name`, `orgId`, `orgName`, `ownerName`, `ownerEmail`, `dataChangeCreatedBy`.
    - Missing `ownerEmail` results in a `400 Bad Request` Bean Validation failure.
 2. **Item creation** (`POST /apps/{appId}/clusters/{clusterName}/namespaces/{namespaceName}/items`):
-   - Mandatory fields: `namespaceId`, `key`, `value`, `dataChangeCreatedBy`, `dataChangeLastModifiedBy`.
+   - Mandatory fields: `namespaceId`, `key`, `value`, `comment` (`''`), `dataChangeCreatedBy`, `dataChangeLastModifiedBy`.
    - Missing `dataChangeLastModifiedBy` causes a database `DataIntegrityViolationException` when creating the change audit commit.
-3. **Release publication** (`POST /apps/{appId}/clusters/{clusterName}/namespaces/{namespaceName}/releases?name={name}&operator={operator}&isEmergencyPublish=false`):
+3. **AppNamespace creation** (`POST /apps/{appId}/appnamespaces`):
+   - Mandatory fields: `appId`, `name`, `format`, `isPublic`, `comment` (`''`), `dataChangeCreatedBy`, `dataChangeLastModifiedBy`.
+   - Missing `comment` causes a database `DataIntegrityViolationException` because column `Comment` is `NOT NULL`.
+4. **Release publication** (`POST /apps/{appId}/clusters/{clusterName}/namespaces/{namespaceName}/releases?name={name}&operator={operator}&isEmergencyPublish=false`):
    - Publishes pending changes into an immutable release.
    - Saved items are invisible to ConfigService before publication; only published releases are served to clients.
+5. **Properties namespace suffix handling**:
+   - Apollo ConfigService strips `.properties` at its wire boundary via `NamespaceUtil.filterNamespaceName`.
+   - For example, querying `/configfiles/json/101010101/default/config.properties` resolves to the namespace named `config`.
+   - The fixture namespace is named `config` in Apollo, allowing client queries with or without `.properties` to succeed identically.
+
+## Fixture Management (`scripts/apollo-fixtures.mjs`)
+
+The declarative fixture manifest is stored in `tests/apollo/fixtures.json`. Fixtures are managed through `scripts/apollo-fixtures.mjs` using only Node built-ins.
+
+### Available commands:
+
+```bash
+# Seed all fixtures idempotently and write state
+node scripts/apollo-fixtures.mjs seed \
+    --admin-url http://127.0.0.1:8090 \
+    --config-url http://127.0.0.1:8080 \
+    --run-id <run-id> \
+    --fixtures tests/apollo/fixtures.json \
+    --state-file /path/to/state.json
+
+# Verify published data through ConfigService
+node scripts/apollo-fixtures.mjs verify \
+    --config-url http://127.0.0.1:8080 \
+    --run-id <run-id> \
+    --fixtures tests/apollo/fixtures.json
+
+# Save item in a declared mutable namespace without publishing
+node scripts/apollo-fixtures.mjs set-item \
+    --admin-url http://127.0.0.1:8090 \
+    --app 101010101 \
+    --cluster default \
+    --namespace updates-native \
+    --key myKey --value myValue
+
+# Publish release in a mutable namespace
+node scripts/apollo-fixtures.mjs publish \
+    --admin-url http://127.0.0.1:8090 \
+    --app 101010101 \
+    --cluster default \
+    --namespace updates-native \
+    --name my-release
+
+# Set item and publish in a single operation
+node scripts/apollo-fixtures.mjs set-and-publish \
+    --admin-url http://127.0.0.1:8090 \
+    --app 101010101 \
+    --cluster default \
+    --namespace updates-native \
+    --key myKey --value myValue \
+    --name my-release
+```
 
 ## Startup Performance Measurements
 
