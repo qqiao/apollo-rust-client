@@ -173,7 +173,7 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 ## T07 — Exercise generated WASM through real Node networking
 
-- [ ] **T07 complete**
+- [x] **T07 complete**
 
 **Purpose**: Test the consumer-facing generated JavaScript package in a process unaffected by WASM unit-test fetch replacements.
 
@@ -187,9 +187,9 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 **Acceptance**:
 
-- [ ] Node integration makes actual ConfigService requests for the mandatory cases; no global fetch replacement or imported unit setup exists on this path.
-- [ ] Generated API values/callbacks/timing methods behave as specified, with wrappers released and polling stopped on failure as well as success.
-- [ ] Running two WASM integrations concurrently does not overwrite generated packages or share fixture/cache state.
+- [x] Node integration makes actual ConfigService requests for the mandatory cases; no global fetch replacement or imported unit setup exists on this path.
+- [x] Generated API values/callbacks/timing methods behave as specified, with wrappers released and polling stopped on failure as well as success.
+- [x] Running two WASM integrations concurrently does not overwrite generated packages or share fixture/cache state.
 
 **Verification**: `node --check tests/apollo/wasm.cjs`; `scripts/test.sh integration --suite wasm`; then `scripts/test.sh integration` with all three suites. Run two integration commands concurrently in independent run directories and inspect both summaries/service logs. Code-review fetch/global setup separation and substantiate real networking with run-ID values and server evidence.
 

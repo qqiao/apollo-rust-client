@@ -578,24 +578,41 @@ for s in "${TARGET_SUITES[@]}"; do
     fi
 
     echo "[apollo-test] Building WASM package for Node.js in ${RUN_DIR}/wasm..."
-    if ! run_with_timeout 300 wasm-pack build --target nodejs --out-dir "${RUN_DIR}/wasm" > "${RUN_DIR}/logs/wasm-build.log" 2>&1; then
+    export APOLLO_TEST_WASM_PACKAGE="${RUN_DIR}/wasm"
+    if ! run_with_timeout 300 wasm-pack build --target nodejs --dev --out-dir "${RUN_DIR}/wasm" > "${RUN_DIR}/logs/wasm-build.log" 2>&1; then
       echo "ERROR [suite: wasm]: Failed to build WASM package for Node.js." >&2
       STAGE_FAILED=1
       continue
     fi
 
-    WASM_CMD=(node --test)
+    WASM_CMD=(node --test --test-concurrency=1)
     if [ -n "$FILTER" ]; then
       WASM_CMD+=(--test-name-pattern="$FILTER")
     fi
     WASM_CMD+=("${WASM_TEST_FILE}")
     echo "[apollo-test] Running: ${WASM_CMD[*]}"
     TEST_OUTPUT_FILE="${RUN_DIR}/logs/suite-wasm.log"
+    REQUIRED_WASM_CASES=(
+      "real_apollo_wasm_formats_and_identity"
+      "real_apollo_wasm_access_key"
+      "real_apollo_wasm_grayscale"
+      "real_apollo_wasm_release_refresh_and_listener"
+      "real_apollo_wasm_polling"
+      "real_apollo_wasm_preload"
+    )
     if run_with_timeout 300 "${WASM_CMD[@]}" > "$TEST_OUTPUT_FILE" 2>&1; then
       cat "$TEST_OUTPUT_FILE"
       if grep -q "pass 0" "$TEST_OUTPUT_FILE" || grep -q "# tests 0" "$TEST_OUTPUT_FILE"; then
         echo "ERROR [suite: wasm]: Zero tests were executed (filter='$FILTER'). Suite cannot pass with 0 tests." >&2
         STAGE_FAILED=1
+      fi
+      if [ -z "$FILTER" ]; then
+        for rc in "${REQUIRED_WASM_CASES[@]}"; do
+          if ! grep -q "${rc}" "$TEST_OUTPUT_FILE"; then
+            echo "ERROR [suite: wasm]: Missing or failed required integration case '${rc}' in full run." >&2
+            STAGE_FAILED=1
+          fi
+        done
       fi
     else
       cat "$TEST_OUTPUT_FILE"
