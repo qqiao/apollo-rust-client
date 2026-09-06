@@ -267,7 +267,7 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 ## T11a — Document the contributor workflow and provenance
 
-- [ ] **T11a complete**
+- [x] **T11a complete**
 
 **Purpose**: Give contributors one reproducible guide and remove obsolete claims about test prerequisites once the implementation exists.
 
@@ -281,9 +281,9 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 **Acceptance**:
 
-- [ ] A contributor can run the full suite from the documented prerequisites and identify the explicit Docker-free alternative without manual Apollo setup.
-- [ ] Pinned images/schema/fixture version, provenance, and deliberate upgrade verification steps are recorded together.
-- [ ] Documentation distinguishes tested platforms from proposed support, and real-server evidence from remaining fault mocks or untested browser behavior.
+- [x] A contributor can run the full suite from the documented prerequisites and identify the explicit Docker-free alternative without manual Apollo setup.
+- [x] Pinned images/schema/fixture version, provenance, and deliberate upgrade verification steps are recorded together.
+- [x] Documentation distinguishes tested platforms from proposed support, and real-server evidence from remaining fault mocks or untested browser behavior.
 
 **Verification**: Follow the guide from a fresh checkout/test volume using `scripts/test.sh`; check local Markdown links and `git diff --check`; review script help against every documented command. Treat missing tool/network/platform access as an explicit verification gap, not a passing run.
 

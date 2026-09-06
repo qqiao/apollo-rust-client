@@ -383,6 +383,31 @@ if let apollo_rust_client::namespace::Namespace::Json(json) = namespace {
 - **[错误处理](docs/wiki/zh-CN/Error-Handling.md)** - 错误处理指南
 - **[设计概览](docs/wiki/zh-CN/Design-Overview.md)** - 架构文档
 
+## 测试
+
+本项目通过 `scripts/test.sh` 提供统一的测试入口：
+
+- **完整测试套件**（默认）：
+  ```bash
+  ./scripts/test.sh
+  ```
+  执行快速检查（原生、Rustls 与 WASM 的 Clippy；单元测试；文档测试；WASM 测试），通过 Docker Compose 启动独立的 Apollo 服务并填充声明式测试数据，运行全部三种集成运行时套件（`native`、`rustls` 和 `wasm`）。
+- **快速测试**（无需 Docker）：
+  ```bash
+  ./scripts/test.sh fast
+  ```
+  仅运行代码检查、单元与错误注入测试、文档测试以及 WASM 单元测试，完全不需要 Docker 或外部网络服务。
+- **仅运行集成测试**：
+  ```bash
+  ./scripts/test.sh integration
+  # 或指定特定运行时套件：
+  ./scripts/test.sh integration --suite native
+  ./scripts/test.sh integration --suite rustls
+  ./scripts/test.sh integration --suite wasm
+  ```
+
+有关依赖工具要求、容器镜像来源、测试数据架构与诊断排错的详细信息，请参阅 [tests/apollo/README.md](tests/apollo/README.md)。
+
 ## 贡献
 
 欢迎贡献！请随时提交拉取请求。
