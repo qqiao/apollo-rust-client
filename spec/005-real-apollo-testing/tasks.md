@@ -101,7 +101,7 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 ## T04 — Implement the owned lifecycle and test entry modes
 
-- [ ] **T04 complete**
+- [x] **T04 complete**
 
 **Purpose**: Provide one portable orchestration path that local and CI runs can use and that cannot silently skip integration setup.
 
@@ -115,9 +115,9 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 **Acceptance**:
 
-- [ ] No-argument full mode and explicit subset modes have clear behavior; missing prerequisites/setup/suite executors and unmatched filters fail visibly, never fall back or skip to green.
-- [ ] Consecutive and concurrent provisioning runs own different ports, volumes, state/cache/package paths; cleanup validates ownership and preserves unrelated resources.
-- [ ] Success/failure/INT/TERM/deadline paths terminate supervised children, capture applicable logs first, attempt bounded cleanup once, and preserve failed status.
+- [x] No-argument full mode and explicit subset modes have clear behavior; missing prerequisites/setup/suite executors and unmatched filters fail visibly, never fall back or skip to green.
+- [x] Consecutive and concurrent provisioning runs own different ports, volumes, state/cache/package paths; cleanup validates ownership and preserves unrelated resources.
+- [x] Success/failure/INT/TERM/deadline paths terminate supervised children, capture applicable logs first, attempt bounded cleanup once, and preserve failed status.
 
 **Verification**: `bash -n scripts/apollo-test.sh`; `sh -n scripts/test.sh`; `node --check scripts/apollo-fixtures.mjs`; `scripts/test.sh fast` with Docker deliberately unavailable through a scoped test PATH/environment. Exercise provisioning with missing Docker, partial startup failure, failed seed, and catchable interrupt. Use an unrelated sentinel project to prove cleanup scope. At this stage explicitly record absent integration executors as expected failures, not completed AC-001 evidence.
 

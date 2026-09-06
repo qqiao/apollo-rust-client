@@ -188,3 +188,56 @@ The end-to-end proof script (`scratch/t03_proof.sh`) was executed on a fresh dis
    - Automatic reconciliation restored both controls to green status upon re-seed.
 7. **Clean Teardown**: Project-scoped network and MySQL volume removed completely.
 
+## Orchestration and Test Lifecycle (T04)
+
+`scripts/test.sh` is the public repository test entry point, backed by `scripts/apollo-test.sh` for integration lifecycle management.
+
+### Supported Test Modes
+
+| Command | Purpose | Docker Required? |
+|---|---|---|
+| `scripts/test.sh` (or `scripts/test.sh all`) | Runs fast checks (Clippy x3, unit tests, doc tests, wasm tests), then executes all real Apollo integration suites. | Yes (for integration phase) |
+| `scripts/test.sh fast` | Runs only fast checks (Clippy x3, unit tests, doc tests, wasm tests). Rejects `--suite` and `--filter`. | **No** (never queries or touches Docker) |
+| `scripts/test.sh integration` | Provisions a disposable Apollo stack, runs all integration suites (`native`, `rustls`, `wasm`), captures diagnostics on failure, and tears down. | Yes |
+| `scripts/test.sh integration --suite <name>` | Runs only the specified integration suite (`native`, `rustls`, or `wasm`). | Yes |
+| `scripts/test.sh integration --filter <pattern>` | Passes test name filter to the integration runner. Fails visibly if 0 tests match. | Yes |
+| `scripts/apollo-test.sh cleanup --run-dir <dir>` | Recovery tool: safely tears down an abandoned project using validated `ownership.json` metadata. | Yes |
+
+### Exported Environment Variables
+
+The orchestrator discovers loopback endpoints and configures child test runners with:
+
+- `APOLLO_TEST_RUN_DIR`: Path to the unique run directory containing `ownership.json`, `state.json`, and diagnostic logs.
+- `APOLLO_TEST_RUN_ID`: Unique execution and fixture identifier (`run-<timestamp>-<rand>`).
+- `APOLLO_TEST_CONFIG_URL`: Loopback URL for ConfigService (e.g. `http://127.0.0.1:32800`).
+- `APOLLO_TEST_ADMIN_URL`: Loopback URL for AdminService (e.g. `http://127.0.0.1:32801`).
+- `APOLLO_TEST_SUITE`: Currently active suite (`native`, `rustls`, or `wasm`).
+- `APOLLO_TEST_WASM_PACKAGE`: Run-scoped Node package output path for WASM bindings (`<run-dir>/wasm`).
+
+### Timeout Budgets and Supervision
+
+- **Image Pull**: 600s timeout.
+- **Service Startup**: 300s timeout with container health inspection.
+- **Fixture Seeding & Verification**: 300s timeout.
+- **Suite Execution**: 300s timeout per suite with process group supervision.
+- **Teardown**: 30s timeout.
+- **Signal Handling**: Traps `SIGINT` (exit 130) and `SIGTERM` (exit 143), terminates active child processes, captures diagnostic logs, and cleans up Docker resources once.
+- **Diagnostic Capture**: On any failure or interrupt, `docker compose ps -a` and `docker compose logs` are captured to `<run-dir>/logs/` before stack teardown.
+
+## T04 Qualification Evidence
+
+The end-to-end qualification suite (`scratch/t04_proof.sh`) executed on 2026-09-06 with the following verified outcomes:
+
+1. **Static Syntax Checks**: `bash -n scripts/apollo-test.sh`, `sh -n scripts/test.sh`, and `node --check scripts/apollo-fixtures.mjs` passed cleanly.
+2. **Docker-Free Fast Mode**: `scripts/test.sh fast` executed with Docker completely absent from `PATH` and passed 100% (46 native + 46 feature + 21 wasm tests + doctests + 3 Clippy targets).
+3. **Missing Docker Handling**: `scripts/apollo-test.sh integration` in a Docker-free environment failed visibly with `ERROR: 'docker' is required for integration tests but not found in PATH.` and exit code 1.
+4. **Project Isolation Under Active Workload**: A sentinel project (`sentinel-proof-project-12263`) was run concurrently during the integration lifecycle. The sentinel project remained running and untouched across all test executions, failures, and teardowns.
+5. **Real Integration Lifecycle & Missing Suite Executor Detection**:
+   - Disposable project `apollo-test-1788701134-eacc5f2f` provisioned on dynamic loopback ports (`ConfigService: 32800`, `AdminService: 32801`).
+   - Declarative fixtures seeded, verified, and idempotency-checked.
+   - Missing T05 suite executor (`tests/apollo_integration.rs`) detected and failed visibly with status 1 (per T04 contract, missing tests are never treated as a passing stub).
+   - Diagnostics (`compose-ps.txt`, `compose-services.log`, `seed.log`, `verify.log`) captured and preserved in the run directory.
+   - Project resources torn down completely without affecting the sentinel project.
+6. **Failed Seed Fault Detection**: Broken fixture input properly rejected with structured diagnostic error.
+7. **Signal Interruption Handling (SIGINT)**: Running integration process interrupted via `SIGINT`, terminated supervised child process, captured diagnostics, torn down stack, exited with code 130, and left sentinel project untouched.
+8. **Recovery Cleanup Tool**: `scripts/apollo-test.sh cleanup --run-dir <dir>` validated ownership metadata and project prefix before safely tearing down target Compose resources.
