@@ -14,7 +14,7 @@ These feature specifications describe what application developers and operators 
 | [004 — JavaScript client](004-javascript-client/spec.md) | Use these capabilities from browser and Node-style JavaScript applications | 001, 002, 003 |
 | [005 — Real Apollo integration testing](005-real-apollo-testing/spec.md) | Reproduce client compatibility checks against automatically initialized real Apollo instances locally and in GitHub Actions | 001, 002, 003, 004 |
 
-Feature 005 is a prospective change requested on 2026-09-06, rather than part of the retrospective reconstruction above. Its [technical plan](005-real-apollo-testing/plan.md) and [implementation tasks](005-real-apollo-testing/tasks.md) are separate planning deliverables. It remains a draft for review; implementation was explicitly deferred to a later agent session.
+Feature 005 was requested on 2026-09-06 as a prospective capability following the retrospective reconstruction above. Its [technical plan](005-real-apollo-testing/plan.md), [implementation tasks](005-real-apollo-testing/tasks.md), and real-server test suites are now implemented and verified in-tree.
 
 Read in numerical order. These boundaries follow consumer capabilities; they do not propose source modules or an implementation schedule. Each story can be demonstrated independently with the underlying dependency contracts/fixtures available; “independent” does not mean implementing a subscription without any retrieval mechanism.
 

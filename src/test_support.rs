@@ -43,6 +43,8 @@ impl MockResponse {
 
 pub(crate) type ResponseHandler = dyn Fn(usize, &str) -> MockResponse + Send + Sync + 'static;
 
+static CRYPTO_PROVIDER_INIT: std::sync::Once = std::sync::Once::new();
+
 /// A random-port, self-signed HTTPS server for transport-level client tests.
 pub(crate) struct MockHttpsServer {
     address: SocketAddr,
@@ -54,7 +56,11 @@ pub(crate) struct MockHttpsServer {
 
 impl MockHttpsServer {
     pub(crate) fn new(handler: Arc<ResponseHandler>) -> Self {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        CRYPTO_PROVIDER_INIT.call_once(|| {
+            if let Err(e) = rustls::crypto::aws_lc_rs::default_provider().install_default() {
+                eprintln!("Warning: failed to install aws-lc-rs default crypto provider: {e:?}");
+            }
+        });
         let certified = generate_simple_self_signed(vec!["localhost".to_string()])
             .expect("test certificate generation should succeed");
         let private_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(

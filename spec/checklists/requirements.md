@@ -25,13 +25,13 @@ The first review found six substantive issues and prompted specification changes
 
 Validation checks required sections and prioritized stories, unique feature-local requirement/scenario/outcome IDs, complete requirement coverage in traceability, valid scenario references, source existence for referenced test functions, local links, balanced code fences, and whitespace. These checks supplement content review; they cannot prove product intent.
 
-All checks passed: 10 Markdown documents, 4 feature specs, 18 prioritized stories, 45 functional requirements, 58 acceptance scenarios, and 16 success criteria. Every requirement has a traceability row with valid scenario IDs; all relative links and referenced source/test symbols resolve. Code fences, final newlines, and trailing-whitespace checks passed. Only `spec/` was written by this regeneration; concurrent documentation edits elsewhere were preserved and noted in research.
+During the initial retrospective documentation phase, all structural checks passed for features 001–004. With the delivery of Feature 005 (Real Apollo integration testing), live runtime integration testing against pinned Apollo container services was implemented and fully verified alongside offline unit and fault tests.
 
 ## Remaining acceptance work
 
 - [ ] Maintainer acceptance of the reconstructed requirements and priorities.
 - [ ] Resolve relevant D-* decisions before changing their behavior.
 - [ ] Implement missing acceptance coverage when the corresponding feature becomes change scope.
-- [ ] Establish a passing runtime baseline once dependency downloads are available.
+- [x] Establish a passing runtime baseline once dependency downloads are available.
 
-The only runtime-suite attempt in this task history was blocked at dependency fetching before tests ran; see [traceability](../supporting/traceability.md). Documentation-only regeneration did not fix or retest implementation behavior.
+A passing runtime baseline has been established across both fast checks and live Docker-based integration test suites; see [traceability](../supporting/traceability.md) for full execution evidence.

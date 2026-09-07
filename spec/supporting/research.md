@@ -2,7 +2,7 @@
 
 ## Scope and method
 
-User direction: regenerate the specifications from scratch in `spec/`, using Spec Kit-style documentation. Reconstruct the current checkout's product capabilities; do not redesign or modify the client. The previous draft was rejected because it primarily catalogued implementation modules and treated observations as requirements.
+Initial phase direction: regenerate retrospective specifications (001–004) from scratch in `spec/`, using Spec Kit-style documentation. Reconstruct existing product capabilities without redesigning the client. (Feature 005 subsequently added real Apollo test infrastructure and test migrations without modifying production client contracts).
 
 Evidence baseline: commit `4473cffe7a8a45c86978053da23ef36553b0ea3d`, package manifest 0.7.0 plus Unreleased changes. Sources inspected include [README](../../README.md), [CHANGELOG](../../CHANGELOG.md), [client API](../../src/lib.rs), [configuration](../../src/client_config.rs), [cache](../../src/cache.rs), [format adapters](../../src/namespace/mod.rs), embedded tests, [test entry point](../../scripts/test.sh), and the previous design/wiki documentation.
 
@@ -24,7 +24,7 @@ Format reference: the [official Spec Kit template](https://github.com/github/spe
 | Core capabilities are read, retain, observe, and JavaScript consumption. | User journeys, not a proposed module decomposition; shared dependencies are explicit. |
 | P1/P2 priorities express functional dependency and consumer value. | Reconstructed for review; no evidence of historical roadmap approval is claimed. |
 | No new operational SLO, coverage percentage, version matrix, or payload limit is imposed. | No established values were found. Outcomes use controlled behavioral fixtures instead. |
-| Existing code is preserved during this task. | User requested documentation; ambiguities below require decisions before behavior changes. |
+| Existing code preserved during retrospective task. | Initial phase scope was documentation; Feature 005 later added real integration tests and CI orchestration without changing public client behavior. |
 
 ## Open decisions and implementation gaps
 
@@ -55,7 +55,7 @@ None of these rows authorizes an implementation change. They delimit what these 
 | [Memory guide](../../docs/wiki/en/WASM-Memory-Management.md) suggests freeing ClientConfig after passing it to Client. | Constructor accepts configuration by value; consuming ownership must be distinguished from a live unconsumed wrapper. Generated ownership smoke coverage remains incomplete. |
 | Changelog says polling uses per-client jitter; some test prose implies Rustls runtime tests. | Code applies jitter to namespace failure delays, not healthy polling sleep. The script lints Rustls but runs native tests with default features. |
 
-This regeneration writes only `spec/`. During final verification, concurrent documentation-only edits appeared in `src/namespace/mod.rs`, `specs/interface_design.md`, and three English wiki files (`Design-Overview`, `Features`, `Rust-Usage`). They correct the unknown-suffix Properties description and do not change executable behavior. Those edits were inspected and preserved. The table records discrepancies at the baseline revision; the unknown-suffix discrepancy is already corrected in the current working tree.
+The initial retrospective regeneration wrote only `spec/`. During final verification, concurrent documentation-only edits appeared in `src/namespace/mod.rs`, `specs/interface_design.md`, and three English wiki files (`Design-Overview`, `Features`, `Rust-Usage`). They correct the unknown-suffix Properties description and do not change executable behavior. Those edits were inspected and preserved. The table records discrepancies at the baseline revision; the unknown-suffix discrepancy is already corrected in the current working tree.
 
 ## Independent content review
 
