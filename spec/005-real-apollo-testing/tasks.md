@@ -145,7 +145,7 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 ## T06 — Add actual release, refresh, polling, and preload cases
 
-- [ ] **T06 complete**
+- [x] **T06 complete**
 
 **Purpose**: Prove that edits, releases, and client update behavior interact correctly with Apollo rather than a changing response closure.
 
