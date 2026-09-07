@@ -28,7 +28,7 @@ Each `spec.md` uses prioritized stories, Given/When/Then scenarios, functional r
 - [Traceability](supporting/traceability.md): requirement → scenario → existing evidence, with coverage limitations.
 - [Requirements checklist](checklists/requirements.md): content/traceability review and verification results.
 
-The older [specs/](../specs/README.md) contains software design descriptions. It remains historical/reference material, with discrepancies recorded in research. This directory replaces the earlier eight-file retrospective draft; none of that draft is an approved baseline.
+The older `specs/` directory in git history contained early software design descriptions. It remains historical reference material, with discrepancies recorded in research. The current `spec/` directory replaces that earlier draft; none of that draft is an approved baseline.
 
 ## Interpretation and ongoing SDD use
 

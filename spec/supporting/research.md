@@ -48,14 +48,14 @@ None of these rows authorizes an implementation change. They delimit what these 
 
 | Description | Reconciled evidence |
 |---|---|
-| [Interface design](../../specs/interface_design.md) routes unknown suffixes to Text. | Namespace tests and code use Properties; Text requires `.txt`. |
+| Former SDD interface design (`specs/interface_design.md`) routes unknown suffixes to Text. | Namespace tests and code use Properties; Text requires `.txt`. |
 | Its sequence diagram holds the memory writer through remote I/O. | Current code has distinct load/refresh coordination and avoids holding the memory write lock through that I/O. |
 | Listener documentation says all internal locks are released. | Only memory/listener-list locks are released; see D-004. |
 | Older JS table omits preload/refresh and describes signed integers as numbers. | Exports include those methods and signed Properties integers use bigint. |
 | [Memory guide](../../docs/wiki/en/WASM-Memory-Management.md) suggests freeing ClientConfig after passing it to Client. | Constructor accepts configuration by value; consuming ownership must be distinguished from a live unconsumed wrapper. Generated ownership smoke coverage remains incomplete. |
 | Changelog says polling uses per-client jitter; some test prose implies Rustls runtime tests. | Code applies jitter to namespace failure delays, not healthy polling sleep. The script lints Rustls but runs native tests with default features. |
 
-The initial retrospective regeneration wrote only `spec/`. During final verification, concurrent documentation-only edits appeared in `src/namespace/mod.rs`, `specs/interface_design.md`, and three English wiki files (`Design-Overview`, `Features`, `Rust-Usage`). They correct the unknown-suffix Properties description and do not change executable behavior. Those edits were inspected and preserved. The table records discrepancies at the baseline revision; the unknown-suffix discrepancy is already corrected in the current working tree.
+The initial retrospective regeneration wrote only `spec/`. During final verification, concurrent documentation-only edits appeared in `src/namespace/mod.rs` and three English wiki files (`Design-Overview`, `Features`, `Rust-Usage`). They correct the unknown-suffix Properties description and do not change executable behavior. Those edits were inspected and preserved. The table records discrepancies at the baseline revision; the unknown-suffix discrepancy is already corrected in the current working tree.
 
 ## Independent content review
 
