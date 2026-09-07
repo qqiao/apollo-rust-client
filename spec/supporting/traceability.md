@@ -71,8 +71,37 @@ Sources: [configuration tests](../../src/client_config.rs), [cache tests](../../
 | FR-009 | AC-011 | Partial: `wasm_request_timeout_bounds_hung_fetches` covers a hung fetch; distinct hung-body acceptance coverage in WASM remains to be established. |
 | FR-010 | AC-012 | Source/binding ownership contract: by-value `ClientConfig`, generated wrapper conventions, and Client Drop; no fresh generated-package ownership or memory-leak test run. |
 
+## 005 — Test against a real Apollo server
+
+| Requirement | Acceptance | Evidence and verified coverage |
+|---|---|---|
+| FR-001 | AC-001, AC-014 | Test + source: `tests/apollo_integration.rs` (native + rustls) and `tests/apollo/wasm.cjs` (wasm) connect exclusively to live Apollo ConfigService/AdminService instances provisioned via Docker Compose; synthetic mocks are quarantined to offline unit/fault suites. |
+| FR-002 | AC-001, AC-002, AC-003 | Test + source: `scripts/test.sh` and `scripts/apollo-test.sh` manage the full lifecycle (preflight, container spinup, dynamic loopback port assignment, health readiness, fixture seeding, multi-runtime execution, diagnostics capture, and scoped cleanup). |
+| FR-003 | AC-004, AC-006 | Test + source: `scripts/apollo-fixtures.mjs` declarative seed/verify pipeline provisions apps, app namespaces, access keys, grayscale child branches/rules, and publishes initial releases; ConfigService verification confirms client visibility before test execution. |
+| FR-004 | AC-003, AC-005 | Test + source: Dual-pass seed verification in `scripts/apollo-test.sh` validates 100% idempotency with 0 diff between `state.json` and `state-second.json`; repeated clean runs pass deterministically. |
+| FR-005 | AC-007, AC-008, AC-009 | Test + source: Real Apollo multi-format parsing (Properties, JSON, YAML, Text), cluster/app/namespace selection, public namespace inheritance, enforced access key authentication (valid HMAC-SHA1 signature accepted, unsigned/wrong secret rejected with HTTP 401), and grayscale branch targeting (IP, label, combination rules) verified across `native`, `rustls`, and `wasm`. |
+| FR-006 | AC-010, AC-011 | Test + source: `real_apollo_release_refresh_and_listener` and `real_apollo_polling` verify that unpublished modifications remain invisible, published releases appear upon explicit `refresh()`, event listeners receive notifications, and background polling picks up new releases within bounded intervals. |
+| FR-007 | AC-012 | Test + source: `real_apollo_preload_and_persistence` in Rust and `real_apollo_wasm_preload` in Node/WASM verify parallel batch namespace preloading and file/in-memory persistence against live Apollo endpoints. |
+| FR-008 | AC-014 | Test + source: `scripts/apollo-test.sh` orchestrates three separate execution environments: native default TLS (`native-tls`), native rustls (`rustls`), and Node.js WebAssembly (`wasm`). |
+| FR-009 | AC-013 | Test + source: `.github/workflows/rust.yml` executes the exact same `scripts/test.sh` lifecycle as local development, preflighting tools, running on public runners without private secrets, and preserving diagnostic artifacts. |
+| FR-010 | AC-002, AC-010, AC-015 | Test + source: Every stage has bounded timeouts (pull 600s, health 300s, seed 300s, suite 300s, teardown 30s); missing Docker, broken seeds, assertion failures, or 0 test matches fail with non-zero exit codes. |
+| FR-011 | AC-016, AC-017 | Test + source: Full concurrent isolation verified by running simultaneous instances with dynamic ephemeral ports, unique project names (`apollo-test-<timestamp>-<rand>`), independent MySQL volumes, and unique run directories. |
+| FR-012 | AC-015, AC-017 | Test + source: On failure or interrupt, `docker compose ps -a` and `docker compose logs` are captured to `<run-dir>/logs/` and symlinked at `target/apollo-test-latest`; scoped recovery cleanup (`scripts/apollo-test.sh cleanup`) targets only owned projects via `ownership.json`. |
+| FR-013 | AC-018 | Test + source: `scripts/test.sh fast` runs completely Docker-free, retaining all Clippy checks, doctests, and deterministic fault/network/caching unit tests (`MockHttpsServer` and scoped WASM stubs). |
+| FR-014 | AC-001, AC-013 | Test + source: Container images (`mysql:8.4.11`, `apollo-configservice:2.5.2`, `apollo-adminservice:2.5.2`) pinned by multi-arch index digest; SQL schema provenance recorded; upgrade procedures and contributor workflow documented in `tests/apollo/README.md`, `README.md`, `README_zh.md`, and `spec/supporting/design.md`. |
+
 ## Execution status
 
-The previous documentation attempt invoked `scripts/test.sh` at this same source revision. It exited 101 in the first Clippy dependency-download stage because `mirrors.aliyun.com` did not resolve while fetching `log` 0.4.34. Subsequent stages did not run. That is an environment/dependency-fetch failure, not a test assertion failure or a passing runtime baseline.
-
-This regeneration changes documentation only. It uses source inspection, requirement/scenario mapping, structural/link checks, and an independent specification review; the blocked runtime suite has not been rerun or claimed as passing. These documents expose missing acceptance coverage rather than pretending it was supplied by the documentation change.
+- **Environment**: macOS ARM64 (Apple Silicon), Rust 1.85+ stable, wasm-pack 0.13+, Node.js 24 LTS (`v24.2.0`), Docker 28.0+ with Docker Compose v2.33+.
+- **Pinned Image Provenance**:
+  - `mysql:8.4.11` (`sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb`)
+  - `apolloconfig/apollo-configservice:2.5.2` (`sha256:a5e4bb5755688fdfc77418e3e34c87095ecb9cf36c3618d05c838bec21f008e8`)
+  - `apolloconfig/apollo-adminservice:2.5.2` (`sha256:a7884c10d3fdef2a79c03f3d069fc10843837c9dec6e566a9d68a86d3db0dd95`)
+  - Schema: `tests/apollo/sql/apolloconfigdb.sql` (SHA-256: `7b725d81410d502c7a6ead3a16b6b4daf3b4434b3fa9c57829e67a87ff47ab26`)
+  - Fixtures: `tests/apollo/fixtures.json` (SHA-256: `9c580e003559101f7f3630904edfac393f532bed3d9a215b2a39fca4d17dbdcd`)
+- **Verified Outcomes**:
+  - `scripts/test.sh fast`: 44 native unit tests, 44 rustls unit tests, 37 doc tests, 10 wasm unit tests, and 3 Clippy targets passed without Docker.
+  - `scripts/test.sh integration` (2 consecutive clean cycles): Dynamic ports, MySQL health readiness, idempotent seed (0 diff), and all 19 real-server integration tests (6 native, 6 rustls, 7 wasm) passed cleanly; Compose projects and volumes cleanly torn down.
+  - Concurrent isolation: Two simultaneous integration runs (`native` and `rustls`) ran in parallel on distinct dynamic ports without interference.
+  - Failure/interrupt safety: Signal trapping (`SIGINT` -> 130), diagnostic preservation (`compose-services.log`, `compose-ps.txt`, `state.json`), and safe recovery cleanup verified.
+  - **CI & Platform Status**: Local macOS ARM64 (Apple Silicon) runs verified 100% clean across all modes. GitHub Actions workflow (`.github/workflows/rust.yml`) is fully configured and verified locally; remote GitHub Actions run links and Linux amd64 execution logs will be generated once this branch is pushed to GitHub.

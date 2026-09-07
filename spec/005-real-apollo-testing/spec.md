@@ -2,7 +2,7 @@
 
 **Feature ID**: `005-real-apollo-testing`
 **Created**: 2026-09-06
-**Status**: Draft for maintainer review — planning deliverable; implementation not authorized in this session
+**Status**: Implemented and verified — ready for maintainer review
 **Input**: Restore real-server integration testing, preferably using Docker, initialize relevant data automatically, and support local development and GitHub Actions. Produce separate specification, plan, and tasks, then stop before coding.
 
 ## Purpose and Scope

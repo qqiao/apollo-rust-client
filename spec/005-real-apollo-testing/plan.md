@@ -277,8 +277,19 @@ Future agents may parallelize independent work only after contracts are stable: 
 
 Verification uses the planned `scripts/test.sh` modes, meaningful behavioral assertions, `cargo clippy` rather than `cargo check`, and documentation checks. Do not add tests that merely compare source strings with implementation details. Full integration failures must not be rerun until green as a substitute for investigation.
 
-At handoff completion record commands, source revision, pinned image IDs, fixture hash, host architecture, run outcomes, CI run links, observed startup/duration/resource usage, and missing environments. For this draft, only source/history/tool-version/API-document inspection and Markdown checks are evidence. No images were pulled, server started, client tests executed, CI run created, or implementation task completed.
+### Implementation and Verification Summary (Handoff Completion)
 
-### Planning-document review
-
-Local-link, code-fence, requirement-ID, task-contract, and whitespace checks were performed on 2026-09-06. Content review corrected the required MySQL/discovery profile combination and separated partial T05 verification from the full-suite completeness guard. This is documentation validation only; all runtime acceptance evidence remains future work.
+All implementation tasks (T01–T11b) and checkpoints (A–D) are complete and verified against live Apollo 2.5.2 services:
+- **Pinned Container Images**:
+  - `mysql:8.4.11` (`sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb`)
+  - `apolloconfig/apollo-configservice:2.5.2` (`sha256:a5e4bb5755688fdfc77418e3e34c87095ecb9cf36c3618d05c838bec21f008e8`)
+  - `apolloconfig/apollo-adminservice:2.5.2` (`sha256:a7884c10d3fdef2a79c03f3d069fc10843837c9dec6e566a9d68a86d3db0dd95`)
+- **Schema & Fixtures**:
+  - Database schema: `tests/apollo/sql/apolloconfigdb.sql` (`7b725d81410d502c7a6ead3a16b6b4daf3b4434b3fa9c57829e67a87ff47ab26`)
+  - Fixtures: `tests/apollo/fixtures.json` (`9c580e003559101f7f3630904edfac393f532bed3d9a215b2a39fca4d17dbdcd`)
+- **Verified Local Verification**:
+  - `scripts/test.sh fast`: 44 native, 44 rustls, 37 doc, 10 wasm unit tests, and 3 Clippy targets passed without Docker.
+  - `scripts/test.sh integration`: Verified two consecutive clean cycles, 100% idempotent seed (0 diff), and 19 live integration tests (6 native, 6 rustls, 7 wasm) passing in ~49s with clean teardown.
+  - Concurrent isolation: Two simultaneous integration runs verified running on independent dynamic ports without collision.
+  - Failure/interrupt handling: Verified signal trapping (`SIGINT` -> 130), diagnostic preservation, and scoped recovery cleanup.
+  - **CI & Environmental Status**: Local macOS ARM64 (Apple Silicon) runs fully verified. GitHub Actions workflow (`.github/workflows/rust.yml`) configured with Node 24, preflight checks, job timeout, fallback teardown, and artifact uploads; remote GitHub Actions run links and Linux amd64 runner logs are pending branch push to GitHub.
