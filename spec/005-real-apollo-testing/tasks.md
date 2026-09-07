@@ -334,4 +334,4 @@ All implementation tasks T01 through T11b and Checkpoints A through D have been 
    - Dynamic ephemeral loopback ports prevent port collisions.
    - Distinct project names and isolated named MySQL volumes allow safe parallel test runs.
    - Signal handling (`SIGINT`/`SIGTERM`) and ownership-validated recovery cleanup (`scripts/apollo-test.sh cleanup`).
-   - **CI & Environmental Status**: Local macOS ARM64 (Apple Silicon) verified 100% clean across all modes. GitHub Actions workflow (`.github/workflows/rust.yml`) reproduces the exact same lifecycle with preflight checks and artifact upload; remote GitHub Actions run links and Linux amd64 runner execution are pending branch push to GitHub.
+   - **CI & Environmental Status**: Local macOS ARM64 (Apple Silicon) verified 100% clean across all modes. GitHub Actions workflow (`.github/workflows/rust.yml`) reproduces the exact same lifecycle with preflight checks and artifact upload; Pull request created at [https://github.com/qqiao/apollo-rust-client/pull/132](https://github.com/qqiao/apollo-rust-client/pull/132); remote CI execution and Linux amd64 runner results are tracked there.
