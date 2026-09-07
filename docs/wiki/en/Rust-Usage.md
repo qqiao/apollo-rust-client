@@ -204,7 +204,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The library automatically detects the configuration format based on the namespace name:
 
-- **Properties format** (default): `application`, `database.properties` → Key-value pairs
+- **Properties format** (default): `application`, `database.properties`, unknown extensions → Key-value pairs
 - **JSON format**: `config.json`, `settings.json` → Structured JSON data
 - **Text format**: `readme.txt`, `content.txt` → Plain text content
 - **YAML format**: `config.yaml`, `app.yml` → YAML configuration with structured data support

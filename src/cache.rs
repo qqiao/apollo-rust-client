@@ -444,6 +444,7 @@ impl Cache {
     }
 
     #[cfg_attr(target_arch = "wasm32", allow(clippy::unused_async))]
+    #[cfg_attr(target_arch = "wasm32", allow(clippy::unused_async_trait_impl))]
     async fn load_persistent_item(&self) -> Option<CacheItem> {
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
@@ -625,6 +626,7 @@ impl Cache {
     }
 
     #[cfg_attr(target_arch = "wasm32", allow(clippy::unused_async))]
+    #[cfg_attr(target_arch = "wasm32", allow(clippy::unused_async_trait_impl))]
     async fn persist_best_effort(&self, item: &CacheItem) {
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {

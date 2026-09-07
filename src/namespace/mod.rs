@@ -20,7 +20,7 @@
 //! - `.yaml` or `.yml` → YAML format
 //! - `.xml` → XML format
 //! - `.txt` → Text format
-//! - No extension → Properties format (default)
+//! - No extension or unknown extension → Properties format (default)
 
 use json::Json;
 use properties::Properties;
@@ -193,8 +193,8 @@ enum NamespaceType {
 /// Determines the namespace type based on the namespace string.
 ///
 /// This function analyzes the namespace string to detect the intended data format
-/// based on file extension conventions. If no extension is present, it defaults
-/// to the Properties format.
+/// based on file extension conventions. If no extension is present or an unknown
+/// extension is used, it defaults to the Properties format.
 ///
 /// # Arguments
 ///

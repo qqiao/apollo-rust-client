@@ -9,7 +9,7 @@ use std::{
     io::{Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread,
@@ -43,6 +43,8 @@ impl MockResponse {
 
 pub(crate) type ResponseHandler = dyn Fn(usize, &str) -> MockResponse + Send + Sync + 'static;
 
+static CRYPTO_PROVIDER_INIT: std::sync::Once = std::sync::Once::new();
+
 /// A random-port, self-signed HTTPS server for transport-level client tests.
 pub(crate) struct MockHttpsServer {
     address: SocketAddr,
@@ -54,6 +56,11 @@ pub(crate) struct MockHttpsServer {
 
 impl MockHttpsServer {
     pub(crate) fn new(handler: Arc<ResponseHandler>) -> Self {
+        CRYPTO_PROVIDER_INIT.call_once(|| {
+            if let Err(e) = rustls::crypto::aws_lc_rs::default_provider().install_default() {
+                eprintln!("Warning: failed to install aws-lc-rs default crypto provider: {e:?}");
+            }
+        });
         let certified = generate_simple_self_signed(vec!["localhost".to_string()])
             .expect("test certificate generation should succeed");
         let private_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
@@ -219,57 +226,4 @@ impl Drop for MockHttpsServer {
             let _ = thread.join();
         }
     }
-}
-
-pub(crate) fn apollo_server() -> &'static MockHttpsServer {
-    static SERVER: OnceLock<MockHttpsServer> = OnceLock::new();
-    SERVER.get_or_init(|| MockHttpsServer::new(Arc::new(|_, request| apollo_response(request))))
-}
-
-fn apollo_response(request: &str) -> MockResponse {
-    let path_and_query = request
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .unwrap_or_default();
-    let path = path_and_query.split('?').next().unwrap_or_default();
-
-    if path.contains("/http-401/") {
-        return MockResponse::json(401, r#"{"message":"unauthorized"}"#);
-    }
-    if path.contains("/http-429/") {
-        return MockResponse::json(429, r#"{"message":"rate limited"}"#);
-    }
-    if path.contains("/http-500/") {
-        return MockResponse::json(500, r#"{"message":"internal error"}"#);
-    }
-    if path.contains("/malformed/") {
-        return MockResponse::json(200, "{not valid json");
-    }
-    if path.contains("/timeout/") {
-        return MockResponse::json(200, r#"{"value":"too late"}"#)
-            .delayed_body(Duration::from_secs(2));
-    }
-
-    let body = match path.rsplit('/').next().unwrap_or_default() {
-        "application" => {
-            let grayscale =
-                path_and_query.contains("ip=1.2.3.4") || path_and_query.contains("label=GrayScale");
-            format!(
-                r#"{{"stringValue":"string value","intValue":"42","floatValue":"4.20","boolValue":"false","grayScaleValue":"{grayscale}"}}"#
-            )
-        }
-        "application.json" => {
-            r#"{"content":"{\n  \"host\": \"localhost\",\n  \"port\": 8080,\n  \"run\": true\n}"}"#
-                .to_string()
-        }
-        "application.yml" | "application.yaml" => {
-            r#"{"content":"host: \"localhost\"\nport: 8080\nrun: true"}"#.to_string()
-        }
-        "config.properties" => r#"{"publicValue":"properties"}"#.to_string(),
-        "FX.apollo" => r#"{"publicValue":"associated"}"#.to_string(),
-        "readme.txt" => r#"{"content":"plain text configuration"}"#.to_string(),
-        _ => return MockResponse::json(404, r#"{"message":"not found"}"#),
-    };
-    MockResponse::json(200, body)
 }

@@ -406,6 +406,31 @@ For comprehensive documentation, visit our [wiki](docs/wiki/en/Home.md):
 - **[Error Handling](docs/wiki/en/Error-Handling.md)** - Error handling guide
 - **[Design Overview](docs/wiki/en/Design-Overview.md)** - Architecture documentation
 
+## Testing
+
+The project provides unified test execution via `scripts/test.sh`:
+
+- **Full test suite** (default):
+  ```bash
+  ./scripts/test.sh
+  ```
+  Runs fast checks (Clippy for native, Rustls, and WASM; unit tests; doc tests; WASM tests), provisions a disposable Apollo stack via Docker Compose, seeds declarative fixtures, and executes all three integration runtimes (`native`, `rustls`, and `wasm`).
+- **Fast checks** (no Docker required):
+  ```bash
+  ./scripts/test.sh fast
+  ```
+  Runs all lints, unit/fault tests, documentation tests, and WASM unit tests without requiring Docker or any external services.
+- **Integration tests only**:
+  ```bash
+  ./scripts/test.sh integration
+  # Or target a specific runtime suite:
+  ./scripts/test.sh integration --suite native
+  ./scripts/test.sh integration --suite rustls
+  ./scripts/test.sh integration --suite wasm
+  ```
+
+For full details on tool prerequisites, container image provenance, fixture architecture, and diagnostics, see [tests/apollo/README.md](tests/apollo/README.md).
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

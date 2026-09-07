@@ -1,0 +1,62 @@
+services:
+  mysql:
+    image: mysql:8.4.11@sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb
+    environment:
+      MYSQL_ROOT_PASSWORD: apollo
+      MYSQL_DATABASE: ApolloConfigDB
+      MYSQL_USER: apollo
+      MYSQL_PASSWORD: apollo
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./sql/apolloconfigdb.sql:/docker-entrypoint-initdb.d/apolloconfigdb.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysql --protocol=TCP -h127.0.0.1 -uapollo -papollo -e 'SELECT COUNT(1) FROM ApolloConfigDB.ServerConfig;'"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  configservice:
+    image: apolloconfig/apollo-configservice:2.5.2@sha256:a5e4bb5755688fdfc77418e3e34c87095ecb9cf36c3618d05c838bec21f008e8
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/ApolloConfigDB?characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: apollo
+      SPRING_DATASOURCE_PASSWORD: apollo
+      SPRING_PROFILES_ACTIVE: github,database-discovery
+      APOLLO_PROFILE: github,database-discovery
+      SERVER_PORT: 8080
+    ports:
+      - "127.0.0.1::8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8080/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  adminservice:
+    image: apolloconfig/apollo-adminservice:2.5.2@sha256:a7884c10d3fdef2a79c03f3d069fc10843837c9dec6e566a9d68a86d3db0dd95
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/ApolloConfigDB?characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: apollo
+      SPRING_DATASOURCE_PASSWORD: apollo
+      SPRING_PROFILES_ACTIVE: github,database-discovery
+      APOLLO_PROFILE: github,database-discovery
+      SERVER_PORT: 8090
+    ports:
+      - "127.0.0.1::8090"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8090/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+volumes:
+  mysql-data:

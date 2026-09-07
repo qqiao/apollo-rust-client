@@ -31,24 +31,55 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Update Rust toolchain
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Update Rust toolchain and install WASM target
         run: |
           rustup update stable
           rustup target add wasm32-unknown-unknown
       - name: Install wasm-pack
         run: cargo install wasm-pack
-      - name: Build
+      - name: Build and verify exported package
         run: scripts/build.sh
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Update Rust toolchain
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Update Rust toolchain and install WASM target
         run: |
           rustup update stable
           rustup target add wasm32-unknown-unknown
       - name: Install wasm-pack
         run: cargo install wasm-pack
-      - name: Run tests
+      - name: Tool and runtime preflight
+        run: |
+          docker --version
+          docker compose version
+          node --version
+          cargo --version
+          wasm-pack --version
+      - name: Run test suite
         run: scripts/test.sh
+      - name: Fallback Docker Compose teardown
+        if: always()
+        run: |
+          scripts/apollo-test.sh cleanup || true
+      - name: Upload test diagnostics and artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apollo-test-diagnostics
+          path: |
+            target/apollo-test-latest/logs/
+            target/apollo-test-latest/ownership.json
+            target/apollo-test-latest/state.json
+            target/apollo-test-latest/state-second.json
+          if-no-files-found: ignore

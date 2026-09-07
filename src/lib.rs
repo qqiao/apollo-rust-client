@@ -450,6 +450,7 @@ impl Client {
     /// Returns [`Error::AlreadyRunning`] if polling is already active.
     #[cfg(not(target_arch = "wasm32"))]
     #[allow(clippy::unused_async)]
+    #[allow(clippy::unused_async_trait_impl)]
     pub async fn start(&mut self) -> Result<(), Error> {
         self.start_background()
     }
@@ -868,6 +869,9 @@ pub(crate) fn setup() {
                 &requests,
             )
             .expect("mock fetch request log should be writable");
+            // Scoped mock fetch specifically for unit and fault tests in wasm32 target.
+            // Does not claim to simulate live Apollo routing. Real integration tests run
+            // via tests/apollo/wasm.cjs against a live server.
             let fetch = js_sys::Function::new_with_args(
                 "input, _init",
                 r#"
@@ -875,38 +879,16 @@ const url = typeof input === 'string' ? input : input.url;
 globalThis.__apolloFetchRequests.push(url);
 let status = 200;
 let body;
-if (url.includes('/http-401/')) {
-  status = 401; body = JSON.stringify({message: 'unauthorized'});
-} else if (url.includes('/http-429/')) {
-  status = 429; body = JSON.stringify({message: 'rate limited'});
-} else if (url.includes('/http-500/')) {
-  status = 500; body = JSON.stringify({message: 'internal error'});
-} else if (url.includes('/malformed/')) {
-  body = '{not valid json';
-} else if (url.includes('/timeout/')) {
+if (url.includes('/timeout/')) {
   return new Promise(() => {});
-} else if (url.endsWith('/application.json')) {
-  body = JSON.stringify({content: JSON.stringify({host: 'localhost', port: 8080, run: true})});
-} else if (url.endsWith('/application.yml') || url.endsWith('/application.yaml')) {
-  body = JSON.stringify({content: 'host: "localhost"\nport: 8080\nrun: true'});
-} else if (url.endsWith('/config.properties')) {
-  body = JSON.stringify({publicValue: 'properties'});
-} else if (url.endsWith('/FX.apollo')) {
-  body = JSON.stringify({publicValue: 'associated'});
-} else if (url.endsWith('/readme.txt')) {
-  body = JSON.stringify({content: 'plain text configuration'});
 } else {
-  const grayscale = url.includes('ip=1.2.3.4') || url.includes('label=GrayScale');
-  body = JSON.stringify({
-    stringValue: 'string value', intValue: '42', floatValue: '4.20',
-    boolValue: 'false', grayScaleValue: String(grayscale)
-  });
+  body = JSON.stringify({"stringValue": "string value"});
 }
 const response = new Response(body, {
   status,
-  headers: {'Content-Type': 'application/json'}
+  headers: {"Content-Type": "application/json"}
 });
-Object.defineProperty(response, 'url', {value: url});
+Object.defineProperty(response, "url", {value: url});
 return Promise.resolve(response);
 "#,
             );
@@ -928,149 +910,73 @@ mod tests {
 
     use std::sync::Mutex;
 
-    #[cfg(not(target_arch = "wasm32"))]
-    fn test_server_url() -> String {
-        crate::test_support::apollo_server().url()
-    }
-
     #[cfg(target_arch = "wasm32")]
     fn test_server_url() -> String {
         "https://apollo.test".to_string()
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn test_cache_dir() -> String {
-        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        std::env::temp_dir()
-            .join(format!(
-                "apollo-rust-client-lib-tests-{}-{}",
-                std::process::id(),
-                COUNTER.fetch_add(1, Ordering::Relaxed)
-            ))
-            .to_string_lossy()
-            .to_string()
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn mock_request_count(url_path: &str) -> usize {
-        crate::test_support::apollo_server().request_count_for_path(url_path)
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn test_client_for_app(app_id: &str, temp_dir: &TempDir) -> Client {
-        let config = ClientConfig::builder(app_id, test_server_url())
-            .cache_dir(temp_dir.path().to_string_lossy())
-            .allow_insecure_https(true)
-            .request_timeout(1)
-            .build()
-            .unwrap();
-        Client::new(config).unwrap()
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn native_test_client(
-        app_id: &str,
-        secret: Option<&str>,
-        ip: Option<&str>,
-        label: Option<&str>,
-    ) -> Client {
-        let mut builder = ClientConfig::builder(app_id, test_server_url())
-            .cache_dir(test_cache_dir())
-            .allow_insecure_https(true);
-        if let Some(secret) = secret {
-            builder = builder.secret(secret);
-        }
-        if let Some(ip) = ip {
-            builder = builder.ip(ip);
-        }
-        if let Some(label) = label {
-            builder = builder.label(label);
-        }
-        Client::new(builder.build().unwrap()).unwrap()
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn client_no_secret() -> Client {
-        native_test_client("101010101", None, None, None)
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn client_with_secret() -> Client {
-        native_test_client(
-            "101010102",
-            Some("53bf47631db540ac9700f0020d2192c8"),
-            None,
-            None,
-        )
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn client_with_grayscale_ip() -> Client {
-        native_test_client("101010101", None, Some("1.2.3.4"), None)
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn client_with_grayscale_label() -> Client {
-        native_test_client("101010101", None, None, Some("GrayScale"))
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_missing_value() {
-        setup();
-        let namespace::Namespace::Properties(properties) =
-            client_no_secret().namespace("application").await.unwrap()
-        else {
-            panic!("Expected Properties namespace");
-        };
-
-        assert_eq!(properties.get_property::<String>("missingValue"), None);
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn properties_public_and_text_namespaces_use_the_correct_types() {
-        let properties = client_no_secret()
-            .namespace("config.properties")
-            .await
-            .unwrap();
-        assert!(matches!(properties, Namespace::Properties(_)));
-        let public = client_no_secret().namespace("FX.apollo").await.unwrap();
-        assert!(matches!(public, Namespace::Properties(_)));
-        let text = client_no_secret().namespace("readme.txt").await.unwrap();
-        assert!(matches!(text, Namespace::Text(_)));
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn mock_https_status_and_malformed_responses_are_typed_errors() {
+        use crate::test_support::{MockHttpsServer, MockResponse};
+        let server = MockHttpsServer::new(Arc::new(|_, request| {
+            if request.contains("/http-401/") {
+                MockResponse::json(401, r#"{"message":"unauthorized"}"#)
+            } else if request.contains("/http-429/") {
+                MockResponse::json(429, r#"{"message":"rate limited"}"#)
+            } else if request.contains("/http-500/") {
+                MockResponse::json(500, r#"{"message":"internal error"}"#)
+            } else if request.contains("/malformed/") {
+                MockResponse::json(200, "{not valid json")
+            } else {
+                MockResponse::json(404, "not found")
+            }
+        }));
+
         for (app_id, expected_status) in [("http-401", 401), ("http-429", 429), ("http-500", 500)] {
             let temp_dir = TempDir::new(app_id);
-            let error = test_client_for_app(app_id, &temp_dir)
-                .namespace("application")
-                .await
-                .unwrap_err();
+            let config = ClientConfig::builder(app_id, server.url())
+                .cache_dir(temp_dir.path().to_string_lossy())
+                .allow_insecure_https(true)
+                .request_timeout(1)
+                .build()
+                .unwrap();
+            let client = Client::new(config).unwrap();
+            let error = client.namespace("application").await.unwrap_err();
             assert!(matches!(
                 error,
                 Error::Cache(cache::Error::HttpStatus { status, .. }) if status == expected_status
             ));
         }
         let temp_dir = TempDir::new("malformed");
-        let malformed = test_client_for_app("malformed", &temp_dir)
-            .namespace("application")
-            .await
-            .unwrap_err();
+        let config = ClientConfig::builder("malformed", server.url())
+            .cache_dir(temp_dir.path().to_string_lossy())
+            .allow_insecure_https(true)
+            .request_timeout(1)
+            .build()
+            .unwrap();
+        let client = Client::new(config).unwrap();
+        let malformed = client.namespace("application").await.unwrap_err();
         assert!(matches!(malformed, Error::Cache(cache::Error::Serde(_))));
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn request_timeout_has_a_typed_error() {
+        use crate::test_support::{MockHttpsServer, MockResponse};
+        use std::time::Duration;
+        let server = MockHttpsServer::new(Arc::new(|_, _| {
+            MockResponse::json(200, r#"{"value":"too late"}"#).delayed_body(Duration::from_secs(2))
+        }));
         let temp_dir = TempDir::new("timeout");
-        let error = test_client_for_app("timeout", &temp_dir)
-            .namespace("application")
-            .await
-            .unwrap_err();
+        let config = ClientConfig::builder("timeout", server.url())
+            .cache_dir(temp_dir.path().to_string_lossy())
+            .allow_insecure_https(true)
+            .request_timeout(1)
+            .build()
+            .unwrap();
+        let client = Client::new(config).unwrap();
+        let error = client.namespace("application").await.unwrap_err();
         assert!(matches!(
             error,
             Error::Cache(cache::Error::Timeout { seconds: 1 })
@@ -1080,13 +986,18 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn outer_timeout_also_bounds_custom_http_clients() {
+        use crate::test_support::{MockHttpsServer, MockResponse};
+        use std::time::Duration;
+        let server = MockHttpsServer::new(Arc::new(|_, _| {
+            MockResponse::json(200, r#"{"value":"too late"}"#).delayed_body(Duration::from_secs(2))
+        }));
         let temp_dir = TempDir::new("custom-client-outer-timeout");
         let custom_client = reqwest::Client::builder()
             .danger_accept_invalid_certs(true)
             .danger_accept_invalid_hostnames(true)
             .build()
             .unwrap();
-        let config = ClientConfig::builder("timeout", test_server_url())
+        let config = ClientConfig::builder("custom-client-timeout", server.url())
             .cache_dir(temp_dir.path().to_string_lossy())
             .request_timeout(1)
             .http_client(custom_client)
@@ -1101,526 +1012,11 @@ mod tests {
     }
 
     #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_missing_value_wasm() {
-        setup();
-        let client = create_client_no_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_string("missingValue"), None);
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_string_value() {
-        setup();
-        let namespace::Namespace::Properties(properties) =
-            client_no_secret().namespace("application").await.unwrap()
-        else {
-            panic!("Expected Properties namespace");
-        };
-
-        assert_eq!(
-            properties.get_property::<String>("stringValue"),
-            Some("string value".to_string())
-        );
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_string_value_wasm() {
-        setup();
-        let client = create_client_no_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(
-                        properties.get_string("stringValue"),
-                        Some("string value".to_string())
-                    );
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_string_value_with_secret() {
-        setup();
-        let namespace::Namespace::Properties(properties) =
-            client_with_secret().namespace("application").await.unwrap()
-        else {
-            panic!("Expected Properties namespace");
-        };
-        assert_eq!(
-            properties.get_property::<String>("stringValue"),
-            Some("string value".to_string())
-        );
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_string_value_with_secret_wasm() {
-        setup();
-        let client = create_client_with_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(
-                        properties.get_string("stringValue"),
-                        Some("string value".to_string())
-                    );
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_int_value() {
-        setup();
-        let namespace::Namespace::Properties(properties) =
-            client_no_secret().namespace("application").await.unwrap()
-        else {
-            panic!("Expected Properties namespace");
-        };
-        assert_eq!(properties.get_property::<i32>("intValue"), Some(42));
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_int_value_wasm() {
-        setup();
-        let client = create_client_no_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_int("intValue"), Some(42));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_int_value_with_secret() {
-        setup();
-        let namespace::Namespace::Properties(properties) =
-            client_with_secret().namespace("application").await.unwrap()
-        else {
-            panic!("Expected Properties namespace");
-        };
-        assert_eq!(properties.get_property::<i32>("intValue"), Some(42));
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_int_value_with_secret_wasm() {
-        setup();
-        let client = create_client_with_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_int("intValue"), Some(42));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_float_value() {
-        setup();
-        let namespace::Namespace::Properties(properties) =
-            client_no_secret().namespace("application").await.unwrap()
-        else {
-            panic!("Expected Properties namespace");
-        };
-        assert_eq!(properties.get_property::<f64>("floatValue"), Some(4.20));
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_float_value_wasm() {
-        setup();
-        let client = create_client_no_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_float("floatValue"), Some(4.20));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_float_value_with_secret() {
-        setup();
-        let namespace::Namespace::Properties(properties) =
-            client_with_secret().namespace("application").await.unwrap()
-        else {
-            panic!("Expected Properties namespace");
-        };
-        assert_eq!(properties.get_property::<f64>("floatValue"), Some(4.20));
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_float_value_with_secret_wasm() {
-        setup();
-        let client = create_client_with_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_float("floatValue"), Some(4.20));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_bool_value() {
-        setup();
-        let namespace::Namespace::Properties(properties) =
-            client_no_secret().namespace("application").await.unwrap()
-        else {
-            panic!("Expected Properties namespace");
-        };
-        assert_eq!(properties.get_property::<bool>("boolValue"), Some(false));
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_bool_value_wasm() {
-        setup();
-        let client = create_client_no_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("boolValue"), Some(false));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_bool_value_with_secret() {
-        setup();
-        let namespace::Namespace::Properties(properties) =
-            client_with_secret().namespace("application").await.unwrap()
-        else {
-            panic!("Expected Properties namespace");
-        };
-        assert_eq!(properties.get_property::<bool>("boolValue"), Some(false));
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_bool_value_with_secret_wasm() {
-        setup();
-        let client = create_client_with_secret();
-        let namespace = client.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("boolValue"), Some(false));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_bool_value_with_grayscale_ip() {
-        setup();
-        let namespace::Namespace::Properties(properties) = client_with_grayscale_ip()
-            .namespace("application")
-            .await
-            .unwrap()
-        else {
-            panic!("Expected Properties namespace");
-        };
-        assert_eq!(
-            properties.get_property::<bool>("grayScaleValue"),
-            Some(true)
-        );
-        let namespace::Namespace::Properties(properties) =
-            client_no_secret().namespace("application").await.unwrap()
-        else {
-            panic!("Expected Properties namespace");
-        };
-        assert_eq!(
-            properties.get_property::<bool>("grayScaleValue"),
-            Some(false)
-        );
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_bool_value_with_grayscale_ip_wasm() {
-        setup();
-        let client1 = create_client_with_grayscale_ip();
-        let namespace = client1.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("grayScaleValue"), Some(true));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-
-        let client2 = create_client_no_secret();
-        let namespace = client2.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("grayScaleValue"), Some(false));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test]
-    async fn test_bool_value_with_grayscale_label() {
-        setup();
-        let namespace::Namespace::Properties(properties) = client_with_grayscale_label()
-            .namespace("application")
-            .await
-            .unwrap()
-        else {
-            panic!("Expected Properties namespace");
-        };
-        assert_eq!(
-            properties.get_property::<bool>("grayScaleValue"),
-            Some(true)
-        );
-        let namespace::Namespace::Properties(properties) =
-            client_no_secret().namespace("application").await.unwrap()
-        else {
-            panic!("Expected Properties namespace");
-        };
-        assert_eq!(
-            properties.get_property::<bool>("grayScaleValue"),
-            Some(false)
-        );
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    #[allow(dead_code)]
-    async fn test_bool_value_with_grayscale_label_wasm() {
-        setup();
-        let client1 = create_client_with_grayscale_label();
-        let namespace = client1.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("grayScaleValue"), Some(true));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-
-        let client2 = create_client_no_secret();
-        let namespace = client2.namespace("application").await;
-        match namespace {
-            Ok(namespace) => match namespace {
-                namespace::Namespace::Properties(properties) => {
-                    assert_eq!(properties.get_bool("grayScaleValue"), Some(false));
-                }
-                _ => panic!("Expected Properties namespace"),
-            },
-            Err(e) => panic!("Expected Properties namespace, got error: {e:?}"),
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn create_client_no_secret() -> Client {
+    fn create_unit_test_client() -> Client {
         let config = ClientConfig::builder("101010101", test_server_url())
             .build()
             .expect("test client configuration should be valid");
         Client::new(config).expect("test client configuration should be valid")
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn create_client_with_secret() -> Client {
-        let config = ClientConfig::builder("101010102", test_server_url())
-            .secret("53bf47631db540ac9700f0020d2192c8")
-            .build()
-            .expect("test client configuration should be valid");
-        Client::new(config).expect("test client configuration should be valid")
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn create_client_with_grayscale_ip() -> Client {
-        let config = ClientConfig::builder("101010101", test_server_url())
-            .ip("1.2.3.4")
-            .build()
-            .expect("test client configuration should be valid");
-        Client::new(config).expect("test client configuration should be valid")
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn create_client_with_grayscale_label() -> Client {
-        let config = ClientConfig::builder("101010101", test_server_url())
-            .label("GrayScale")
-            .build()
-            .expect("test client configuration should be valid");
-        Client::new(config).expect("test client configuration should be valid")
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test] // Re-enable for WASM
-    async fn test_add_listener_and_notify_on_refresh() {
-        setup();
-
-        // Shared state to check if listener was called and what it received
-        let listener_called_flag = Arc::new(Mutex::new(false));
-        let received_config_data = Arc::new(Mutex::new(None::<Namespace>));
-
-        let temp_dir = TempDir::new("apollo_listener_test");
-
-        // ClientConfig similar to CLIENT_NO_SECRET from lib.rs tests
-        // Using the same external test server and app_id as tests in lib.rs
-        let config = ClientConfig {
-            config_server: test_server_url(), // Use external test server
-            app_id: "101010101".to_string(),  // Use existing app_id from lib.rs tests
-            cluster: "default".to_string(),
-            cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()), // Use a writable directory
-            secret: None,
-            label: None,
-            ip: None,
-            allow_insecure_https: Some(true),
-            #[cfg(not(target_arch = "wasm32"))]
-            cache_ttl: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            refresh_interval: None,
-            request_timeout: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            http_client: None,
-        };
-
-        let client = Client::new(config).expect("test client configuration should be valid");
-
-        let flag_clone = listener_called_flag.clone();
-        let data_clone = received_config_data.clone();
-
-        let listener: EventListener = Arc::new(move |result| {
-            let mut called_guard = flag_clone.lock().unwrap();
-            *called_guard = true;
-            if let Ok(config_value) = result {
-                match config_value {
-                    Namespace::Properties(_) => {
-                        let mut data_guard = data_clone.lock().unwrap();
-                        *data_guard = Some(config_value.clone());
-                    }
-                    _ => {
-                        panic!("Expected Properties namespace, got {config_value:?}");
-                    }
-                }
-            }
-            // In a real scenario, avoid panicking in a listener.
-            // For a test, this is acceptable to signal issues.
-        });
-
-        client.add_listener("application", listener).await;
-
-        let cache = client.cache("application").await;
-
-        // Perform a refresh. This should trigger the listener.
-        // The test Apollo server (localhost:8071) should have some known config for "SampleApp" "application" namespace.
-        match cache.refresh().await {
-            Ok(()) => log::debug!("Refresh successful for test_add_listener_and_notify_on_refresh"),
-            Err(e) => panic!("Cache refresh failed during test: {e:?}"),
-        }
-
-        // Give the async listener task time to complete
-        cfg_if::cfg_if! {
-            if #[cfg(target_arch = "wasm32")] {
-                // For WASM, listeners are synchronous so no wait needed
-            } else {
-                // For native targets, use tokio sleep
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
-        }
-
-        // Check if the listener was called
-        let called = *listener_called_flag.lock().unwrap();
-        assert!(called, "Listener was not called.");
-
-        // Check if config data was received
-        let config_data_guard = received_config_data.lock().unwrap();
-        assert!(
-            config_data_guard.is_some(),
-            "Listener did not receive config data."
-        );
-
-        // Optionally, assert specific content if known.
-        // Assert based on known data for app_id "101010101", namespace "application"
-        // from the external test server. Example: "stringValue"
-        if let Some(value) = config_data_guard.as_ref() {
-            match value {
-                Namespace::Properties(properties) => {
-                    assert_eq!(
-                        properties.get_string("stringValue"),
-                        Some(String::from("string value")),
-                        "Received config data does not match expected content for stringValue."
-                    );
-                }
-                _ => {
-                    panic!("Expected Properties namespace, got {value:?}");
-                }
-            }
-        }
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -1637,7 +1033,7 @@ mod tests {
             "globalThis.__apolloListenerData = data; globalThis.__apolloListenerError = error;",
         );
 
-        let client = create_client_no_secret();
+        let client = create_unit_test_client();
         client.add_listener_wasm("application", js_listener).await;
 
         let cache = client.cache("application").await;
@@ -1668,7 +1064,7 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     async fn namespace_wasm_preserves_properties_class_api() {
         setup();
-        let client = create_client_no_secret();
+        let client = create_unit_test_client();
         let value = client.namespace_wasm("application").await.unwrap();
 
         assert!(
@@ -1681,14 +1077,19 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_concurrent_namespace_hang_repro() {
+        use crate::test_support::{MockHttpsServer, MockResponse};
         setup();
+
+        let server = MockHttpsServer::new(Arc::new(|_, _| {
+            MockResponse::json(200, r#"{"stringValue":"ok"}"#)
+        }));
 
         let temp_dir = TempDir::new("apollo_hang_test");
 
         let config = ClientConfig {
             app_id: String::from("101010101"),
             cluster: String::from("default"),
-            config_server: test_server_url(),
+            config_server: server.url(),
             secret: None,
             cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()),
             label: None,
@@ -1739,14 +1140,19 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_custom_refresh_interval() {
+        use crate::test_support::{MockHttpsServer, MockResponse};
         setup();
+
+        let server = MockHttpsServer::new(Arc::new(|_, _| {
+            MockResponse::json(200, r#"{"value":"refresh"}"#)
+        }));
 
         let temp_dir = TempDir::new("apollo_custom_refresh_interval");
 
         let config = ClientConfig {
             app_id: String::from("101010101"),
             cluster: String::from("default"),
-            config_server: test_server_url(),
+            config_server: server.url(),
             secret: None,
             cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()),
             label: None,
@@ -1759,11 +1165,11 @@ mod tests {
         };
 
         let path = "/configfiles/json/101010101/default/application";
-        let before = mock_request_count(path);
         let mut client = Client::new(config).expect("test client configuration should be valid");
         // Preload namespace so it's registered
         let _ = client.namespace("application").await;
 
+        let before = server.request_count_for_path(path);
         let res = client.start().await;
         assert!(res.is_ok(), "Failed to start client background task");
 
@@ -1771,10 +1177,10 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
 
         client.stop().await;
-        let after = mock_request_count(path);
+        let after = server.request_count_for_path(path);
         assert!(
-            after >= before + 3,
-            "expected initial load plus at least two periodic refreshes, before={before}, after={after}"
+            after >= before + 2,
+            "expected at least two periodic refreshes, before={before}, after={after}"
         );
     }
 
@@ -1805,8 +1211,27 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn preload_supports_parallel_duplicates_and_propagates_http_errors() {
+        use crate::test_support::{MockHttpsServer, MockResponse};
+        let server = MockHttpsServer::new(Arc::new(|_, request| {
+            if request.contains("/does-not-exist") {
+                MockResponse::json(404, r#"{"message":"not found"}"#)
+            } else if request.contains("/application.json") {
+                MockResponse::json(
+                    200,
+                    r#"{"content":"{\"host\":\"localhost\",\"port\":8080,\"run\":true}"}"#,
+                )
+            } else if request.contains("/application.yml") {
+                MockResponse::json(
+                    200,
+                    r#"{"content":"host: localhost\nport: 8080\nrun: true"}"#,
+                )
+            } else {
+                MockResponse::json(200, r#"{"stringValue":"string value"}"#)
+            }
+        }));
+
         let temp_dir = TempDir::new("preload_behavior");
-        let config = ClientConfig::builder("101010101", test_server_url())
+        let config = ClientConfig::builder("101010101", server.url())
             .cache_dir(temp_dir.path().to_string_lossy())
             .allow_insecure_https(true)
             .build()
@@ -2037,7 +1462,7 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     fn test_wasm_lifecycle_starts_stops_and_rejects_duplicate_start() {
         setup();
-        let mut client = create_client_no_secret();
+        let mut client = create_unit_test_client();
         client.start_wasm().unwrap();
         assert!(client.running.load(Ordering::Acquire));
         assert!(client.abort_handle.is_some());
@@ -2112,24 +1537,32 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn test_custom_http_client_injection() {
+        use crate::test_support::{MockHttpsServer, MockResponse};
+        use std::time::Duration;
         setup();
+
+        let server = MockHttpsServer::new(Arc::new(|_, _| {
+            MockResponse::json(200, r#"{"value":"slow"}"#).delayed_body(Duration::from_secs(2))
+        }));
+
         // Create a custom reqwest::Client with an extremely short timeout of 1ms
         let custom_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(1))
+            .danger_accept_invalid_certs(true)
             .build()
             .unwrap();
 
         let temp_dir = TempDir::new("apollo_custom_http_test");
 
         let config = ClientConfig {
-            config_server: test_server_url(),
+            config_server: server.url(),
             app_id: "101010101".to_string(),
             cluster: "default".to_string(),
             cache_dir: Some(temp_dir.path().to_str().unwrap().to_string()),
             secret: None,
             label: None,
             ip: None,
-            allow_insecure_https: None,
+            allow_insecure_https: Some(true),
             cache_ttl: None,
             refresh_interval: None,
             request_timeout: None,
