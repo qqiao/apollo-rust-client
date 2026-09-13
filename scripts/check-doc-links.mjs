@@ -54,23 +54,55 @@ export function findMarkdownFiles(repoRoot = REPO_ROOT) {
 }
 
 /**
+ * Parses a line to check if it is a valid opening code fence per CommonMark.
+ */
+function parseOpeningFence(line) {
+  const match = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
+  if (!match) return null;
+
+  const fenceStr = match[1];
+  const char = fenceStr[0];
+  const len = fenceStr.length;
+  const rawInfo = match[2];
+
+  if (char === '`' && rawInfo.includes('`')) {
+    return null;
+  }
+
+  const trimmedInfo = rawInfo.trim();
+  const lang = trimmedInfo.split(/\s+/)[0] || '';
+
+  return { char, len, lang, rawInfo, trimmedInfo };
+}
+
+/**
  * Parses markdown content and extracts local file links.
  */
 export function extractLinks(filePath, content) {
-  const lines = content.split('\n');
+  const lines = content.split(/\r?\n/);
   const links = [];
-  let inCodeBlock = false;
+  let insideFence = false;
+  let currentFenceChar = '';
+  let currentFenceLen = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Toggle fenced code blocks
-    if (/^\s*```/.test(line) || /^\s*~~~/.test(line)) {
-      inCodeBlock = !inCodeBlock;
+    if (insideFence) {
+      const closeRegex = new RegExp(`^\\s*\\${currentFenceChar}{${currentFenceLen},}\\s*$`);
+      if (closeRegex.test(line)) {
+        insideFence = false;
+        currentFenceChar = '';
+        currentFenceLen = 0;
+      }
       continue;
     }
 
-    if (inCodeBlock) {
+    const openFence = parseOpeningFence(line);
+    if (openFence) {
+      insideFence = true;
+      currentFenceChar = openFence.char;
+      currentFenceLen = openFence.len;
       continue;
     }
 
@@ -107,19 +139,22 @@ export function checkFileLinks(filePath, links, repoRoot = REPO_ROOT) {
   for (const link of links) {
     let raw = link.target;
 
-    // Handle angle brackets e.g. <path>
-    if (raw.startsWith('<') && raw.endsWith('>')) {
-      raw = raw.slice(1, -1).trim();
+    // Handle angle brackets e.g. <path with spaces.md> or <path> "title"
+    if (raw.startsWith('<')) {
+      const closingAngle = raw.indexOf('>');
+      if (closingAngle !== -1) {
+        raw = raw.slice(1, closingAngle).trim();
+      }
+    } else {
+      // Strip title if present in unbracketed link, e.g. [text](path "title")
+      const spaceIndex = raw.indexOf(' ');
+      if (spaceIndex !== -1) {
+        raw = raw.slice(0, spaceIndex).trim();
+      }
     }
 
-    // Strip title if present, e.g. [text](path "title")
-    const spaceIndex = raw.indexOf(' ');
-    if (spaceIndex !== -1) {
-      raw = raw.slice(0, spaceIndex).trim();
-    }
-
-    // Ignore external URLs
-    if (/^(https?:|mailto:|ftp:|data:)/i.test(raw)) {
+    // Ignore external URLs (including protocol-relative URLs starting with //)
+    if (/^(https?:|mailto:|ftp:|data:|\/\/)/i.test(raw)) {
       continue;
     }
 

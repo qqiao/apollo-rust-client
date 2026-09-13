@@ -1,13 +1,13 @@
 # Tasks: GitHub Copilot Review Remediation
 
-**Status:** Plan awaiting HumanReviewer approval before implementation. Read [spec](spec.md), then [plan](plan.md).  
-Tasks below reflect the proposed implementation sequence upon approval.
+**Status:** Completed and verified. Read [spec](spec.md), then [plan](plan.md).
+Tasks below reflect the completed implementation and verification sequence.
 
 ---
 
 ## T01 — Redact sensitive credentials in fixture timeout diagnostics (F1)
 
-- [ ] Complete T01.
+- [x] Complete T01.
 - **Depends on:** none.
 - **Files (2):** `scripts/apollo-fixtures.mjs`, `tests/tooling/apollo-http.test.mjs`.
 - **Contracts:** FR-001; AC-001, AC-002, AC-003.
@@ -17,13 +17,13 @@ Tasks below reflect the proposed implementation sequence upon approval.
   - Add unit tests in `tests/tooling/apollo-http.test.mjs` verifying redaction of basic auth userinfo and sensitive query values, while preserving standard URLs, paths, and benign parameters.
 - **Acceptance:**
   - Timeout diagnostics omit passwords and tokens without hiding request method, host, path, or non-sensitive query attributes.
-  - `node --test tests/tooling/apollo-http.test.mjs` passes cleanly.
+  - `node --test tests/tooling/apollo-http.test.mjs` passes cleanly (9/9 tests pass).
 
 ---
 
 ## T02 — Robust CommonMark link checking and URL parsing (F2, F3, F4)
 
-- [ ] Complete T02.
+- [x] Complete T02.
 - **Depends on:** none.
 - **Files (2):** `scripts/check-doc-links.mjs`, `tests/tooling/doc-links.test.mjs`.
 - **Contracts:** FR-002, FR-003, FR-004; AC-004, AC-005, AC-006.
@@ -36,13 +36,13 @@ Tasks below reflect the proposed implementation sequence upon approval.
   - Four-backtick code blocks containing three-backtick examples do not leak inner links.
   - Valid local links in angle brackets with spaces resolve to existing files without false positives.
   - Protocol-relative URLs are excluded from local file existence checks.
-  - `node --test tests/tooling/doc-links.test.mjs` passes cleanly.
+  - `node --test tests/tooling/doc-links.test.mjs` passes cleanly (7/7 tests pass).
 
 ---
 
 ## T03 — Process group supervision and signal race elimination (F5, F6, F7, F8)
 
-- [ ] Complete T03.
+- [x] Complete T03.
 - **Depends on:** none.
 - **Files (3):** `scripts/apollo-test-lifecycle.sh`, `scripts/apollo-test.sh`, `tests/tooling/apollo-lifecycle.test.mjs`.
 - **Contracts:** FR-005, FR-006, FR-007, FR-008; AC-007, AC-008, AC-009, AC-010.
@@ -55,13 +55,13 @@ Tasks below reflect the proposed implementation sequence upon approval.
 - **Acceptance:**
   - No background subprocess is orphaned if group leader exits prematurely.
   - Signals during child spawn or recovery cleanup guarantee non-zero signal exit codes (130/143) and reaped process groups.
-  - `node --test tests/tooling/apollo-lifecycle.test.mjs` passes all tests cleanly with zero process leaks.
+  - `node --test tests/tooling/apollo-lifecycle.test.mjs` passes all tests cleanly with zero process leaks (23/23 tests pass).
 
 ---
 
 ### Checkpoint A
 
-- [ ] All focused tooling tests pass:
+- [x] All focused tooling tests pass:
   - `node --test tests/tooling/apollo-http.test.mjs`
   - `node --test tests/tooling/doc-links.test.mjs`
   - `node --test tests/tooling/apollo-lifecycle.test.mjs`
@@ -70,7 +70,7 @@ Tasks below reflect the proposed implementation sequence upon approval.
 
 ## T04 — Fast and integration test verification
 
-- [ ] Complete T04.
+- [x] Complete T04.
 - **Depends on:** T01, T02, T03.
 - **Files:** No new code; test verification only.
 - **Contracts:** SC-001, SC-002, SC-003, SC-004.
@@ -79,21 +79,21 @@ Tasks below reflect the proposed implementation sequence upon approval.
   - Run `scripts/test.sh integration --suite native` to verify real Apollo test execution, idempotency, and clean teardown.
   - Run `git diff --check` to ensure no whitespace errors.
 - **Acceptance:**
-  - `scripts/test.sh fast` exits 0.
-  - `scripts/test.sh integration --suite native` exits 0 with 0 container or volume leaks.
+  - `scripts/test.sh fast` exits 0 (all unit, WASM, doc tests, clippy, and 52 tooling tests pass).
+  - `scripts/test.sh integration --suite native` exits 0 with 0 container or volume leaks (all 6 integration tests pass).
   - `git diff --check` is clean.
 
 ---
 
 ### Checkpoint B
 
-- [ ] Full local verification passes without regressions.
+- [x] Full local verification passes without regressions.
 
 ---
 
 ## T05 — Status audit and specification index reconciliation
 
-- [ ] Complete T05.
+- [x] Complete T05.
 - **Depends on:** T04.
 - **Files (2):** `spec/README.md`, `spec/014-copilot-remediation/spec.md`.
 - **Contracts:** FR-008.

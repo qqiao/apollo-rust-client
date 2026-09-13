@@ -872,3 +872,81 @@ test('CLI recovery: interrupted by SIGINT / SIGTERM reaps child and exits 130 / 
     }
   }
 });
+
+test('run_with_timeout detects and terminates surviving descendants in process group when leader exits (F6 / AC-008)', async () => {
+  const tempDir = makeTempDir();
+  const pidFile = path.join(tempDir, 'descendant.pid');
+  const readyFile = path.join(tempDir, 'descendant.ready');
+
+  try {
+    const harness = `
+      set -euo pipefail
+      source "${LIFECYCLE_SCRIPT}"
+
+      # Leader launches background worker in same group and exits immediately
+      run_with_timeout 2 bash -c '
+        bash -c "echo \\$\\$ > \\"${pidFile}\\"; touch \\"${readyFile}\\"; sleep 10" &
+        exit 0
+      '
+    `;
+
+    const runner = spawn('bash', ['-c', harness], {
+      timeout: 5000,
+    });
+    await waitForExit(runner, 5000);
+
+    await waitForFile(readyFile, 2000).catch(() => {});
+    if (fs.existsSync(pidFile)) {
+      const descendantPid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+      assert.equal(isProcessAlive(descendantPid), false, `Descendant PID ${descendantPid} must be terminated and not orphaned`);
+    }
+  } finally {
+    if (fs.existsSync(pidFile)) {
+      try {
+        const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+        safeKillPid(pid);
+      } catch {}
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('handle_signal defers during spawning phase and cleans up tracked child after registration (F8 / AC-007)', async () => {
+  const tempDir = makeTempDir();
+  const pidFile = path.join(tempDir, 'spawned.pid');
+  const readyFile = path.join(tempDir, 'spawned.ready');
+
+  try {
+    const harness = `
+      set -euo pipefail
+      source "${LIFECYCLE_SCRIPT}"
+      install_lifecycle_traps
+
+      # Simulate handle_signal arriving during spawning phase
+      LIFECYCLE_PHASE="spawning"
+      handle_signal SIGTERM
+
+      # Now run_with_timeout launches child and checks pending interrupt
+      run_with_timeout 5 bash -c 'echo \\$\\$ > "${pidFile}"; touch "${readyFile}"; sleep 10'
+    `;
+
+    const runner = spawn('bash', ['-c', harness]);
+    const exitRes = await waitForExit(runner, 5000);
+
+    assert.equal(exitRes.code, 143, 'Should exit with SIGTERM status 143');
+
+    await waitForFile(readyFile, 2000).catch(() => {});
+    if (fs.existsSync(pidFile)) {
+      const childPid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+      assert.equal(isProcessAlive(childPid), false, 'Child process must be terminated and reaped');
+    }
+  } finally {
+    if (fs.existsSync(pidFile)) {
+      try {
+        const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+        safeKillPid(pid);
+      } catch {}
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

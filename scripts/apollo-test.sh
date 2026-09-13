@@ -158,8 +158,16 @@ if [ "$MODE" = "cleanup" ]; then
     exit 0
   fi
   trap - EXIT
-  run_recovery_cleanup "$RECOVERY_RUN_DIR"
-  exit $?
+  recovery_status=0
+  if run_recovery_cleanup "$RECOVERY_RUN_DIR"; then
+    recovery_status=0
+  else
+    recovery_status=$?
+  fi
+  if [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then
+    exit "$INTERRUPTED_STATUS"
+  fi
+  exit "$recovery_status"
 fi
 
 if [ -n "$RECOVERY_RUN_DIR" ]; then

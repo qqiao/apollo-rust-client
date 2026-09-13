@@ -66,3 +66,53 @@ test('runDocLinkCheck detects broken links in a fixture directory', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('extractLinks handles nested code fences without premature closure (F2 / AC-004)', () => {
+  const markdown = [
+    '# Nested Fence Test',
+    '',
+    '````markdown',
+    '```rust',
+    '[inner](do-not-extract-inner.md)',
+    '```',
+    '[still-fenced](do-not-extract-after-3.md)',
+    '````',
+    '',
+    'Outside fence: [valid](../spec/README.md)',
+  ].join('\n');
+
+  const links = extractLinks('test.md', markdown);
+  assert.equal(links.length, 1, `Expected only 1 link outside fence, got ${links.length}`);
+  assert.equal(links[0].target, '../spec/README.md');
+});
+
+test('checkFileLinks parses angle-bracket destinations with spaces (F3 / AC-005)', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'apollo-doc-link-spaces-'));
+  try {
+    const docsDir = path.join(tempDir, 'docs');
+    fs.mkdirSync(docsDir, { recursive: true });
+    const targetFile = path.join(docsDir, 'Getting Started.md');
+    fs.writeFileSync(targetFile, '# Getting Started\n', 'utf8');
+
+    const sourceFile = path.join(tempDir, 'README.md');
+    const links = [
+      { line: 1, target: '<docs/Getting Started.md>' },
+      { line: 2, target: '<docs/Getting Started.md> "Guide Title"' },
+    ];
+
+    const broken = checkFileLinks(sourceFile, links, tempDir);
+    assert.equal(broken.length, 0, `Expected 0 broken links for spaced angle-bracket targets, got: ${JSON.stringify(broken)}`);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('checkFileLinks ignores protocol-relative external URLs (F4 / AC-006)', () => {
+  const links = [
+    { line: 1, target: '//docs.example.com/guide' },
+    { line: 2, target: '<//cdn.example.com/script.js>' },
+    { line: 3, target: '//api.example.com/v1?token=test' },
+  ];
+  const broken = checkFileLinks('/tmp/dummy.md', links);
+  assert.equal(broken.length, 0, `Expected 0 broken links for protocol-relative URLs, got: ${JSON.stringify(broken)}`);
+});

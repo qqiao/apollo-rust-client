@@ -49,6 +49,32 @@ function validateLoopbackUrl(urlString, name) {
   return parsed.origin;
 }
 
+const SENSITIVE_PARAM_REGEX = /^(token|secret|key|password|auth|credential|access_token|client_secret)$/i;
+
+export function redactUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    return rawUrl;
+  }
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.username || parsed.password) {
+      parsed.username = '***';
+      parsed.password = '***';
+    }
+    for (const key of Array.from(parsed.searchParams.keys())) {
+      if (SENSITIVE_PARAM_REGEX.test(key)) {
+        parsed.searchParams.set(key, 'REDACTED');
+      }
+    }
+    return parsed.toString();
+  } catch {
+    // Fallback for relative or malformed URLs
+    return rawUrl
+      .replace(/(\/\/[^:@/]+):[^@/]+@/, '$1:***@')
+      .replace(/([?&](?:token|secret|key|password|auth|credential|access_token|client_secret)=)[^&]*/gi, '$1REDACTED');
+  }
+}
+
 export async function requestJson(url, options = {}) {
   const { timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
   const method = (fetchOptions.method || 'GET').toUpperCase();
@@ -57,6 +83,22 @@ export async function requestJson(url, options = {}) {
     Accept: 'application/json',
     ...(fetchOptions.headers || {}),
   };
+
+  let fetchUrl = url;
+  try {
+    const parsed = new URL(url);
+    if (parsed.username || parsed.password) {
+      if (!headers['Authorization'] && !headers['authorization']) {
+        const creds = Buffer.from(`${parsed.username}:${parsed.password}`).toString('base64');
+        headers['Authorization'] = `Basic ${creds}`;
+      }
+      parsed.username = '';
+      parsed.password = '';
+      fetchUrl = parsed.toString();
+    }
+  } catch {
+    // Ignore URL parse error here; fetch will handle invalid URLs
+  }
 
   let body = fetchOptions.body;
   if (body && typeof body === 'object') {
@@ -72,7 +114,7 @@ export async function requestJson(url, options = {}) {
   }, timeoutMs);
 
   try {
-    const response = await fetch(url, {
+    const response = await fetch(fetchUrl, {
       ...fetchOptions,
       method,
       headers,
@@ -91,8 +133,9 @@ export async function requestJson(url, options = {}) {
     return { status: response.status, headers: response.headers, data, ok: response.ok };
   } catch (err) {
     if (timedOut) {
+      const sanitizedUrl = redactUrl(url);
       const timeoutErr = new Error(
-        `Fixture request timed out after ${timeoutMs}ms: ${method} ${url}`
+        `Fixture request timed out after ${timeoutMs}ms: ${method} ${sanitizedUrl}`
       );
       timeoutErr.cause = err;
       timeoutErr.name = 'TimeoutError';

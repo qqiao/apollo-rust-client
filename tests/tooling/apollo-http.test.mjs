@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { requestJson } from '../../scripts/apollo-fixtures.mjs';
+import { requestJson, redactUrl } from '../../scripts/apollo-fixtures.mjs';
 
 function createTestServer(handler) {
   const sockets = new Set();
@@ -242,6 +242,57 @@ test('timer resources are cleared on completed requests and do not abort later (
 
     // Wait past the timeout to verify no uncaught exception or lingering timer fires
     await new Promise((r) => setTimeout(r, 150));
+  } finally {
+    await fixtureServer.close();
+  }
+});
+
+test('redactUrl sanitizes basic auth credentials and sensitive query parameters (AC-001, AC-002, AC-003)', () => {
+  // Test basic auth userinfo redaction
+  const urlWithAuth = 'http://admin:super_secret_pw@127.0.0.1:8080/configs?env=DEV';
+  const redactedAuth = redactUrl(urlWithAuth);
+  assert.ok(!redactedAuth.includes('super_secret_pw'), 'Must not contain password');
+  assert.match(redactedAuth, /\*\*\*:\*\*\*@127\.0\.0\.1:8080\/configs/);
+  assert.match(redactedAuth, /env=DEV/);
+
+  // Test sensitive query parameters redaction
+  const urlWithTokens = 'http://127.0.0.1:8080/api?token=secret123&client_secret=topsecret&key=mykey&password=pw&auth=bearer&normal_param=preserve_me';
+  const redactedTokens = redactUrl(urlWithTokens);
+  assert.ok(!redactedTokens.includes('secret123'), 'Must not contain token value');
+  assert.ok(!redactedTokens.includes('topsecret'), 'Must not contain client_secret value');
+  assert.ok(!redactedTokens.includes('mykey'), 'Must not contain key value');
+  assert.match(redactedTokens, /token=REDACTED/);
+  assert.match(redactedTokens, /client_secret=REDACTED/);
+  assert.match(redactedTokens, /normal_param=preserve_me/);
+
+  // Test standard URL without secrets is preserved
+  const plainUrl = 'http://127.0.0.1:8080/apps/sample-app?format=json';
+  assert.equal(redactUrl(plainUrl), plainUrl);
+});
+
+test('timeout error diagnostic redacts credentials and query secrets from URL (AC-001, AC-002)', async () => {
+  const fixtureServer = await createTestServer((req, res) => {
+    // Stalls indefinitely
+  });
+
+  try {
+    const rawUrl = `${fixtureServer.baseUrl.replace('http://', 'http://user:secret_password@')}/sensitive-path?token=token_secret_xyz&appId=testApp`;
+
+    await assert.rejects(
+      async () => {
+        await requestJson(rawUrl, {
+          timeoutMs: 100,
+        });
+      },
+      (err) => {
+        assert.ok(!err.message.includes('secret_password'), 'Diagnostic message must NOT leak basic auth password');
+        assert.ok(!err.message.includes('token_secret_xyz'), 'Diagnostic message must NOT leak token query param');
+        assert.match(err.message, /sensitive-path/);
+        assert.match(err.message, /appId=testApp/);
+        assert.match(err.message, /token=REDACTED/);
+        return true;
+      }
+    );
   } finally {
     await fixtureServer.close();
   }

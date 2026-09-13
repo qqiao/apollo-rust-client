@@ -16,14 +16,33 @@ run_with_timeout() {
   local timeout_sec="$1"
   shift
 
-  set -m
-  "$@" &
-  local child_pid=$!
-  set +m
-  CURRENT_CHILD_PID="$child_pid"
+  local child_pid=""
+  local spawn_interrupted=0
+  if [ "${LIFECYCLE_PHASE:-work}" = "work" ] || [ "${LIFECYCLE_PHASE:-}" = "spawning" ]; then
+    LIFECYCLE_PHASE="spawning"
+    set -m
+    "$@" &
+    child_pid=$!
+    set +m
+    CURRENT_CHILD_PID="$child_pid"
+    if [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then
+      spawn_interrupted=1
+    fi
+    LIFECYCLE_PHASE="work"
+    if [ "$spawn_interrupted" -eq 1 ]; then
+      echo "[apollo-test] Pending interrupt (${INTERRUPTED_STATUS}) handled after process registration." >&2
+      exit "${INTERRUPTED_STATUS}"
+    fi
+  else
+    set -m
+    "$@" &
+    child_pid=$!
+    set +m
+    CURRENT_CHILD_PID="$child_pid"
+  fi
 
   local elapsed=0
-  while kill -0 "$child_pid" 2>/dev/null; do
+  while kill -0 "$child_pid" 2>/dev/null || kill -0 -- "-$child_pid" 2>/dev/null; do
     if [ "$elapsed" -ge "$timeout_sec" ]; then
       echo "ERROR: Command timed out after ${timeout_sec}s: $*" >&2
       kill -TERM -- "-$child_pid" 2>/dev/null || kill -TERM "$child_pid" 2>/dev/null || true
@@ -33,15 +52,26 @@ run_with_timeout() {
       CURRENT_CHILD_PID=""
       return 124
     fi
+    # If the leader exited but descendants in the group are still alive, terminate them
+    if ! kill -0 "$child_pid" 2>/dev/null && kill -0 -- "-$child_pid" 2>/dev/null; then
+      kill -TERM -- "-$child_pid" 2>/dev/null || true
+      sleep 1 || true
+      kill -KILL -- "-$child_pid" 2>/dev/null || true
+      break
+    fi
     sleep 1 || true
     elapsed=$((elapsed + 1))
   done
 
   local status=0
-  if wait "$child_pid"; then
+  if wait "$child_pid" 2>/dev/null; then
     status=0
   else
     status=$?
+  fi
+  # Extra safety: ensure entire process group is reaped
+  if kill -0 -- "-$child_pid" 2>/dev/null; then
+    kill -KILL -- "-$child_pid" 2>/dev/null || true
   fi
   CURRENT_CHILD_PID=""
   return "$status"
@@ -110,7 +140,7 @@ cleanup() {
   LIFECYCLE_PHASE="cleanup"
 
   # 1. Terminate tracked child process group if alive
-  if [ -n "${CURRENT_CHILD_PID:-}" ] && kill -0 "$CURRENT_CHILD_PID" 2>/dev/null; then
+  if [ -n "${CURRENT_CHILD_PID:-}" ] && ( kill -0 "$CURRENT_CHILD_PID" 2>/dev/null || kill -0 -- "-$CURRENT_CHILD_PID" 2>/dev/null ); then
     echo "[apollo-test] Terminating supervised child process group ${CURRENT_CHILD_PID}..." >&2
     kill -TERM -- "-$CURRENT_CHILD_PID" 2>/dev/null || kill -TERM "$CURRENT_CHILD_PID" 2>/dev/null || true
     sleep 1 || true
@@ -163,6 +193,9 @@ cleanup() {
   CLEANED_UP=1
   LIFECYCLE_PHASE="finished"
   CLEANUP_IN_PROGRESS=0
+  if [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then
+    final_status="${INTERRUPTED_STATUS}"
+  fi
   CACHED_FINAL_STATUS="$final_status"
 
   if [ "$final_status" -ne 0 ]; then
@@ -264,6 +297,7 @@ run_recovery_cleanup() {
     td_status=$?
   fi
 
+  LIFECYCLE_PHASE="finished"
   local final_status=0
   if [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then
     final_status="${INTERRUPTED_STATUS}"
@@ -280,6 +314,5 @@ run_recovery_cleanup() {
   else
     echo "[apollo-test] Recovery cleanup failed for project ${proj} (${target_dir}) with status ${final_status}." >&2
   fi
-  LIFECYCLE_PHASE="finished"
   return "$final_status"
 }
