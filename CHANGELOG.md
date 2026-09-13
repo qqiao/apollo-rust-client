@@ -7,13 +7,13 @@ All notable changes to the apollo-rust-client project will be documented in this
 ### Added
 
 - Configurable `request_timeout` across the Rust builder, environment variables, and WASM API. The timeout covers request headers and response-body reads, including when a custom native HTTP client is supplied.
-- Native tests now use a random-port, self-signed in-process HTTPS server; WASM tests use a mocked global `fetch`. The automated test suite no longer requires Docker or a fixed port.
+- Native unit/mock tests now use a random-port, self-signed in-process HTTPS server; WASM tests use a mocked global `fetch`. The fast check suite (`scripts/test.sh fast`) is Docker-independent; full integration testing continues to validate against real Apollo Docker containers.
 - Platform-standard native cache directories and startup cleanup for orphaned versioned temporary files.
 
 ### Changed
 
 - Expired cache entries use stale-while-revalidate: readers return stale data immediately while one refresh runs per namespace. Manual, polling, and read-triggered refreshes are coalesced.
-- Background polling uses per-client symmetric ±10% jitter with exponential failure backoff.
+- Background polling refreshes eligible namespaces with bounded concurrency (up to 4), sleeping the exact `refresh_interval` after each completed round. Failed namespaces use bounded exponential retry backoff with ±10% jitter.
 - YAML parsing migrated from unmaintained `serde_yaml` to pure-Rust `noyalib`, preserving YAML 1.1 scalar compatibility. YAML now reaches JavaScript as a structured plain object.
 - JavaScript listener payloads use plain objects for Properties namespaces, while direct `namespace()` calls preserve the existing `Properties` class API.
 - `ClientConfig::from_env()` reads `globalThis.process.env` under Node.js WASM and reports a clear error in browsers.

@@ -180,9 +180,9 @@ let text = client.namespace("readme.txt").await?;
 
 #### Automatic Refresh
 
-- Configurable polling intervals (default: 30 seconds)
-- Automatic refresh of all active namespaces
-- Graceful error handling during network issues
+- Configurable polling intervals (default: 30 seconds; sleeps after completed rounds)
+- Automatic refresh of eligible registered namespaces with bounded concurrency (up to 4)
+- Graceful error handling during network issues with exponential failure backoff and jitter
 - Continues operation even with temporary server unavailability
 
 #### Manual Control
@@ -275,15 +275,13 @@ await client.add_listener("application", (data, error) => {
 - Secure authentication using HMAC-SHA1 signatures
 - Timestamp-based request signing
 - Protection against replay attacks
-- Configurable secret keys per namespace
+- Client-wide secret key configured on `ClientConfig`
 
 ```rust
-let config = ClientConfig {
-    app_id: "my-app".to_string(),
-    secret: Some("secret-key".to_string()),
-    allow_insecure_https: None,
-    // ... other fields
-};
+let config = ClientConfig::builder("my-app", "http://apollo-server:8080")
+    .secret("secret-key")
+    .build()?;
+let _ = config;
 ```
 
 ### Grayscale Release Support
@@ -291,8 +289,8 @@ let config = ClientConfig {
 #### IP-Based Targeting
 
 - Configuration targeting based on client IP addresses
-- Support for IP ranges and specific IP matching
-- Automatic IP detection and inclusion in requests
+- Support for IP ranges and specific IP matching on the Apollo server
+- Explicit client IP configuration passed in requests
 
 #### Label-Based Targeting
 
@@ -301,13 +299,11 @@ let config = ClientConfig {
 - Comma-separated label specification
 
 ```rust
-let config = ClientConfig {
-    app_id: "my-app".to_string(),
-    label: Some("canary,beta".to_string()),
-    ip: Some("192.168.1.100".to_string()),
-    allow_insecure_https: None,
-    // ... other fields
-};
+let config = ClientConfig::builder("my-app", "http://apollo-server:8080")
+    .label("canary,beta")
+    .ip("192.168.1.100")
+    .build()?;
+let _ = config;
 ```
 
 ### Secure Communication

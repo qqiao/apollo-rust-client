@@ -134,3 +134,12 @@ As an operator, I want secure defaults and control over native transport configu
 ## Assumptions and Dependencies
 
 Apollo already hosts and authorizes the requested configuration. Native consumers supply an asynchronous runtime. Environment names and external API contracts are recorded separately in [contracts](../supporting/contracts.md). Priorities express dependency/value, not a newly approved release plan. Test clock/scheduler tolerances belong in the verification method; no production latency SLO is inferred.
+
+## Planned scoped amendment — public cache errors (2026-09-13)
+
+Implementation is pending under [007-public-cache-errors](../007-public-cache-errors/spec.md); broad current-example correction is planned under [011-executable-public-docs](../011-executable-public-docs/spec.md). Existing IDs and error/snapshot semantics remain intact.
+
+- **AC-018:** Given an external Rust consumer, when it imports the public `CacheError` alias and matches a wrapped HTTP-status or timeout error, then it can read the existing numeric fields without importing private modules or parsing Display text.
+- **FR-013:** The existing cache error enum MUST be publicly nameable as `apollo_rust_client::CacheError` while the cache implementation stays private; the alias MUST preserve the existing type, variants, conversions, and coalesced/listener snapshot limitations.
+
+Verification and success criteria are detailed in 007/AC-001–005 and SC-001–003. No current export is claimed by this planned amendment.

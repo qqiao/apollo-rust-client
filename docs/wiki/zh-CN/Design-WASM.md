@@ -1,4 +1,4 @@
-[English](../en/Design-WASM.md) | [中文繁體](../zh-TW/Design-WASM.md)
+[English](../en/Design-WASM.md)
 [返回首页](Home.md)
 
 # WASM 设计考量
@@ -30,7 +30,7 @@
 
 `wasm-bindgen` 工具和属性对于创建库的 JavaScript 接口至关重要。
 
--   **`#[wasm_bindgen]`**: 此属性用于结构体 (`ClientConfig`, `Client`, `Cache`) 及其方法，以使其可从 JavaScript 访问。
+-   **`#[wasm_bindgen]`**: 此属性用于结构体 (`ClientConfig`, `Client`, `Properties`) 及其方法，以使其可从 JavaScript 访问。
     -   对于结构体，它通常生成 JavaScript 类。
     -   对于方法，它在这些类上生成相应的 JavaScript 方法。
 
@@ -41,12 +41,13 @@
     -   需要从 JavaScript 访问的字段通常通过 getter 方法（例如 `#[wasm_bindgen(getter_with_clone)] pub fn app_id(&self) -> String;`）或 setter 方法（如果可变）公开。`getter_with_clone` 用于 String 字段以向 JavaScript 返回副本。
 
 -   **方法公开**:
-    -   打算从 JavaScript 使用的公共方法用 `#[wasm_bindgen]` 标记。这包括 `Client::namespace()`、`Client::start()`、`Cache::get_string()`、`Cache::get_int()` 等。
+    -   打算从 JavaScript 使用的公共方法用 `#[wasm_bindgen]` 标记。这包括 `Client::namespace()`、`Client::start()`、`Properties::get_string()`、`Properties::get_int()` 等。
 
 ## 内存管理
 
 -   **`free()` 方法**:
-    -   `wasm-bindgen` 在 JavaScript 端为暴露给 WASM 且非 `Copy` 类型的 Rust 结构体生成一个 `free()` 方法。当不再需要 Rust 对象（`ClientConfig`、`Client`、`Cache`）时，JavaScript 代码调用此 `free()` 方法至关重要。
+    -   `wasm-bindgen` 在 JavaScript 端为暴露给 WASM 且非 `Copy` 类型的 Rust 结构体生成一个 `free()` 方法。在 JavaScript 代码中，对不再需要的活跃 `Client` 和 `Properties` 实例调用 `free()` 方法至关重要。
+    -   当 `ClientConfig` 按值传给 `new Client(config)` 时，其所有权被 Rust 消费；此后再调用 `config.free()` 将抛出错误。仅在创建了 `ClientConfig` 但从未传给 `new Client(config)` 时才调用 `config.free()`。
     -   这将释放在 WebAssembly 堆上由 Rust 分配的内存。否则可能导致 WASM 模块中的内存泄漏。
     -   *(注意: `free()` 方法本身并未在此库的 Rust 代码中明确定义；`wasm-bindgen` 为 JS 对象释放时提供了必要的绑定和 JavaScript 粘合代码以进行内存回收。)*
 

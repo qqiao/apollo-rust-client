@@ -196,10 +196,10 @@ async function main() {
 
   // IMPORTANT: Properties namespaces are WASM class instances and must be freed.
   // JSON, YAML, and Text values are ordinary JavaScript values.
+  // ClientConfig was consumed by new Client(clientConfig) and must not be freed.
   client.stop();
   namespace.free();
   client.free();
-  clientConfig.free();
 }
 
 main().catch(console.error);
@@ -318,10 +318,10 @@ match client.namespace("application").await {
 For WebAssembly environments, explicit memory management is required:
 
 ```javascript
-// Class instances allocated by wasm-bindgen must be freed when done.
-namespace.free(); // Properties only
-client.free();
-clientConfig.free();
+// Class instances allocated by wasm-bindgen must be freed when done:
+namespace.free(); // Properties only (JSON/YAML/Text need no manual freeing)
+client.free();    // ClientConfig was consumed by new Client() and must not be freed
+// Only call config.free() if created but never passed to new Client(config)
 ```
 
 This prevents memory leaks by releasing Rust-allocated memory on the WebAssembly heap.
@@ -329,10 +329,12 @@ This prevents memory leaks by releasing Rust-allocated memory on the WebAssembly
 ## Update Model
 
 The client deliberately uses periodic polling of Apollo's cached `configfiles`
-endpoint. It does not implement Apollo notification long-polling or `releaseKey`,
-so update latency is bounded by `refresh_interval` and unchanged polls still transfer
-the full namespace. Poll intervals include per-client symmetric ±10% jitter and
-temporary failures use exponential backoff.
+endpoint without notification long-polling or `releaseKey` support. Each round refreshes
+eligible registered namespaces with up to four concurrent operations, then waits `refresh_interval`
+after the round completes. Healthy polling has no intentional jitter. Temporary namespace failures
+use bounded exponential retry backoff with ±10% jitter; a successful refresh resets that delay.
+Update observation can take longer than `refresh_interval` because round duration, server propagation,
+and retries also contribute. Cache TTL governs read-triggered revalidation separately from this periodic schedule.
 
 ## Advanced Usage
 

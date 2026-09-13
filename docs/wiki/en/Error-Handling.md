@@ -12,20 +12,30 @@ The Apollo Rust client provides comprehensive error handling through Rust's `Res
 - **`AlreadyRunning`**: Attempting to start a client that's already running
 - **`Namespace`**: Errors related to namespace operations and format detection
 - **`Cache`**: Errors from cache operations (loading, refreshing, file I/O)
+- **`Config`**: Errors from client configuration validation
+- **`HttpClient`**: Errors initializing the HTTP client
+- **`Refresh`**: Errors occurring during background configuration refresh
 
 ### Cache Errors
 
-- **NamespaceNotFound**: Requested namespace doesn't exist on the server
-- **Reqwest**: Network communication errors with Apollo server
-- **UrlParse**: Invalid URL format in configuration
-- **Serde**: JSON parsing and serialization errors
-- **Io**: File system operations (native targets only)
+Exported publicly as `apollo_rust_client::CacheError`:
+
+- **`HttpStatus`**: Apollo server returned an error status (e.g. 404, 500)
+- **`Timeout`**: Request timed out
+- **`CoalescedRefresh`**: Shared concurrent refresh failed
+- **`Reqwest`**: Network communication error with Apollo server
+- **`UrlParse`**: Invalid URL format in configuration
+- **`InvalidBaseUrl`**: Base URL cannot be used as an Apollo server endpoint
+- **`InvalidSigningKey`**: Missing or invalid HMAC signing secret
+- **`Serde`**: JSON serialization or parsing error
+- **`Io`**: Cache file system error (native targets only)
 
 ### Namespace Errors
 
-- **`Json`**: JSON namespace processing errors
-- **`ContentNotFound`**: Missing content in JSON namespace data
-- **`DeserializeError`**: Failed to deserialize JSON to custom types
+- **`Json`**: JSON namespace processing errors (`json::Error`), containing nested `ContentNotFound` and `DeserializeError`
+- **`Yaml`**: YAML namespace processing errors (`yaml::Error`), containing nested `ContentNotFound` and `DeserializeError`
+- **`Text`**: Text namespace processing errors
+- **`Xml`**: XML namespace processing errors
 
 ## Error Handling Patterns
 
@@ -48,6 +58,46 @@ async fn get_config() -> Result<String, Error> {
 }
 
 // Pattern 2: Explicit error handling with match
+
+<!-- apollo-example: public-errors -->
+```rust
+use apollo_rust_client::{CacheError, Error};
+
+let err = Error::AlreadyRunning;
+match err {
+    Error::Cache(CacheError::HttpStatus { status, body }) => {
+        eprintln!("HTTP status {status}: {body}");
+    }
+    Error::Cache(CacheError::Timeout { seconds }) => {
+        eprintln!("Cache request timed out after {seconds}s");
+    }
+    Error::Cache(CacheError::CoalescedRefresh(msg)) => {
+        eprintln!("Coalesced refresh error: {msg}");
+    }
+    Error::Cache(other) => {
+        eprintln!("Cache error: {other}");
+    }
+    Error::Namespace(ns_err) => {
+        eprintln!("Namespace error: {ns_err}");
+    }
+    Error::Config(cfg_err) => {
+        eprintln!("Config error: {cfg_err}");
+    }
+    Error::HttpClient(http_err) => {
+        eprintln!("HTTP client error: {http_err}");
+    }
+    Error::AlreadyRunning => {
+        eprintln!("Client is already running");
+    }
+    Error::Refresh(msg) => {
+        eprintln!("Refresh error: {msg}");
+    }
+}
+```
+
+```rust
+use apollo_rust_client::{Client, Error};
+
 async fn handle_errors() {
     let client = create_client().await.unwrap();
 

@@ -1,4 +1,4 @@
-[English](../en/Design-Overview.md) | [中文繁體](../zh-TW/Design-Overview.md)
+[English](../en/Design-Overview.md)
 [返回首页](Home.md)
 
 # 设计概览

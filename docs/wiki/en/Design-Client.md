@@ -1,4 +1,4 @@
-[中文简体](../zh-CN/Design-Client.md) | [中文繁體](../zh-TW/Design-Client.md)
+[中文简体](../zh-CN/Design-Client.md)
 [Back to Home](Home.md)
 
 # Client Details
@@ -34,9 +34,9 @@ Starts a background task that periodically refreshes all registered namespace ca
 This method spawns an asynchronous task using `tokio::spawn` on native targets or `wasm_bindgen_futures::spawn_local` on wasm32 targets. The task loops indefinitely (until `stop` is called) and performs the following actions in each iteration:
 
 1. Copies cache references without retaining the namespace-map lock.
-2. Refreshes up to four namespaces concurrently.
-3. Logs errors and applies bounded exponential backoff with jitter.
-4. Sleeps for the configured interval (default 30 seconds).
+2. Filters for eligible registered namespaces (excluding those currently in failure backoff) and refreshes up to four namespaces concurrently.
+3. On failure, the affected namespace enters bounded exponential retry backoff with ±10% integer jitter. Successful refresh resets the failure state.
+4. Waits for all operations in the round to finish, then sleeps for the configured `refresh_interval` without jitter. Next-round start occurs approximately round duration + `refresh_interval` after the previous round start.
 
 **Returns:**
 
@@ -175,6 +175,6 @@ The `Client` can return the following errors:
 
 ### WASM
 
-- **Critical**: Must call `.free()` on `Client`, `ClientConfig`, and returned `Properties` class instances when done.
+- **Critical**: Must call `.free()` on live `Client` and returned `Properties` class instances when done. `ClientConfig` is consumed when passed to `new Client(config)` and must not be freed after transfer.
 - Event listeners are automatically cleaned up when the client object is freed.
 - Other formats (like JSON, YAML, or Text) are returned as raw JS objects or strings, and do not need to be freed manually.

@@ -135,14 +135,14 @@ const client = new Client(config);
 // 启动后台刷新
 await client.start();
 
-// 获取缓存并检索值
-const cache = await client.namespace("application");
-const value = await cache.get_string("key");
+// 获取 properties 命名空间并检索值
+const properties = await client.namespace("application");
+const value = properties.get_string("key");
 
-// 在 WASM 中始终释放内存
-cache.free();
+// 在 WASM 中释放活跃的 Properties 和 Client 堆对象
+// (config 已由 new Client 消费，不可再释放)
+properties.free();
 client.free();
-config.free();
 ```
 
 ## 平台差异

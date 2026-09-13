@@ -49,40 +49,59 @@ function validateLoopbackUrl(urlString, name) {
   return parsed.origin;
 }
 
-async function fetchWithTimeout(url, options = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs || REQUEST_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-    return response;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
+export async function requestJson(url, options = {}) {
+  const { timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
+  const method = (fetchOptions.method || 'GET').toUpperCase();
 
-async function requestJson(url, options = {}) {
   const headers = {
     Accept: 'application/json',
-    ...(options.headers || {}),
+    ...(fetchOptions.headers || {}),
   };
-  if (options.body && typeof options.body === 'object') {
+
+  let body = fetchOptions.body;
+  if (body && typeof body === 'object') {
     headers['Content-Type'] = 'application/json';
-    options.body = JSON.stringify(options.body);
+    body = JSON.stringify(body);
   }
-  const response = await fetchWithTimeout(url, { ...options, headers });
-  const text = await response.text();
-  let data = null;
-  if (text.length > 0) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = text;
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...fetchOptions,
+      method,
+      headers,
+      body,
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    let data = null;
+    if (text.length > 0) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = text;
+      }
     }
+    return { status: response.status, headers: response.headers, data, ok: response.ok };
+  } catch (err) {
+    if (timedOut) {
+      const timeoutErr = new Error(
+        `Fixture request timed out after ${timeoutMs}ms: ${method} ${url}`
+      );
+      timeoutErr.cause = err;
+      timeoutErr.name = 'TimeoutError';
+      throw timeoutErr;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return { status: response.status, headers: response.headers, data, ok: response.ok };
 }
 
 // ---------------- AdminService Reconcile Helpers ----------------

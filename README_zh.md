@@ -181,10 +181,11 @@ async function main() {
   });
 
   // 重要：使用完毕后释放内存
+  // Properties 实例是 WASM 堆对象需释放；JSON/YAML/Text 为普通 JS 对象
+  // ClientConfig 已由 new Client(clientConfig) 消费，不可再释放
   client.stop();
   namespace.free();
   client.free();
-  clientConfig.free();
 }
 
 main().catch(console.error);
@@ -297,19 +298,21 @@ match client.namespace("application").await {
 对于 WebAssembly 环境，需要显式的内存管理：
 
 ```javascript
-// wasm-bindgen 分配的类实例使用完毕后必须释放
-namespace.free(); // 仅 Properties 命名空间
-client.free();
-clientConfig.free();
+// wasm-bindgen 分配的活跃堆实例使用完毕后必须释放：
+namespace.free(); // 仅 Properties 命名空间（JSON/YAML/Text 无需手动释放）
+client.free();    // ClientConfig 已由 new Client() 消费，不可再释放
+// 仅在创建了 ClientConfig 但未传给 new Client(config) 时才需调用 config.free()
 ```
 
 这通过释放 WebAssembly 堆上的 Rust 分配内存来防止内存泄漏。
 
 ## 更新模型
 
-客户端有意采用 Apollo 缓存 `configfiles` 端点的周期轮询，不实现通知长轮询或
-`releaseKey`。因此更新延迟由 `refresh_interval` 限定，配置未变化时仍会传输完整
-命名空间。轮询使用每客户端对称 ±10% 抖动，临时故障使用指数退避。
+客户端定期读取 Apollo 的 `configfiles` 缓存端点，不支持基于通知的长轮询或 `releaseKey`。
+每轮轮询以至多 4 个并发任务刷新符合条件的已注册命名空间，并在整轮完成后等待 `refresh_interval` 秒。
+正常健康的轮询没有刻意引入的抖动。命名空间发生故障时采用带 ±10% 抖动的有界指数退避；成功刷新会重置该延迟。
+由于整轮耗时、服务端发布传播及重试等因素，观察到更新的耗时可能会超过 `refresh_interval`。
+缓存 TTL 独立于该周期调度，仅控制读取触发的重新验证。
 
 ## 高级用法
 

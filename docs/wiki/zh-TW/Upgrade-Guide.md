@@ -132,7 +132,7 @@ let client = Client::new(config)?;
    use apollo_rust_client::namespace::get_namespace;
 
    // 使用公共 API 代替：
-   use apollo_rust_client::{Client, ClientConfig};
+   use apollo_rust_client::{client_config::ClientConfig, Client};
    ```
 
 ### 遷移示例

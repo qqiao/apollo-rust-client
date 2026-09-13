@@ -139,10 +139,10 @@ await client.start();
 const properties = await client.namespace("application");
 const value = properties.get_string("key");
 
-// Always free memory of Properties, Client, and ClientConfig in WASM
+// Always free memory of Properties and Client in WASM
+// (config was consumed by new Client and must not be freed)
 properties.free();
 client.free();
-config.free();
 ```
 
 ## Platform Differences

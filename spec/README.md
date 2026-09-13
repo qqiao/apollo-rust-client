@@ -20,6 +20,20 @@ Read in numerical order. These boundaries follow consumer capabilities; they do 
 
 Each `spec.md` uses prioritized stories, Given/When/Then scenarios, functional requirements, conceptual entities, and measurable outcomes, following the structure of GitHub's [Spec Kit feature template](https://github.com/github/spec-kit/blob/main/templates/spec-template.md). This is a format adaptation inside the requested `spec/` directory, not an installation of Spec Kit or a claim that a Specify CLI workflow/feature branch was executed.
 
+## Planned review remediation (2026-09-13)
+
+The seven findings from the 2026-09-12 codebase review now have separate specifications, technical plans, and task lists. **Implementation has not started.** Read the [remediation handoff](review-remediation/README.md) for the package map, dependencies, executor prompt, scope exclusions, and verification rules. These narrow amendments do not promote all retrospective requirements or deferred policies to approved scope.
+
+| Package | Intended correction |
+|---|---|
+| [006 — Cache restore ordering](006-cache-restore-ordering/spec.md) | Prevent delayed persistence restoration from replacing an already-populated memory response |
+| [007 — Public cache errors](007-public-cache-errors/spec.md) | Expose the existing error enum through a documented public alias |
+| [008 — WASM ownership docs](008-wasm-ownership-docs/spec.md) | Correct consumed-config cleanup and execute canonical ownership guidance |
+| [009 — Observable test cleanup](009-observable-test-cleanup/spec.md) | Preserve stage/signal status and expose bounded teardown failures |
+| [010 — Fixture body deadlines](010-fixture-body-deadlines/spec.md) | Keep fixture request deadlines active through response-body completion |
+| [011 — Executable public docs](011-executable-public-docs/spec.md) | Correct current API examples/references and verify actual Markdown snippets and local links |
+| [012 — Accurate polling docs](012-accurate-polling-docs/spec.md) | Describe post-round timing and failure jitter without changing polling behavior |
+
 ## Supporting material
 
 - [Contracts](supporting/contracts.md): environment variables, public Rust/JavaScript boundaries, Apollo wire behavior, and errors.

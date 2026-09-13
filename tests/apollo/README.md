@@ -46,6 +46,9 @@ This directory contains the integration testing environment for `apollo-rust-cli
   - Release Lifecycle: Saved-only invisibility, release publication, explicit client refresh, event listeners, and periodic polling.
 - **Mock / Fault Boundary (Docker-independent)**:
   - Deterministic network faults (hung requests, TCP resets, connection timeouts, HTTP 429/500 synthetic classifications, bad outer JSON) remain in unit/fault tests using in-process `MockHttpsServer` and scoped WASM test stubs.
+  - **Documentation Checks (Docker-independent)**:
+    - `scripts/check-doc-links.mjs`: Verifies that all relative Markdown file links resolve to existing files across `README.md`, `README_zh.md`, `CHANGELOG.md`, `docs/wiki/`, and `spec/`. External URLs and heading anchors are excluded from validation.
+    - `scripts/check-doc-examples.mjs`: Extracts marked canonical Rust examples (`<!-- apollo-example: ... -->`), places them into an isolated temporary consumer package, and compiles them via `cargo clippy --all-targets -- -D warnings` under both `native-tls` and `rustls`.
 - **Browser Execution Note**:
   - The WASM test suite runs under Node.js 24 using a standard in-memory storage fallback. Real browser runtime execution (Chrome/Firefox/Safari DOM, live browser localStorage) is not exercised by this suite.
 
@@ -150,6 +153,14 @@ node scripts/apollo-fixtures.mjs set-and-publish \
     --name my-release
 ```
 
+### Complete Request Deadlines
+
+- `requestJson` enforces a strict 5000ms deadline spanning the entire HTTP operation: connecting, receiving headers, and completely consuming response body text.
+- If headers arrive but the body stalls, the request aborts via `AbortController` and rejects with a contextual timeout error naming the HTTP method, URL, and configured duration.
+- Timeout diagnostics omit `Authorization` headers, sensitive secrets, and payload bodies.
+- Timer resources are cleared on all settled paths (success and failure), ensuring completed requests are never aborted by lingering timers.
+- This 5-second per-request network deadline is distinct from the coarse outer stage supervision deadlines (e.g. 300s) managed by `scripts/apollo-test.sh`.
+
 ## Administrative API Insights (Apollo 2.5.2)
 
 1. **App creation** (`POST /apps`):
@@ -205,10 +216,21 @@ node scripts/apollo-fixtures.mjs set-and-publish \
 - **Diagnostic Location**:
   - Active run directory: `${RUNNER_TEMP:-/tmp}/apollo-test-...`
   - Symlinked pointer: `target/apollo-test-latest`
-  - Log files: `target/apollo-test-latest/logs/compose-services.log`, `compose-ps.txt`, `seed.log`, `verify.log`, `suite-native.log`, `suite-rustls.log`, `suite-wasm.log`
+  - Log files: `target/apollo-test-latest/logs/compose-services.log`, `compose-ps.txt`, `teardown.log`, `seed.log`, `verify.log`, `suite-native.log`, `suite-rustls.log`, `suite-wasm.log`
   - State files: `target/apollo-test-latest/ownership.json`, `state.json`, `state-second.json`
+- **Teardown Supervision and Bounded Deadlines**:
+  - Teardown executes via process-group supervision (`run_with_timeout`) with a default 30-second deadline.
+  - If teardown exceeds the deadline, it sends `SIGTERM` to the process group, waits a 2-second termination grace, then issues `SIGKILL` and returns status 124.
+  - Teardown output is captured in `${RUN_DIR}/logs/teardown.log`. If log creation fails, it falls back to direct output and records diagnostic failure status 1.
+- **Exit Status Precedence**:
+  When a run terminates, final status is resolved using strict precedence:
+  1. Catchable signal status: `SIGINT` (130) or `SIGTERM` (143).
+  2. Original nonzero stage status (e.g. 7). Teardown failure does not erase prior test failures.
+  3. Nonzero teardown status (e.g. 42 or timeout 124).
+  4. Diagnostic capture failure status (1) if teardown succeeded but log preparation failed.
+  5. 0 (success).
 - **Signal Handling & Limitations**:
-  - Traps `SIGINT` (exit 130) and `SIGTERM` (exit 143), terminates active child processes, captures diagnostic logs, and cleans up Docker resources once.
+  - Traps `SIGINT` (exit 130) and `SIGTERM` (exit 143), terminates active child processes, captures diagnostic logs, and cleans up Docker resources once via the unified EXIT trap.
   - OS kills that cannot be caught (e.g. `SIGKILL`, system crashes, Docker daemon restart) cannot run traps.
 - **Scoped Recovery Cleanup**:
   - If a previous run was aborted or killed, run:

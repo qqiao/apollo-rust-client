@@ -16,5 +16,7 @@
 - `ip`: 您應用程式的 IP 位址。用于在灰度發布中識別目前實例。
 - `allow_insecure_https`: 是否允許不安全的 HTTPS 連接（自簽名憑證）。用于公司內部網路或開發環境。
 - `cache_ttl`: 記憶體和持久快取 TTL（預設 600 秒；`0` 表示始終在背景重新驗證）。
-- `refresh_interval`: 背景輪詢間隔（預設 30 秒，必須大於零）。
+- `refresh_interval`: 背景輪詢間隔（預設 30 秒，必須大於零；為每輪符合條件的命名空間刷新完成後的休眠時間）。
 - `request_timeout`: 完整請求和回應本文逾時（預設 10 秒，必須大於零）。
+
+詳細程式碼範例請參考 [English Configuration Guide](../en/Configuration.md)。

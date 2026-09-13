@@ -1,4 +1,4 @@
-[中文简体](../zh-CN/Design-Overview.md) | [中文繁體](../zh-TW/Design-Overview.md)
+[中文简体](../zh-CN/Design-Overview.md)
 [Back to Home](Home.md)
 
 # Design Overview
@@ -143,8 +143,8 @@ match namespace {
 
 The library uses a comprehensive error handling system:
 
-- **Client errors**: `AlreadyRunning`, `Namespace`, `Cache`
-- **Cache errors**: `NamespaceNotFound`, `Reqwest`, `UrlParse`, `Serde`, `Io`
-- **Namespace errors**: `Json`, `ContentNotFound`, `DeserializeError`
+- **Client errors**: `AlreadyRunning`, `Namespace`, `Cache`, `Config`, `HttpClient`, `Refresh`
+- **Cache errors**: `HttpStatus`, `Timeout`, `CoalescedRefresh`, `Reqwest`, `UrlParse`, `InvalidBaseUrl`, `InvalidSigningKey`, `Serde`, `Io` (exported as `apollo_rust_client::CacheError`)
+- **Namespace errors**: `Json`, `Yaml`, `Text`, `Xml` (with nested `ContentNotFound` and `DeserializeError` in `Json` and `Yaml`)
 
 All errors implement the standard `Error` trait and provide detailed error messages for debugging and monitoring.

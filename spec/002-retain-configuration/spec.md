@@ -114,3 +114,12 @@ As an application developer, I want concurrent callers to reuse in-progress retr
 ## Assumptions and Dependencies
 
 Depends on feature 001 for remote retrieval and typed consumption. Storage is optional and managed by the deployment/runtime. Restart scenarios assume persistence actually completed. The retention policy favors availability; no maximum stale age or cross-namespace consistency guarantee is newly introduced by this reconstruction.
+
+## Planned scoped amendment — restoration ordering (2026-09-13)
+
+Implementation is pending under [006-cache-restore-ordering](../006-cache-restore-ordering/spec.md). This refines same-client retained-state behavior without introducing server-version ordering, timestamp conflict resolution, or cross-process coordination.
+
+- **AC-017:** Given a suspended persistent restoration of an older value and an overlapping refresh that successfully populates memory first, when restoration resumes, then the cold read uses the memory winner, does not overwrite it, and emits no notification for the discarded stored candidate.
+- **FR-013:** Persistent restoration MUST check for an existing memory item and perform any installation atomically; if memory is already populated, it MUST use that item instead of the stored candidate. Ordinary persisted fallback, stale availability, and cancellation safety MUST be preserved.
+
+Verification and success criteria are detailed in 006/AC-001–007 and SC-001–003. Existing FR-004/FR-011 remain applicable; a failed refresh alone does not make valid persisted fallback unusable.

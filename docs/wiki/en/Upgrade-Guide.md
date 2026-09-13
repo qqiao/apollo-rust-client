@@ -130,10 +130,18 @@ Several internal functions are now `pub(crate)` instead of public:
    // Remove these imports if they exist:
    use apollo_rust_client::cache::Cache;
    use apollo_rust_client::namespace::get_namespace;
-
-   // Use the public API instead:
-   use apollo_rust_client::{Client, ClientConfig};
    ```
+
+   Use the public API instead:
+
+<!-- apollo-example: public-imports -->
+```rust
+use apollo_rust_client::{client_config::ClientConfig, Client};
+
+let config = ClientConfig::builder("my-app", "http://localhost:8080").build()?;
+let client = Client::new(config)?;
+let _ = client;
+```
 
 ### Example Migration
 

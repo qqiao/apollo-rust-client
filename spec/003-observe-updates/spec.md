@@ -109,3 +109,7 @@ As an application developer, I want deterministic control of periodic refresh so
 ## Assumptions and Dependencies
 
 Depends on features 001 and 002 for retrieval, typed results, retention, and shared refresh. Callbacks should complete promptly. The interval is a delay after a completed round, not a guaranteed publication-to-delivery SLO. Exact scheduling/concurrency mechanics belong in the separate technical design.
+
+## Planned documentation alignment (2026-09-13)
+
+[012-accurate-polling-docs](../012-accurate-polling-docs/spec.md) corrects current public claims to match AC-008 and the existing algorithm: sleep after a completed round, with jitter scoped to namespace failure backoff. It adds no scheduler behavior or freshness SLO. [006](../006-cache-restore-ordering/spec.md) additionally prevents notifications for discarded restoration candidates; it does not introduce globally ordered events or callback reentrancy.

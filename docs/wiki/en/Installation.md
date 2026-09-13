@@ -164,9 +164,8 @@ async function test() {
 
     console.log("Apollo Rust Client (WASM) installed successfully!");
 
-    // Clean up
+    // Clean up live client (config was consumed by new Client and must not be freed)
     client.free();
-    config.free();
   } catch (error) {
     console.error("Installation verification failed:", error);
   }

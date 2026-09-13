@@ -171,9 +171,8 @@ async function test() {
 
     console.log("Apollo Rust Client (WASM) installed successfully!");
 
-    // 清理
+    // 清理活躍客戶端（config 已由 new Client 消費，不可再釋放）
     client.free();
-    config.free();
   } catch (error) {
     console.error("Installation verification failed:", error);
   }
