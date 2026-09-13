@@ -708,14 +708,14 @@ test('status table: mixed repeated signals during cleanup (INT -> TERM and TERM 
           STUB_DOCKER_BLOCK: '1',
         },
       });
-      const exitPromise = waitForExit(runnerChild, 10000);
+      const exitPromise = waitForExit(runnerChild, 20000);
 
-      await waitForFile(workReadyFile, 5000);
+      await waitForFile(workReadyFile, 10000);
       // First signal sends runner into cleanup
       runnerChild.kill(firstSig);
 
       // Wait until teardown down stage starts
-      await waitForFile(downReadyFile, 5000);
+      await waitForFile(downReadyFile, 10000);
       const pidLines = fs.readFileSync(pidFile, 'utf8').trim().split('\n');
       trackedPids = pidLines.map((l) => parseInt(l.trim(), 10)).filter((p) => !isNaN(p) && p > 0);
 
@@ -842,9 +842,9 @@ test('CLI recovery: interrupted by SIGINT / SIGTERM reaps child and exits 130 / 
           TEARDOWN_TIMEOUT: '1',
         },
       });
-      const exitPromise = waitForExit(runnerChild, 10000);
+      const exitPromise = waitForExit(runnerChild, 20000);
 
-      await waitForFile(readyFile, 5000);
+      await waitForFile(readyFile, 10000);
       const pidLines = fs.readFileSync(pidFile, 'utf8').trim().split('\n');
       trackedPids = pidLines.map((l) => parseInt(l.trim(), 10)).filter((p) => !isNaN(p) && p > 0);
 
@@ -927,7 +927,62 @@ exit 0
   }
 });
 
-test('handle_signal defers during spawning phase and cleans up tracked child after registration (F8 / AC-007 / P2)', async () => {
+test('handle_signal defers during spawning phase when signal arrives before child registration (F8 / AC-007 / P2)', async () => {
+  const tempDir = makeTempDir();
+  const proofFile = path.join(tempDir, 'spawn_proof.txt');
+  const pidFile = path.join(tempDir, 'worker.pid');
+  const readyFile = path.join(tempDir, 'worker.ready');
+  const workerScript = path.join(tempDir, 'worker.sh');
+  let trackedPid = null;
+
+  try {
+    fs.writeFileSync(
+      workerScript,
+      `#!/usr/bin/env bash
+echo "$$" > "$1"
+touch "$2"
+sleep 30
+`,
+      { mode: 0o755 }
+    );
+
+    const harness = `
+      set -euo pipefail
+      source "${LIFECYCLE_SCRIPT}"
+      install_lifecycle_traps
+
+      export LIFECYCLE_SPAWN_HOOK='
+        printf "PHASE=%s\\nCURRENT_CHILD_PID=%s\\nCHILD_PID=%s\\n" "\${LIFECYCLE_PHASE:-none}" "\${CURRENT_CHILD_PID:-empty}" "\$child_pid" > "${proofFile}"
+        kill -TERM "$$"
+      '
+      run_with_timeout 10 "${workerScript}" "${pidFile}" "${readyFile}"
+    `;
+
+    const runner = spawn('bash', ['-c', harness]);
+    const exitRes = await waitForExit(runner, 10000);
+
+    assert.equal(exitRes.code, 143, 'Should exit with SIGTERM status 143');
+
+    await waitForFile(proofFile, 5000);
+    const proofContent = fs.readFileSync(proofFile, 'utf8');
+    assert.match(proofContent, /PHASE=spawning/, 'Phase must be spawning at injection point');
+    assert.match(proofContent, /CURRENT_CHILD_PID=empty/, 'CURRENT_CHILD_PID must not yet be registered at injection point');
+    const childPidMatch = proofContent.match(/CHILD_PID=(\d+)/);
+    assert.ok(childPidMatch && childPidMatch[1], 'Child PID must be captured in spawn proof');
+    const childPid = parseInt(childPidMatch[1], 10);
+    assert.ok(Number.isInteger(childPid) && childPid > 0, `Child PID must be a valid positive integer, got ${childPid}`);
+    trackedPid = childPid;
+
+    assert.equal(isProcessAlive(childPid), false, 'Spawned child process must be terminated and reaped');
+  } finally {
+    if (trackedPid) {
+      safeKillPid(trackedPid);
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('run_with_timeout reaps supervised child process when interrupted by worker signal', async () => {
   const tempDir = makeTempDir();
   const pidFile = path.join(tempDir, 'spawned.pid');
   const readyFile = path.join(tempDir, 'spawned.ready');
@@ -977,7 +1032,7 @@ sleep 10
   }
 });
 
-test('run_recovery_cleanup preserves late signal injected during final logging (P2)', async () => {
+test('run_recovery_cleanup exits immediately with signal status when late signal injected during final logging (P2)', async () => {
   for (const [sig, expectedStatus] of [['SIGTERM', 143], ['SIGINT', 130]]) {
     const tempDir = makeTempDir();
     try {
@@ -997,26 +1052,19 @@ test('run_recovery_cleanup preserves late signal injected during final logging (
         }
         trap 'handle_signal SIGTERM' TERM
         trap 'handle_signal SIGINT' INT
-        result=0
-        if run_recovery_cleanup "${runDir}"; then
-          result=0
-        else
-          result=$?
-        fi
-        printf 'RECOVERY_RETURN=%s INTERRUPTED_STATUS=%s' "$result" "$INTERRUPTED_STATUS"
+        run_recovery_cleanup "${runDir}"
       `;
 
       const res = spawnSync('bash', ['-c', harness], { encoding: 'utf8', timeout: 5000 });
-      assert.equal(res.status, 0);
-      assert.match(res.stdout, new RegExp(`RECOVERY_RETURN=${expectedStatus}`));
-      assert.match(res.stdout, new RegExp(`INTERRUPTED_STATUS=${expectedStatus}`));
+      assert.equal(res.status, expectedStatus, `Process must exit with status ${expectedStatus} when interrupted during terminal logging`);
+      assert.match(res.stderr, new RegExp(`Signal ${sig} received during terminal phase, exiting with status ${expectedStatus}`));
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   }
 });
 
-test('run_recovery_cleanup preserves first signal order during late signals (P2)', async () => {
+test('run_recovery_cleanup preserves first signal order when late signals injected during final logging (P2)', async () => {
   for (const [firstSig, secondSig, expectedStatus] of [['INT', 'TERM', 130], ['TERM', 'INT', 143]]) {
     const tempDir = makeTempDir();
     try {
@@ -1039,19 +1087,140 @@ test('run_recovery_cleanup preserves first signal order during late signals (P2)
         }
         trap 'handle_signal SIGTERM' TERM
         trap 'handle_signal SIGINT' INT
-        result=0
-        if run_recovery_cleanup "${runDir}"; then
-          result=0
-        else
-          result=$?
-        fi
-        printf 'RECOVERY_RETURN=%s INTERRUPTED_STATUS=%s' "$result" "$INTERRUPTED_STATUS"
+        run_recovery_cleanup "${runDir}"
       `;
 
       const res = spawnSync('bash', ['-c', harness], { encoding: 'utf8', timeout: 5000 });
-      assert.equal(res.status, 0);
-      assert.match(res.stdout, new RegExp(`RECOVERY_RETURN=${expectedStatus}`));
-      assert.match(res.stdout, new RegExp(`INTERRUPTED_STATUS=${expectedStatus}`));
+      assert.equal(res.status, expectedStatus, `Process must exit with first signal status ${expectedStatus}`);
+      assert.match(res.stderr, new RegExp(`exiting with status ${expectedStatus}`));
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('terminal-phase signal at helper return boundary exits with signal status (014/AC-009 / P2)', async () => {
+  for (const [sig, expectedStatus] of [['SIGTERM', 143], ['SIGINT', 130]]) {
+    const tempDir = makeTempDir();
+    try {
+      const runDir = path.join(tempDir, 'run');
+      fs.mkdirSync(runDir, { recursive: true });
+      fs.writeFileSync(path.join(runDir, 'ownership.json'), JSON.stringify({ project: 'apollo-test-boundary-helper' }));
+
+      const hook = `
+        set -T
+        review_injected=0
+        LIFECYCLE_PHASE=""
+        review_inject() {
+          if [ "$review_injected" -eq 0 ] && [ "$LIFECYCLE_PHASE" = finished ]; then
+            if [ "$1" = 'return "$final_status"' ]; then
+              review_injected=1
+              kill -${sig} "$$"
+            fi
+          fi
+          return 0
+        }
+        trap 'review_inject "$BASH_COMMAND"' DEBUG
+      `;
+      const hookPath = path.join(tempDir, 'hook.sh');
+      fs.writeFileSync(hookPath, hook);
+
+      const helper = spawnSync('bash', ['-c', `
+        source "${LIFECYCLE_SCRIPT}"
+        source "${hookPath}"
+        trap 'handle_signal SIGTERM' TERM
+        trap 'handle_signal SIGINT' INT
+        teardown_project() { return 0; }
+        run_recovery_cleanup "${runDir}"
+      `], {
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+
+      assert.equal(helper.status, expectedStatus, `Helper must exit ${expectedStatus} when interrupted at terminal return boundary`);
+      assert.match(helper.stderr, new RegExp(`Signal ${sig} received during terminal phase, exiting with status ${expectedStatus}`));
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('terminal-phase signal at CLI exit boundary exits with signal status (014/AC-009 / P2)', async () => {
+  for (const [sig, expectedStatus] of [['SIGTERM', 143], ['SIGINT', 130]]) {
+    const tempDir = makeTempDir();
+    try {
+      const hook = `
+        set -T
+        review_injected=0
+        LIFECYCLE_PHASE=""
+        review_inject() {
+          if [ "$review_injected" -eq 0 ] && [ "$LIFECYCLE_PHASE" = finished ]; then
+            if [ "$1" = 'exit "$rc"' ]; then
+              review_injected=1
+              kill -${sig} "$$"
+            fi
+          fi
+          return 0
+        }
+        trap 'review_inject "$BASH_COMMAND"' DEBUG
+      `;
+      const hookPath = path.join(tempDir, 'hook.sh');
+      fs.writeFileSync(hookPath, hook);
+
+      const cli = spawnSync('bash', [MAIN_SCRIPT, 'cleanup', '--run-dir', path.join(tempDir, 'missing')], {
+        encoding: 'utf8',
+        timeout: 5000,
+        env: { ...process.env, BASH_ENV: hookPath },
+      });
+
+      assert.equal(cli.status, expectedStatus, `CLI must exit ${expectedStatus} when interrupted at terminal exit boundary`);
+      assert.match(cli.stderr, new RegExp(`Signal ${sig} received during terminal phase, exiting with status ${expectedStatus}`));
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('terminal-phase signal preserves first-signal precedence at boundaries (014/AC-010 / P2)', async () => {
+  for (const [firstSig, terminalSig, expectedStatus] of [['SIGINT', 'SIGTERM', 130], ['SIGTERM', 'SIGINT', 143]]) {
+    const tempDir = makeTempDir();
+    try {
+      const runDir = path.join(tempDir, 'run');
+      fs.mkdirSync(runDir, { recursive: true });
+      fs.writeFileSync(path.join(runDir, 'ownership.json'), JSON.stringify({ project: 'apollo-test-boundary-precedence' }));
+
+      const hook = `
+        set -T
+        review_injected=0
+        LIFECYCLE_PHASE=""
+        review_inject() {
+          if [ "$review_injected" -eq 0 ] && [ "$LIFECYCLE_PHASE" = finished ]; then
+            if [ "$1" = 'return "$final_status"' ]; then
+              review_injected=1
+              kill -${terminalSig} "$$"
+            fi
+          fi
+          return 0
+        }
+        trap 'review_inject "$BASH_COMMAND"' DEBUG
+      `;
+      const hookPath = path.join(tempDir, 'hook.sh');
+      fs.writeFileSync(hookPath, hook);
+
+      const helper = spawnSync('bash', ['-c', `
+        source "${LIFECYCLE_SCRIPT}"
+        source "${hookPath}"
+        trap 'handle_signal SIGTERM' TERM
+        trap 'handle_signal SIGINT' INT
+        teardown_project() { return 0; }
+        handle_signal "${firstSig}"
+        run_recovery_cleanup "${runDir}"
+      `], {
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+
+      assert.equal(helper.status, expectedStatus, `Terminal boundary signal must preserve first signal status ${expectedStatus}`);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

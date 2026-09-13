@@ -23,6 +23,9 @@ run_with_timeout() {
     set -m
     "$@" &
     child_pid=$!
+    if [ -n "${LIFECYCLE_SPAWN_HOOK:-}" ]; then
+      eval "$LIFECYCLE_SPAWN_HOOK"
+    fi
     set +m
     CURRENT_CHILD_PID="$child_pid"
     if [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then
@@ -229,6 +232,9 @@ handle_signal() {
     echo "[apollo-test] Received signal ${sig}, aborting..." >&2
     LIFECYCLE_PHASE="cleanup"
     exit "$sig_status"
+  elif [ "${LIFECYCLE_PHASE:-}" = "finished" ]; then
+    echo "[apollo-test] Signal ${sig} received during terminal phase, exiting with status ${INTERRUPTED_STATUS}." >&2
+    exit "${INTERRUPTED_STATUS}"
   else
     echo "[apollo-test] Signal ${sig} deferred: bounded cleanup already in progress (phase: ${LIFECYCLE_PHASE})." >&2
     return 0
@@ -270,8 +276,11 @@ run_recovery_cleanup() {
     return 1
   fi
 
-  local proj
-  proj=$(node -e "const fs=require('fs'); try { const d=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); console.log(d.project || ''); } catch { process.exit(1); }" "$ownership_file" 2>/dev/null || true)
+  local proj=""
+  proj=$(grep -o '"project"[[:space:]]*:[[:space:]]*"[^"]*"' "$ownership_file" 2>/dev/null | head -n 1 | sed 's/.*:[[:space:]]*"//;s/"$//')
+  if [ -z "$proj" ]; then
+    proj=$(node -e "const fs=require('fs'); try { const d=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); console.log(d.project || ''); } catch { process.exit(1); }" "$ownership_file" 2>/dev/null || true)
+  fi
 
   if [ -z "$proj" ]; then
     echo "ERROR: Safety check failed: Failed to extract 'project' from '${ownership_file}'." >&2

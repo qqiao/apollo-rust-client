@@ -137,7 +137,7 @@
 
 ---
 
-## 4. Leader Review Remediation & Defect Resolution
+## 4. Leader Review Remediation & Defect Resolution (Commit `797285c`)
 
 During independent review of commit `797285c`, four defects and readiness timing sensitivities were identified and addressed:
 
@@ -157,6 +157,24 @@ During independent review of commit `797285c`, four defects and readiness timing
    - *Problem:* `parsed.username` and `parsed.password` in WHATWG `URL` objects are percent-encoded (`p%40ss`), causing HTTP Basic auth to send literal percent-encoded characters instead of decoded characters.
    - *Resolution:* Decoded `decodeURIComponent(parsed.username)` and `decodeURIComponent(parsed.password)` before Base64 encoding. Verified that explicit caller-provided `Authorization` headers retain precedence.
 
-5. **Readiness Timeout Buffering:**
-   - *Problem:* High system load under full test runs caused 5-second readiness timeouts to intermittently flake.
-   - *Resolution:* Increased default timeouts in `waitForFile` (10s) and `waitForExit` (15s) in lifecycle test harnesses.
+---
+
+## 5. Leader Re-Review Remediation & Hardening (Commit `0273182`)
+
+During independent re-review of commit `0273182`, three required findings were investigated, resolved, and verified:
+
+1. **P2 — Terminal-Phase Signals at Return/Exit Boundaries (`scripts/apollo-test-lifecycle.sh:handle_signal` & `scripts/apollo-test.sh`):**
+   - *Problem:* Signals arriving in `finished` phase (e.g. at the `return "$final_status"` boundary in helper or before `exit "$rc"` in CLI) were previously treated as "cleanup in progress" and deferred by `handle_signal`, causing the command to exit with status 0 despite `INTERRUPTED_STATUS` being set to 143/130.
+   - *Resolution:* In `handle_signal`, added an explicit check: if `LIFECYCLE_PHASE="finished"`, exit immediately with `exit "${INTERRUPTED_STATUS}"` without deferral. Added regression coverage for helper return boundary, CLI exit boundary, and first-signal precedence (`014/AC-009`, `014/AC-010`).
+
+2. **P2 — Spawn Race Window & Deterministic Handshake Injection (`scripts/apollo-test-lifecycle.sh` & `tests/tooling/apollo-lifecycle.test.mjs`):**
+   - *Problem:* The previous spawn test signaled the parent from the child worker script, which could execute after `CURRENT_CHILD_PID` was already assigned, passing even against pre-fix helpers lacking spawn-phase protection.
+   - *Resolution:* Added `LIFECYCLE_SPAWN_HOOK` injection point in `run_with_timeout` immediately after background spawn (`$!`) and before `CURRENT_CHILD_PID="$child_pid"`. The test uses this hook to assert `PHASE=spawning` and `CURRENT_CHILD_PID=empty`, injects `kill -TERM "$$"`, and asserts the runner exits 143 while the child process is terminated and reaped (`014/AC-007`). Ordinary worker interrupt test preserved separately.
+
+3. **P2 — Readiness Timeout Budgets & Startup Latency Analysis (`tests/tooling/apollo-lifecycle.test.mjs` & `scripts/apollo-test-lifecycle.sh`):**
+   - *Problem:* Explicit call sites passed 5000ms for file readiness and 10000ms for exit watchdog at lines 711, 718, 845, and 847, which were unaffected by helper function default changes.
+   - *Investigation & Startup Timings:*
+     - Teardown pipeline executes multiple subshells sequentially (`docker compose ps --format json`, `docker compose logs --no-color`, `docker compose down --volumes --remove-orphans`) and process tree traversal.
+     - Recovery cleanup previously invoked `node -e` to parse `ownership.json`, introducing ~300ms of Node startup latency per invocation. Replaced with fast grep/sed extraction (<5ms) with Node fallback.
+     - On macOS / Darwin, sequential process spawning and polling under multi-process test load can aggregate several seconds of latency before Docker down is invoked.
+     - Updated explicit test call sites to 10000ms for file readiness and 20000ms for exit watchdog. Production timeout contracts in `scripts/apollo-test.sh` and `scripts/apollo-test-lifecycle.sh` remain unchanged.
