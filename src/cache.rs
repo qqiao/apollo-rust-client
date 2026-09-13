@@ -211,6 +211,9 @@ pub enum Error {
 pub(crate) struct TestRestoreBarrier {
     pub(crate) loaded: tokio::sync::Notify,
     pub(crate) release: tokio::sync::Notify,
+    pub(crate) pause_before_notify: std::sync::atomic::AtomicBool,
+    pub(crate) installed: tokio::sync::Notify,
+    pub(crate) release_notify: tokio::sync::Notify,
 }
 
 #[cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
@@ -593,6 +596,15 @@ impl Cache {
                 (candidate, true)
             }
         };
+
+        #[cfg(all(test, not(target_arch = "wasm32")))]
+        if installed
+            && let Some(barrier) = &self.test_barrier
+            && barrier.pause_before_notify.load(Ordering::Acquire)
+        {
+            barrier.installed.notify_one();
+            barrier.release_notify.notified().await;
+        }
 
         if installed {
             let listeners = self.listeners.read().await.clone();
@@ -1728,7 +1740,11 @@ mod tests {
         let temp_dir = TempDir::new("restore_replace_ordering");
         let mut config = test_config(&server, temp_dir.path());
         config.cache_ttl = Some(60);
-        let cache = Cache::new(config, "application", test_http_client());
+        let mut cache = Cache::new(config, "application", test_http_client());
+
+        let barrier = Arc::new(TestRestoreBarrier::default());
+        barrier.pause_before_notify.store(true, Ordering::Release);
+        cache.set_test_barrier(barrier.clone());
 
         let events = Arc::new(std::sync::Mutex::new(Vec::new()));
         let events_clone = events.clone();
@@ -1752,23 +1768,78 @@ mod tests {
             config: serde_json::json!({"value": "new"}),
         };
 
-        // Run both concurrently
+        // Spawn restore task: installs "old" into memory and pauses before notifying listeners
         let cache1 = cache.clone();
         let old_clone = old_item.clone();
         let restore_task =
             tokio::spawn(async move { cache1.restore_memory_if_empty(old_clone).await });
 
+        // Await deterministic handshake: candidate is installed, restore pauses before notification
+        tokio::time::timeout(Duration::from_secs(2), barrier.installed.notified())
+            .await
+            .expect("restore should reach post-install barrier before notification");
+
+        // Verify restore installed "old" into memory but has not yet notified listeners
+        assert_eq!(
+            cache
+                .memory
+                .read()
+                .await
+                .as_ref()
+                .map(|i| i.config["value"].as_str().unwrap()),
+            Some("old")
+        );
+        assert!(
+            events.lock().unwrap().is_empty(),
+            "no notification should be emitted while restore is paused before notification"
+        );
+
+        // Drive competing replacement through the boundary while restore is paused
         let cache2 = cache.clone();
         let new_clone = new_item.clone();
         let replace_task = tokio::spawn(async move { cache2.replace_memory(new_clone).await });
 
-        let _ = tokio::join!(restore_task, replace_task);
+        // Yield to allow replace_task to execute.
+        // With update_lock, replace_task blocks on the lock and cannot proceed.
+        // Without update_lock, replace_task would immediately write "new" and emit "new" out of order.
+        tokio::task::yield_now().await;
 
-        let event_list = events.lock().unwrap().clone();
+        assert_eq!(
+            cache
+                .memory
+                .read()
+                .await
+                .as_ref()
+                .map(|i| i.config["value"].as_str().unwrap()),
+            Some("old"),
+            "replace_memory must not overwrite memory while restore is holding update_lock"
+        );
         assert!(
-            event_list == vec!["new".to_string()]
-                || event_list == vec!["old".to_string(), "new".to_string()],
-            "Event list must be [\"new\"] or [\"old\", \"new\"], got: {event_list:?}"
+            events.lock().unwrap().is_empty(),
+            "replace_memory must not notify listeners while restore is holding update_lock"
+        );
+
+        // Release restore to proceed with its notification
+        barrier.release_notify.notify_one();
+
+        // Unwrap both task results to ensure neither panicked
+        let restore_res = tokio::time::timeout(Duration::from_secs(2), restore_task)
+            .await
+            .expect("restore task should finish")
+            .expect("restore task panicked");
+        assert_eq!(restore_res.config["value"], "old");
+
+        tokio::time::timeout(Duration::from_secs(2), replace_task)
+            .await
+            .expect("replace task should finish")
+            .expect("replace task panicked");
+
+        // Assert strictly ordered notifications: "old" must precede "new", never ["new", "old"]
+        let event_list = events.lock().unwrap().clone();
+        assert_eq!(
+            event_list,
+            vec!["old".to_string(), "new".to_string()],
+            "Event list must be strictly ordered [\"old\", \"new\"]"
         );
         assert_eq!(
             cache
