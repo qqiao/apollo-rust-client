@@ -1064,6 +1064,62 @@ sleep 30
   }
 });
 
+test('handle_signal defers during spawning phase when signal arrives after child registration before work phase transition (C2)', async () => {
+  const tempDir = makeTempDir();
+  const proofFile = path.join(tempDir, 'post_reg_proof.txt');
+  const pidFile = path.join(tempDir, 'worker.pid');
+  const readyFile = path.join(tempDir, 'worker.ready');
+  const workerScript = path.join(tempDir, 'worker.sh');
+  let trackedPid = null;
+
+  try {
+    fs.writeFileSync(
+      workerScript,
+      `#!/usr/bin/env bash
+echo "$$" > "$1"
+touch "$2"
+sleep 30
+`,
+      { mode: 0o755 }
+    );
+
+    const harness = `
+      set -euo pipefail
+      source "${LIFECYCLE_SCRIPT}"
+      install_lifecycle_traps
+
+      export LIFECYCLE_TEST_MODE=1
+      __lifecycle_test_post_register_hook() {
+        printf "PHASE=%s\\nCURRENT_CHILD_PID=%s\\nCHILD_PID=%s\\n" "\${LIFECYCLE_PHASE:-none}" "\${CURRENT_CHILD_PID:-empty}" "\$1" > "${proofFile}"
+        kill -TERM "$$"
+      }
+      run_with_timeout 10 "${workerScript}" "${pidFile}" "${readyFile}"
+    `;
+
+    const runner = spawn('bash', ['-c', harness]);
+    const exitRes = await waitForExit(runner, 10000);
+
+    assert.equal(exitRes.code, 143, 'Should exit with SIGTERM status 143');
+
+    await waitForFile(proofFile, 5000);
+    const proofContent = fs.readFileSync(proofFile, 'utf8');
+    assert.match(proofContent, /PHASE=spawning/, 'Phase must still be spawning at injection point');
+    assert.match(proofContent, /CURRENT_CHILD_PID=\d+/, 'CURRENT_CHILD_PID must be registered before injection point');
+    const childPidMatch = proofContent.match(/CHILD_PID=(\d+)/);
+    assert.ok(childPidMatch && childPidMatch[1], 'Child PID must be captured in proof');
+    const childPid = parseInt(childPidMatch[1], 10);
+    assert.ok(Number.isInteger(childPid) && childPid > 0, `Child PID must be a valid positive integer, got ${childPid}`);
+    trackedPid = childPid;
+
+    assert.equal(isProcessAlive(childPid), false, 'Spawned child process must be terminated and reaped');
+  } finally {
+    if (trackedPid) {
+      safeKillPid(trackedPid);
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('run_with_timeout reaps supervised child process when interrupted by worker signal', async () => {
   const tempDir = makeTempDir();
   const pidFile = path.join(tempDir, 'spawned.pid');

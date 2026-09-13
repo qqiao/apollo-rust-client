@@ -132,13 +132,32 @@ export async function requestJson(url, options = {}) {
     controller.abort();
   }, timeoutMs);
 
+  const callerSignal = fetchOptions.signal;
+  let combinedSignal;
+  let removeCallerListener = null;
+
+  if (!callerSignal) {
+    combinedSignal = controller.signal;
+  } else if (typeof AbortSignal.any === 'function') {
+    combinedSignal = AbortSignal.any([controller.signal, callerSignal]);
+  } else {
+    combinedSignal = controller.signal;
+    if (callerSignal.aborted) {
+      controller.abort(callerSignal.reason);
+    } else {
+      const onAbort = () => controller.abort(callerSignal.reason);
+      callerSignal.addEventListener('abort', onAbort, { once: true });
+      removeCallerListener = () => callerSignal.removeEventListener('abort', onAbort);
+    }
+  }
+
   try {
     const response = await fetch(fetchUrl, {
       ...fetchOptions,
       method,
       headers,
       body,
-      signal: controller.signal,
+      signal: combinedSignal,
     });
     const text = await response.text();
     let data = null;
@@ -151,7 +170,7 @@ export async function requestJson(url, options = {}) {
     }
     return { status: response.status, headers: response.headers, data, ok: response.ok };
   } catch (err) {
-    if (timedOut) {
+    if (timedOut && !callerSignal?.aborted) {
       const sanitizedUrl = redactUrl(url);
       const timeoutErr = new Error(
         `Fixture request timed out after ${timeoutMs}ms: ${method} ${sanitizedUrl}`
@@ -163,6 +182,9 @@ export async function requestJson(url, options = {}) {
     throw err;
   } finally {
     clearTimeout(timer);
+    if (removeCallerListener) {
+      removeCallerListener();
+    }
   }
 }
 

@@ -134,4 +134,4 @@ Acceptance/success criteria are qualified by package ID; numeric IDs repeat inte
 | 005/FR-015 | 005/AC-019 | Lifecycle fault tests cover status precedence, bounded teardown, and repeated/interrupted cleanup; real teardown passes. |
 | 005/FR-016 | 005/AC-020 | Seven fixture HTTP tests cover headers/body timeout, settled results, and timer cleanup; real seed/verify/idempotency passes. |
 
-Package 013 now additionally rejects hidden required markers under LF and CRLF and invalid marked opening fences. The current documentation test file contains 13 tests, including the two final regressions; older counts above record earlier package stages. See the current audit for the final 45-tooling-test result.
+Package 013 now additionally rejects hidden required markers under LF and CRLF and invalid marked opening fences; older counts above record earlier package stages. See the current audit for the verified tooling test results.

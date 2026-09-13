@@ -155,11 +155,11 @@ node scripts/apollo-fixtures.mjs set-and-publish \
 
 ### Complete Request Deadlines
 
-- `requestJson` enforces a strict 5000ms deadline spanning the entire HTTP operation: connecting, receiving headers, and completely consuming response body text.
-- If headers arrive but the body stalls, the request aborts via `AbortController` and rejects with a contextual timeout error naming the HTTP method, URL, and configured duration.
+- `requestJson` enforces a default 5000ms deadline (configurable via `options.timeoutMs` and cancellable early via caller-supplied `fetchOptions.signal`) spanning the entire HTTP operation: connecting, receiving headers, and completely consuming response body text.
+- If headers arrive but the body stalls beyond the deadline, the request aborts via `AbortController` and rejects with a contextual timeout error naming the HTTP method, URL, and configured duration.
 - Timeout diagnostics omit `Authorization` headers, sensitive secrets, and payload bodies.
 - Timer resources are cleared on all settled paths (success and failure), ensuring completed requests are never aborted by lingering timers.
-- This 5-second per-request network deadline is distinct from the coarse outer stage supervision deadlines (e.g. 300s) managed by `scripts/apollo-test.sh`.
+- This 5-second default per-request network deadline is distinct from the coarse outer stage supervision deadlines (e.g. 300s) managed by `scripts/apollo-test.sh`.
 
 ## Administrative API Insights (Apollo 2.5.2)
 

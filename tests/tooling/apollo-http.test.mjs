@@ -460,3 +460,81 @@ test('redactUrl covers common secret query forms, duplicate keys, and preserves 
     await fixtureServer.close();
   }
 });
+
+test('requestJson respects caller-supplied fetchOptions.signal and cancels before deadline (C1)', async () => {
+  const fixtureServer = await createTestServer((req, res) => {
+    // Hangs
+  });
+
+  try {
+    const callerController = new AbortController();
+    const abortPromise = (async () => {
+      await new Promise((r) => setTimeout(r, 50));
+      callerController.abort(new Error('Caller operation cancelled'));
+    })();
+
+    const start = Date.now();
+    await assert.rejects(
+      async () => {
+        await requestJson(`${fixtureServer.baseUrl}/hang`, {
+          timeoutMs: 5000,
+          signal: callerController.signal,
+        });
+      },
+      (err) => {
+        assert.notEqual(err.name, 'TimeoutError', 'Must not be classified as TimeoutError');
+        assert.match(err.message, /Caller operation cancelled|aborted/i);
+        return true;
+      }
+    );
+    const elapsed = Date.now() - start;
+    assert.ok(elapsed < 2000, `Expected early cancel around 50ms, took ${elapsed}ms`);
+    await abortPromise;
+  } finally {
+    await fixtureServer.close();
+  }
+});
+
+test('requestJson rejects immediately when caller-supplied signal is already aborted (C1)', async () => {
+  const callerController = new AbortController();
+  callerController.abort(new Error('Already aborted'));
+
+  await assert.rejects(
+    async () => {
+      await requestJson('http://127.0.0.1:9999/dummy', {
+        timeoutMs: 5000,
+        signal: callerController.signal,
+      });
+    },
+    (err) => {
+      assert.notEqual(err.name, 'TimeoutError');
+      assert.match(err.message, /Already aborted|aborted/i);
+      return true;
+    }
+  );
+});
+
+test('requestJson still reports TimeoutError when caller-supplied signal is present but not aborted (C1)', async () => {
+  const fixtureServer = await createTestServer((req, res) => {
+    // Hangs
+  });
+
+  try {
+    const callerController = new AbortController();
+    await assert.rejects(
+      async () => {
+        await requestJson(`${fixtureServer.baseUrl}/hang`, {
+          timeoutMs: 100,
+          signal: callerController.signal,
+        });
+      },
+      (err) => {
+        assert.equal(err.name, 'TimeoutError', 'Must be classified as TimeoutError');
+        assert.match(err.message, /timed out after 100ms/i);
+        return true;
+      }
+    );
+  } finally {
+    await fixtureServer.close();
+  }
+});

@@ -67,4 +67,4 @@ The disposable project was `apollo-test-1789285692-f611ff3d`. Local logs were wr
 
 ## Final document checks
 
-All thirteen feature specifications have unique feature-local FR/AC/SC declarations. All 43 specification Markdown documents have balanced fenced blocks. Named test references in current traceability resolve to source/tests/scripts. The repository local-file link checker and `git diff --check` pass after the status and changelog edits. Remaining unstarted wording is confined to dated review history or acceptance instructions, not current feature status.
+All thirteen feature specifications have unique feature-local FR/AC/SC declarations. All specification Markdown documents have balanced fenced blocks. Named test references in current traceability resolve to source/tests/scripts. The repository local-file link checker and `git diff --check` pass after the status and changelog edits. Remaining unstarted wording is confined to dated review history or acceptance instructions, not current feature status.

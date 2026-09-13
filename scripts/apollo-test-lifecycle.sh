@@ -17,7 +17,6 @@ run_with_timeout() {
   shift
 
   local child_pid=""
-  local spawn_interrupted=0
   if [ "${LIFECYCLE_PHASE:-work}" = "work" ] || [ "${LIFECYCLE_PHASE:-}" = "spawning" ]; then
     LIFECYCLE_PHASE="spawning"
     set -m
@@ -28,11 +27,11 @@ run_with_timeout() {
     fi
     set +m
     CURRENT_CHILD_PID="$child_pid"
-    if [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then
-      spawn_interrupted=1
+    if [ "${LIFECYCLE_TEST_MODE:-0}" -eq 1 ] && declare -f __lifecycle_test_post_register_hook >/dev/null 2>&1; then
+      __lifecycle_test_post_register_hook "$child_pid" || true
     fi
     LIFECYCLE_PHASE="work"
-    if [ "$spawn_interrupted" -eq 1 ]; then
+    if [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then
       echo "[apollo-test] Pending interrupt (${INTERRUPTED_STATUS}) handled after process registration." >&2
       exit "${INTERRUPTED_STATUS}"
     fi

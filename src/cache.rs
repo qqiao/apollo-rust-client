@@ -244,6 +244,9 @@ pub(crate) struct Cache {
     /// Single-flight lock shared by cold loads, manual refreshes, and polling.
     refresh_lock: Arc<Mutex<()>>,
 
+    /// Lock serializing memory updates and their corresponding listener notifications.
+    update_lock: Arc<Mutex<()>>,
+
     /// Completed refresh generation used to coalesce concurrent waiters.
     refresh_generation: Arc<AtomicU64>,
 
@@ -341,6 +344,7 @@ impl Cache {
             listeners: Arc::new(RwLock::new(Vec::new())),
             load_lock: Arc::new(Mutex::new(())),
             refresh_lock: Arc::new(Mutex::new(())),
+            update_lock: Arc::new(Mutex::new(())),
             refresh_generation: Arc::new(AtomicU64::new(0)),
             consecutive_failures: Arc::new(AtomicU32::new(0)),
             next_allowed_refresh_timestamp: Arc::new(AtomicI64::new(0)),
@@ -579,6 +583,7 @@ impl Cache {
     }
 
     async fn restore_memory_if_empty(&self, candidate: CacheItem) -> CacheItem {
+        let _update_guard = self.update_lock.lock().await;
         let (selected_item, installed) = {
             let mut memory = self.memory.write().await;
             if let Some(current) = memory.as_ref() {
@@ -598,6 +603,7 @@ impl Cache {
     }
 
     async fn replace_memory(&self, item: CacheItem) {
+        let _update_guard = self.update_lock.lock().await;
         let changed = {
             let mut memory = self.memory.write().await;
             let changed = memory
@@ -1713,6 +1719,66 @@ mod tests {
 
         let event_list = events.lock().unwrap().clone();
         assert_eq!(event_list, vec!["new".to_string()]);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn concurrent_restore_and_replace_serialize_notifications_without_rollback() {
+        let server = fixed_server(200, r#"{"value":"new"}"#);
+        let temp_dir = TempDir::new("restore_replace_ordering");
+        let mut config = test_config(&server, temp_dir.path());
+        config.cache_ttl = Some(60);
+        let cache = Cache::new(config, "application", test_http_client());
+
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+        cache
+            .add_listener(Arc::new(move |result| {
+                if let Some(val) = result.ok().and_then(|ns| match ns {
+                    crate::namespace::Namespace::Properties(props) => props.get_string("value"),
+                    _ => None,
+                }) {
+                    events_clone.lock().unwrap().push(val);
+                }
+            }))
+            .await;
+
+        let old_item = CacheItem {
+            timestamp: Utc::now().timestamp(),
+            config: serde_json::json!({"value": "old"}),
+        };
+        let new_item = CacheItem {
+            timestamp: Utc::now().timestamp(),
+            config: serde_json::json!({"value": "new"}),
+        };
+
+        // Run both concurrently
+        let cache1 = cache.clone();
+        let old_clone = old_item.clone();
+        let restore_task =
+            tokio::spawn(async move { cache1.restore_memory_if_empty(old_clone).await });
+
+        let cache2 = cache.clone();
+        let new_clone = new_item.clone();
+        let replace_task = tokio::spawn(async move { cache2.replace_memory(new_clone).await });
+
+        let _ = tokio::join!(restore_task, replace_task);
+
+        let event_list = events.lock().unwrap().clone();
+        assert!(
+            event_list == vec!["new".to_string()]
+                || event_list == vec!["old".to_string(), "new".to_string()],
+            "Event list must be [\"new\"] or [\"old\", \"new\"], got: {event_list:?}"
+        );
+        assert_eq!(
+            cache
+                .memory
+                .read()
+                .await
+                .as_ref()
+                .map(|i| i.config["value"].as_str().unwrap()),
+            Some("new")
+        );
     }
 
     #[cfg(not(target_arch = "wasm32"))]
