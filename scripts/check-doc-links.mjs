@@ -77,6 +77,54 @@ function parseOpeningFence(line) {
 }
 
 /**
+ * Computes unescaped remaining closing parens ')' from each position to the end of str.
+ */
+export function computeRemainingClosingParens(str) {
+  const len = str.length;
+  const remaining = new Int32Array(len + 1);
+  for (let j = len - 1; j >= 0; j--) {
+    let isClosingParen = false;
+    if (str[j] === ')') {
+      let backslashes = 0;
+      let k = j - 1;
+      while (k >= 0 && str[k] === '\\') {
+        backslashes++;
+        k--;
+      }
+      if (backslashes % 2 === 0) {
+        isClosingParen = true;
+      }
+    }
+    remaining[j] = remaining[j + 1] + (isClosingParen ? 1 : 0);
+  }
+  return remaining;
+}
+
+/**
+ * Computes unescaped remaining closing angle brackets '>' from each position to the end of str.
+ */
+export function computeRemainingClosingAngles(str) {
+  const len = str.length;
+  const remaining = new Int32Array(len + 1);
+  for (let j = len - 1; j >= 0; j--) {
+    let isClosingAngle = false;
+    if (str[j] === '>') {
+      let backslashes = 0;
+      let k = j - 1;
+      while (k >= 0 && str[k] === '\\') {
+        backslashes++;
+        k--;
+      }
+      if (backslashes % 2 === 0) {
+        isClosingAngle = true;
+      }
+    }
+    remaining[j] = remaining[j + 1] + (isClosingAngle ? 1 : 0);
+  }
+  return remaining;
+}
+
+/**
  * Parses an angle-bracket destination starting with '<' at startPos.
  * CommonMark specification:
  * An angle-bracket destination starts with '<', ends with unescaped '>',
@@ -84,12 +132,17 @@ function parseOpeningFence(line) {
  *
  * Returns { destination, rawTarget, nextPos } or null if invalid/unclosed.
  */
-export function parseAngleDestination(str, startPos = 0) {
+export function parseAngleDestination(str, startPos = 0, remainingAngles = null, stats = null) {
+  if (stats) stats.work++;
   if (startPos >= str.length || str[startPos] !== '<') {
+    return null;
+  }
+  if (remainingAngles && remainingAngles[startPos + 1] === 0) {
     return null;
   }
   let p = startPos + 1;
   while (p < str.length) {
+    if (stats) stats.work++;
     if (str[p] === '\\') {
       p += 2;
       continue;
@@ -112,24 +165,32 @@ export function parseAngleDestination(str, startPos = 0) {
 /**
  * Parses a bare destination (not starting with '<') at startPos.
  * In an inline link, bare destination terminates at:
- * - unescaped whitespace (which may precede a title), OR
+ * - unescaped whitespace (which may precede a title or ')'), OR
  * - unescaped ')' when parenDepth is 0 (which ends the inline link).
  *
  * Returns { destination, rawTarget, nextPos } or null if invalid/unclosed.
  */
-export function parseBareDestination(str, startPos = 0) {
+export function parseBareDestination(str, startPos = 0, remainingParens = null, stats = null) {
+  if (stats) stats.work++;
   if (startPos >= str.length || str[startPos] === '<') {
+    return null;
+  }
+  if (remainingParens && remainingParens[startPos] === 0) {
     return null;
   }
   let p = startPos;
   let parenDepth = 0;
   while (p < str.length) {
+    if (stats) stats.work++;
     if (str[p] === '\\') {
       p += 2;
       continue;
     }
     if (str[p] === '(') {
       parenDepth++;
+      if (remainingParens && parenDepth + 1 > remainingParens[p + 1]) {
+        return null;
+      }
       p++;
       continue;
     }
@@ -173,11 +234,12 @@ export function parseBareDestination(str, startPos = 0) {
 /**
  * Parses an optional link title starting at startPos.
  * Returns { title, nextPos } or null if invalid/unclosed.
- * If no title opener is present, returns { title: null, nextPos: startPos }.
+ * If no title opener is present, returns { title: null, nextPos: p } where p is advanced over whitespace.
  */
-export function parseLinkTitle(str, startPos = 0) {
+export function parseLinkTitle(str, startPos = 0, stats = null) {
   let p = startPos;
   while (p < str.length && /\s/.test(str[p])) {
+    if (stats) stats.work++;
     p++;
   }
   if (p >= str.length) {
@@ -185,12 +247,13 @@ export function parseLinkTitle(str, startPos = 0) {
   }
   const opener = str[p];
   if (opener !== '"' && opener !== "'" && opener !== '(') {
-    return { title: null, nextPos: startPos };
+    return { title: null, nextPos: p };
   }
   const closer = opener === '(' ? ')' : opener;
   const titleStart = p + 1;
   p++;
   while (p < str.length) {
+    if (stats) stats.work++;
     if (str[p] === '\\') {
       p += 2;
       continue;
@@ -198,7 +261,8 @@ export function parseLinkTitle(str, startPos = 0) {
     if (str[p] === closer) {
       const title = str.slice(titleStart, p);
       p++;
-      while (p < str.length && /\s/.test(p)) {
+      while (p < str.length && /\s/.test(str[p])) {
+        if (stats) stats.work++;
         p++;
       }
       return { title, nextPos: p };
@@ -211,12 +275,12 @@ export function parseLinkTitle(str, startPos = 0) {
 /**
  * Parses a destination starting at startPos, which may be angle-bracketed or bare.
  */
-export function parseLinkDestination(str, startPos = 0) {
+export function parseLinkDestination(str, startPos = 0, remainingParens = null, remainingAngles = null, stats = null) {
   if (startPos >= str.length) return null;
   if (str[startPos] === '<') {
-    return parseAngleDestination(str, startPos);
+    return parseAngleDestination(str, startPos, remainingAngles, stats);
   }
-  return parseBareDestination(str, startPos);
+  return parseBareDestination(str, startPos, remainingParens, stats);
 }
 
 /**
@@ -295,9 +359,10 @@ function parseReferenceDefinition(line, lineNum) {
 /**
  * Parses markdown content and extracts local file links.
  */
-export function extractLinks(filePath, content) {
+export function extractLinks(filePath, content, options = {}) {
   const lines = content.split(/\r?\n/);
   const links = [];
+  const stats = options && options.stats ? options.stats : null;
   let insideFence = false;
   let currentFenceChar = '';
   let currentFenceLen = 0;
@@ -330,12 +395,17 @@ export function extractLinks(filePath, content) {
       continue;
     }
 
+    const len = line.length;
+    const remainingParens = computeRemainingClosingParens(line);
+    const remainingAngles = computeRemainingClosingAngles(line);
+    if (stats) stats.work += len * 2;
+
     // Single-pass forward scanner for inline links: [text](destination "optional title")
     let i = 0;
-    const len = line.length;
     let openBracketStack = [];
 
     while (i < len) {
+      if (stats) stats.work++;
       if (line[i] === '\\') {
         i += 2;
         continue;
@@ -353,12 +423,13 @@ export function extractLinks(filePath, content) {
           if (i + 1 < len && line[i + 1] === '(') {
             let destStart = i + 2;
             while (destStart < len && /\s/.test(line[destStart])) {
+              if (stats) stats.work++;
               destStart++;
             }
             if (destStart < len) {
-              const destRes = parseLinkDestination(line, destStart);
+              const destRes = parseLinkDestination(line, destStart, remainingParens, remainingAngles, stats);
               if (destRes !== null) {
-                const titleRes = parseLinkTitle(line, destRes.nextPos);
+                const titleRes = parseLinkTitle(line, destRes.nextPos, stats);
                 if (titleRes !== null && titleRes.nextPos < len && line[titleRes.nextPos] === ')') {
                   links.push({
                     line: lineNum + 1,

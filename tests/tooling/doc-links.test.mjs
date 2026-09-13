@@ -319,3 +319,134 @@ test('extractLinks performs linear-time scanning on adversarial unclosed/nested 
     assert.ok(elapsed < 100, `Scanning unclosed angle destination took ${elapsed.toFixed(1)}ms`);
   }
 });
+
+test('extractLinks and checkFileLinks handle trailing whitespace and tabs with bare and angle destinations, with and without titles', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'apollo-doc-link-whitespace-'));
+  try {
+    const sourceFile = path.join(tempDir, 'README.md');
+
+    // Create valid target files
+    fs.writeFileSync(path.join(tempDir, 'existing-bare.md'), '# Existing Bare\n', 'utf8');
+    fs.writeFileSync(path.join(tempDir, 'existing-angle.md'), '# Existing Angle\n', 'utf8');
+    fs.writeFileSync(path.join(tempDir, 'existing-titled.md'), '# Existing Titled\n', 'utf8');
+    fs.writeFileSync(path.join(tempDir, 'existing-tab.md'), '# Existing Tab\n', 'utf8');
+
+    const content = [
+      '# Trailing Whitespace Tests',
+      '',
+      '- [bare with space](missing-bare.md )',
+      '- [bare existing](existing-bare.md )',
+      '- [angle with space](<missing-angle.md> )',
+      '- [angle existing](<existing-angle.md> )',
+      '- [bare title space](missing-titled.md "title" )',
+      '- [bare title existing](existing-titled.md "title" )',
+      '- [angle title space](<missing-angle-titled.md> "title" )',
+      '- [bare with tab](missing-tab.md\t)',
+      '- [bare tab existing](existing-tab.md\t)',
+      '- [angle with tab](<missing-tab.md>\t)',
+      '- [bare tab title tab](missing-tab-titled.md\t"title"\t)',
+      '- [angle tab title tab](<missing-angle-tab-titled.md>\t"title"\t)',
+      '',
+      '[ref-space]: missing-ref.md ',
+      '[ref-title]: missing-ref-title.md "title" ',
+    ].join('\n');
+
+    const links = extractLinks(sourceFile, content);
+    assert.equal(links.length, 14, `Expected 14 links extracted, got ${links.length}: ${JSON.stringify(links)}`);
+
+    // Verify all targets and destinations extracted without truncation
+    assert.ok(links.some((l) => l.destination === 'missing-bare.md'), 'missing-bare.md destination missing');
+    assert.ok(links.some((l) => l.destination === 'existing-bare.md'), 'existing-bare.md destination missing');
+    assert.ok(links.some((l) => l.destination === 'missing-angle.md'), 'missing-angle.md destination missing');
+    assert.ok(links.some((l) => l.destination === 'existing-angle.md'), 'existing-angle.md destination missing');
+    assert.ok(links.some((l) => l.destination === 'missing-titled.md'), 'missing-titled.md destination missing');
+    assert.ok(links.some((l) => l.destination === 'existing-titled.md'), 'existing-titled.md destination missing');
+    assert.ok(links.some((l) => l.destination === 'missing-tab.md'), 'missing-tab.md destination missing');
+    assert.ok(links.some((l) => l.destination === 'existing-tab.md'), 'existing-tab.md destination missing');
+    assert.ok(links.some((l) => l.destination === 'missing-ref.md'), 'missing-ref.md destination missing');
+    assert.ok(links.some((l) => l.destination === 'missing-ref-title.md'), 'missing-ref-title.md destination missing');
+
+    const broken = checkFileLinks(sourceFile, links, tempDir);
+    // 14 links total: 4 exist, 10 are missing and must be flagged as broken
+    assert.equal(broken.length, 10, `Expected exactly 10 broken links, got ${broken.length}: ${JSON.stringify(broken)}`);
+
+    // Ensure none of the existing files were flagged
+    const brokenDestinations = broken.map((b) => b.resolvedPath);
+    assert.ok(!brokenDestinations.some((p) => p.endsWith('existing-bare.md')), 'existing-bare.md falsely flagged');
+    assert.ok(!brokenDestinations.some((p) => p.endsWith('existing-angle.md')), 'existing-angle.md falsely flagged');
+    assert.ok(!brokenDestinations.some((p) => p.endsWith('existing-titled.md')), 'existing-titled.md falsely flagged');
+    assert.ok(!brokenDestinations.some((p) => p.endsWith('existing-tab.md')), 'existing-tab.md falsely flagged');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('extractLinks performs linear-time scanning with deterministic work accounting across repeated incomplete destinations', () => {
+  // 1. Repeated incomplete destinations: '[x]('.repeat(n)
+  for (const n of [2000, 4000, 8000]) {
+    const stats = { work: 0 };
+    const input = '[x]('.repeat(n);
+    const start = performance.now();
+    const links = extractLinks('probe.md', input, { stats });
+    const elapsed = performance.now() - start;
+
+    assert.equal(links.length, 0, `Expected 0 links from incomplete destinations, got ${links.length}`);
+    assert.ok(elapsed < 100, `Scanning ${n} incomplete '[x](' took ${elapsed.toFixed(1)}ms, expected < 100ms`);
+
+    // Deterministic work accounting: total character steps must not exceed 4 * input length
+    const workRatio = stats.work / input.length;
+    assert.ok(
+      workRatio <= 4.0,
+      `Work ratio ${workRatio.toFixed(2)} (${stats.work} steps / ${input.length} chars) must be <= 4.0 for n=${n}`
+    );
+  }
+
+  // 2. Repeated incomplete destinations followed by a valid link: '[x]('.repeat(n) + '[x](valid.md)'
+  for (const n of [2000, 4000, 8000]) {
+    const stats = { work: 0 };
+    const input = '[x]('.repeat(n) + '[x](valid.md)';
+    const start = performance.now();
+    const links = extractLinks('probe.md', input, { stats });
+    const elapsed = performance.now() - start;
+
+    assert.equal(links.length, 1, `Expected exactly 1 valid link at tail, got ${links.length}`);
+    assert.equal(links[0].destination, 'valid.md');
+    assert.ok(elapsed < 100, `Scanning ${n} incomplete + valid took ${elapsed.toFixed(1)}ms, expected < 100ms`);
+
+    // Deterministic work accounting: total character steps must not exceed 5 * input length
+    const workRatio = stats.work / input.length;
+    assert.ok(
+      workRatio <= 5.0,
+      `Work ratio ${workRatio.toFixed(2)} (${stats.work} steps / ${input.length} chars) must be <= 5.0 for n=${n}`
+    );
+  }
+
+  // 3. Repeated incomplete angle destinations: '[x](<'.repeat(n)
+  for (const n of [2000, 4000, 8000]) {
+    const stats = { work: 0 };
+    const input = '[x](<'.repeat(n);
+    const start = performance.now();
+    const links = extractLinks('probe.md', input, { stats });
+    const elapsed = performance.now() - start;
+
+    assert.equal(links.length, 0);
+    assert.ok(elapsed < 100);
+    const workRatio = stats.work / input.length;
+    assert.ok(workRatio <= 4.0, `Work ratio ${workRatio.toFixed(2)} must be <= 4.0 for angle n=${n}`);
+  }
+
+  // 4. Repeated incomplete angle destinations followed by valid link: '[x](<'.repeat(n) + '[x](<valid.md>)'
+  for (const n of [2000, 4000, 8000]) {
+    const stats = { work: 0 };
+    const input = '[x](<'.repeat(n) + '[x](<valid.md>)';
+    const start = performance.now();
+    const links = extractLinks('probe.md', input, { stats });
+    const elapsed = performance.now() - start;
+
+    assert.equal(links.length, 1);
+    assert.equal(links[0].destination, 'valid.md');
+    assert.ok(elapsed < 100);
+    const workRatio = stats.work / input.length;
+    assert.ok(workRatio <= 5.0, `Work ratio ${workRatio.toFixed(2)} must be <= 5.0 for angle valid n=${n}`);
+  }
+});
