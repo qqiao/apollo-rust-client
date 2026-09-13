@@ -314,5 +314,10 @@ run_recovery_cleanup() {
   else
     echo "[apollo-test] Recovery cleanup failed for project ${proj} (${target_dir}) with status ${final_status}." >&2
   fi
+
+  # Preserve any signal arriving during or after final logging: first recorded signal wins
+  if [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then
+    final_status="${INTERRUPTED_STATUS}"
+  fi
   return "$final_status"
 }

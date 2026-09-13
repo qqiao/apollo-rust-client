@@ -52,11 +52,12 @@ function validateLoopbackUrl(urlString, name) {
 const SENSITIVE_PARAM_REGEX = /^(token|secret|key|password|auth|credential|access_token|client_secret)$/i;
 
 export function redactUrl(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== 'string') {
-    return rawUrl;
+  if (!rawUrl) {
+    return '';
   }
+  const urlString = rawUrl instanceof URL ? rawUrl.toString() : (typeof rawUrl === 'string' ? rawUrl : String(rawUrl));
   try {
-    const parsed = new URL(rawUrl);
+    const parsed = new URL(urlString);
     if (parsed.username || parsed.password) {
       parsed.username = '***';
       parsed.password = '***';
@@ -69,7 +70,7 @@ export function redactUrl(rawUrl) {
     return parsed.toString();
   } catch {
     // Fallback for relative or malformed URLs
-    return rawUrl
+    return urlString
       .replace(/(\/\/[^:@/]+):[^@/]+@/, '$1:***@')
       .replace(/([?&](?:token|secret|key|password|auth|credential|access_token|client_secret)=)[^&]*/gi, '$1REDACTED');
   }
@@ -89,7 +90,15 @@ export async function requestJson(url, options = {}) {
     const parsed = new URL(url);
     if (parsed.username || parsed.password) {
       if (!headers['Authorization'] && !headers['authorization']) {
-        const creds = Buffer.from(`${parsed.username}:${parsed.password}`).toString('base64');
+        let username = parsed.username;
+        let password = parsed.password;
+        try {
+          username = decodeURIComponent(parsed.username);
+        } catch {}
+        try {
+          password = decodeURIComponent(parsed.password);
+        } catch {}
+        const creds = Buffer.from(`${username}:${password}`).toString('base64');
         headers['Authorization'] = `Basic ${creds}`;
       }
       parsed.username = '';

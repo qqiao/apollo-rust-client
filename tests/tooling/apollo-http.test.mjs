@@ -297,3 +297,68 @@ test('timeout error diagnostic redacts credentials and query secrets from URL (A
     await fixtureServer.close();
   }
 });
+
+test('redactUrl handles URL object input and requestJson redacts URL object timeouts (P1)', async () => {
+  // Test redactUrl with URL object
+  const urlObj = new URL('http://admin:super_secret_pw@127.0.0.1:8080/configs?token=secret123&env=DEV');
+  const redacted = redactUrl(urlObj);
+  assert.equal(typeof redacted, 'string');
+  assert.ok(!redacted.includes('super_secret_pw'), 'Must not contain password');
+  assert.ok(!redacted.includes('secret123'), 'Must not contain token');
+  assert.match(redacted, /\*\*\*:\*\*\*@127\.0\.0\.1:8080\/configs/);
+  assert.match(redacted, /token=REDACTED/);
+  assert.match(redacted, /env=DEV/);
+
+  // Test requestJson with URL object timeout
+  const fixtureServer = await createTestServer((req, res) => {
+    // Stalls
+  });
+
+  try {
+    const timeoutUrlObj = new URL(`${fixtureServer.baseUrl}/stall?token=SYNTHETIC_SECRET&client_secret=TOP_SECRET`);
+    await assert.rejects(
+      async () => {
+        await requestJson(timeoutUrlObj, { timeoutMs: 100 });
+      },
+      (err) => {
+        assert.ok(!err.message.includes('SYNTHETIC_SECRET'), 'Timeout message must NOT contain SYNTHETIC_SECRET');
+        assert.ok(!err.message.includes('TOP_SECRET'), 'Timeout message must NOT contain TOP_SECRET');
+        assert.match(err.message, /token=REDACTED/);
+        assert.match(err.message, /client_secret=REDACTED/);
+        return true;
+      }
+    );
+  } finally {
+    await fixtureServer.close();
+  }
+});
+
+test('requestJson correctly decodes percent-encoded basic auth credentials and respects header precedence (P2)', async () => {
+  const authServer = await createTestServer((req, res) => {
+    if (req.url.startsWith('/auth')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ authorization: req.headers.authorization }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  try {
+    // Percent-encoded password p%40ss must decode to p@ss
+    const authUrl = `${authServer.baseUrl.replace('http://', 'http://user%3Atest:p%40ss@')}/auth`;
+    const res = await requestJson(authUrl);
+    assert.equal(res.status, 200);
+    assert.ok(res.data.authorization.startsWith('Basic '));
+    const decodedCreds = Buffer.from(res.data.authorization.slice(6), 'base64').toString('utf8');
+    assert.equal(decodedCreds, 'user:test:p@ss', 'Percent-encoded user:test and p%40ss must decode properly');
+
+    // Explicit caller Authorization header overrides URL credentials
+    const customAuth = await requestJson(authUrl, {
+      headers: { 'Authorization': 'Bearer custom_override_token' },
+    });
+    assert.equal(customAuth.data.authorization, 'Bearer custom_override_token');
+  } finally {
+    await authServer.close();
+  }
+});

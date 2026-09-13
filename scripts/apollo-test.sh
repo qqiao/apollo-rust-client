@@ -157,7 +157,14 @@ if [ "$MODE" = "cleanup" ]; then
     echo "[apollo-test] No run directory specified or recorded. Fallback cleanup is safe."
     exit 0
   fi
-  trap - EXIT
+  recovery_exit_handler() {
+    local rc=$?
+    if [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then
+      exit "$INTERRUPTED_STATUS"
+    fi
+    exit "$rc"
+  }
+  trap recovery_exit_handler EXIT
   recovery_status=0
   if run_recovery_cleanup "$RECOVERY_RUN_DIR"; then
     recovery_status=0

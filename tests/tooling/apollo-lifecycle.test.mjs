@@ -33,7 +33,7 @@ function safeKillPid(pid) {
   } catch {}
 }
 
-async function waitForFile(filePath, timeoutMs = 5000) {
+async function waitForFile(filePath, timeoutMs = 10000) {
   const start = Date.now();
   while (!fs.existsSync(filePath)) {
     if (Date.now() - start > timeoutMs) {
@@ -43,7 +43,7 @@ async function waitForFile(filePath, timeoutMs = 5000) {
   }
 }
 
-async function waitForExit(child, timeoutMs = 10000) {
+async function waitForExit(child, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       try {
@@ -877,29 +877,45 @@ test('run_with_timeout detects and terminates surviving descendants in process g
   const tempDir = makeTempDir();
   const pidFile = path.join(tempDir, 'descendant.pid');
   const readyFile = path.join(tempDir, 'descendant.ready');
+  const workerScript = path.join(tempDir, 'worker.sh');
+  const leaderScript = path.join(tempDir, 'leader.sh');
 
   try {
+    fs.writeFileSync(
+      workerScript,
+      `#!/usr/bin/env bash
+echo "$$" > "$1"
+touch "$2"
+sleep 10
+`,
+      { mode: 0o755 }
+    );
+
+    fs.writeFileSync(
+      leaderScript,
+      `#!/usr/bin/env bash
+"${workerScript}" "$1" "$2" &
+exit 0
+`,
+      { mode: 0o755 }
+    );
+
     const harness = `
       set -euo pipefail
       source "${LIFECYCLE_SCRIPT}"
 
       # Leader launches background worker in same group and exits immediately
-      run_with_timeout 2 bash -c '
-        bash -c "echo \\$\\$ > \\"${pidFile}\\"; touch \\"${readyFile}\\"; sleep 10" &
-        exit 0
-      '
+      run_with_timeout 2 "${leaderScript}" "${pidFile}" "${readyFile}"
     `;
 
-    const runner = spawn('bash', ['-c', harness], {
-      timeout: 5000,
-    });
-    await waitForExit(runner, 5000);
+    const runner = spawn('bash', ['-c', harness]);
+    await waitForExit(runner, 10000);
 
-    await waitForFile(readyFile, 2000).catch(() => {});
-    if (fs.existsSync(pidFile)) {
-      const descendantPid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
-      assert.equal(isProcessAlive(descendantPid), false, `Descendant PID ${descendantPid} must be terminated and not orphaned`);
-    }
+    await waitForFile(readyFile, 5000);
+    assert.ok(fs.existsSync(pidFile), 'Descendant PID file must exist');
+    const descendantPid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+    assert.ok(Number.isInteger(descendantPid) && descendantPid > 0, `Descendant PID must be a valid positive integer, got ${descendantPid}`);
+    assert.equal(isProcessAlive(descendantPid), false, `Descendant PID ${descendantPid} must be terminated and not orphaned`);
   } finally {
     if (fs.existsSync(pidFile)) {
       try {
@@ -911,35 +927,45 @@ test('run_with_timeout detects and terminates surviving descendants in process g
   }
 });
 
-test('handle_signal defers during spawning phase and cleans up tracked child after registration (F8 / AC-007)', async () => {
+test('handle_signal defers during spawning phase and cleans up tracked child after registration (F8 / AC-007 / P2)', async () => {
   const tempDir = makeTempDir();
   const pidFile = path.join(tempDir, 'spawned.pid');
   const readyFile = path.join(tempDir, 'spawned.ready');
+  const workerScript = path.join(tempDir, 'worker.sh');
 
   try {
+    fs.writeFileSync(
+      workerScript,
+      `#!/usr/bin/env bash
+echo "$$" > "$1"
+touch "$2"
+if [ -n "\${3:-}" ]; then
+  kill -TERM "$3"
+fi
+sleep 10
+`,
+      { mode: 0o755 }
+    );
+
     const harness = `
       set -euo pipefail
       source "${LIFECYCLE_SCRIPT}"
       install_lifecycle_traps
 
-      # Simulate handle_signal arriving during spawning phase
-      LIFECYCLE_PHASE="spawning"
-      handle_signal SIGTERM
-
-      # Now run_with_timeout launches child and checks pending interrupt
-      run_with_timeout 5 bash -c 'echo \\$\\$ > "${pidFile}"; touch "${readyFile}"; sleep 10'
+      runner_pid="$$"
+      run_with_timeout 5 "${workerScript}" "${pidFile}" "${readyFile}" "$runner_pid"
     `;
 
     const runner = spawn('bash', ['-c', harness]);
-    const exitRes = await waitForExit(runner, 5000);
+    const exitRes = await waitForExit(runner, 10000);
 
     assert.equal(exitRes.code, 143, 'Should exit with SIGTERM status 143');
 
-    await waitForFile(readyFile, 2000).catch(() => {});
-    if (fs.existsSync(pidFile)) {
-      const childPid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
-      assert.equal(isProcessAlive(childPid), false, 'Child process must be terminated and reaped');
-    }
+    await waitForFile(readyFile, 5000);
+    assert.ok(fs.existsSync(pidFile), 'Spawned PID file must exist');
+    const childPid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+    assert.ok(Number.isInteger(childPid) && childPid > 0, `Spawned PID must be a valid positive integer, got ${childPid}`);
+    assert.equal(isProcessAlive(childPid), false, 'Child process must be terminated and reaped');
   } finally {
     if (fs.existsSync(pidFile)) {
       try {
@@ -948,5 +974,86 @@ test('handle_signal defers during spawning phase and cleans up tracked child aft
       } catch {}
     }
     fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('run_recovery_cleanup preserves late signal injected during final logging (P2)', async () => {
+  for (const [sig, expectedStatus] of [['SIGTERM', 143], ['SIGINT', 130]]) {
+    const tempDir = makeTempDir();
+    try {
+      const runDir = path.join(tempDir, 'run');
+      fs.mkdirSync(runDir, { recursive: true });
+      fs.writeFileSync(path.join(runDir, 'ownership.json'), JSON.stringify({ project: 'apollo-test-late-sig' }));
+
+      const harness = `
+        set -euo pipefail
+        source "${LIFECYCLE_SCRIPT}"
+        teardown_project() { return 0; }
+        echo() {
+          case "$*" in
+            *"Recovery cleanup complete"*) kill -${sig} "$$" ;;
+          esac
+          builtin echo "$@"
+        }
+        trap 'handle_signal SIGTERM' TERM
+        trap 'handle_signal SIGINT' INT
+        result=0
+        if run_recovery_cleanup "${runDir}"; then
+          result=0
+        else
+          result=$?
+        fi
+        printf 'RECOVERY_RETURN=%s INTERRUPTED_STATUS=%s' "$result" "$INTERRUPTED_STATUS"
+      `;
+
+      const res = spawnSync('bash', ['-c', harness], { encoding: 'utf8', timeout: 5000 });
+      assert.equal(res.status, 0);
+      assert.match(res.stdout, new RegExp(`RECOVERY_RETURN=${expectedStatus}`));
+      assert.match(res.stdout, new RegExp(`INTERRUPTED_STATUS=${expectedStatus}`));
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('run_recovery_cleanup preserves first signal order during late signals (P2)', async () => {
+  for (const [firstSig, secondSig, expectedStatus] of [['INT', 'TERM', 130], ['TERM', 'INT', 143]]) {
+    const tempDir = makeTempDir();
+    try {
+      const runDir = path.join(tempDir, 'run');
+      fs.mkdirSync(runDir, { recursive: true });
+      fs.writeFileSync(path.join(runDir, 'ownership.json'), JSON.stringify({ project: 'apollo-test-order-sig' }));
+
+      const harness = `
+        set -euo pipefail
+        source "${LIFECYCLE_SCRIPT}"
+        teardown_project() { return 0; }
+        echo() {
+          case "$*" in
+            *"Recovery cleanup complete"*)
+              kill -${firstSig} "$$"
+              kill -${secondSig} "$$"
+              ;;
+          esac
+          builtin echo "$@"
+        }
+        trap 'handle_signal SIGTERM' TERM
+        trap 'handle_signal SIGINT' INT
+        result=0
+        if run_recovery_cleanup "${runDir}"; then
+          result=0
+        else
+          result=$?
+        fi
+        printf 'RECOVERY_RETURN=%s INTERRUPTED_STATUS=%s' "$result" "$INTERRUPTED_STATUS"
+      `;
+
+      const res = spawnSync('bash', ['-c', harness], { encoding: 'utf8', timeout: 5000 });
+      assert.equal(res.status, 0);
+      assert.match(res.stdout, new RegExp(`RECOVERY_RETURN=${expectedStatus}`));
+      assert.match(res.stdout, new RegExp(`INTERRUPTED_STATUS=${expectedStatus}`));
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   }
 });

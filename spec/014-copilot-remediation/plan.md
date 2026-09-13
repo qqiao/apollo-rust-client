@@ -1,7 +1,7 @@
 # Technical Plan: GitHub Copilot Review Remediation
 
 **Feature ID:** `014-copilot-remediation`  
-**Status:** Design plan awaiting HumanReviewer approval.  
+**Status:** Implemented and verified (including Leader review remediation).
 **Baseline documents:** [spec.md](spec.md), [tasks.md](tasks.md).
 
 ---
@@ -134,3 +134,29 @@
    ```bash
    git diff --check
    ```
+
+---
+
+## 4. Leader Review Remediation & Defect Resolution
+
+During independent review of commit `797285c`, four defects and readiness timing sensitivities were identified and addressed:
+
+1. **P1 — URL Objects Bypassing Redaction (`scripts/apollo-fixtures.mjs:54-57`):**
+   - *Problem:* `redactUrl` returned non-string inputs unmodified, allowing `URL` instances to leak tokens and query parameters when stringified by `requestJson` timeout messages.
+   - *Resolution:* Normalized `rawUrl` to string via `rawUrl instanceof URL ? rawUrl.toString() : String(rawUrl)` before parsing and sanitizing. Covered with unit test `redactUrl handles URL object input and requestJson redacts URL object timeouts (P1)`.
+
+2. **P2 — Stale Recovery Status on Late Signal (`scripts/apollo-test-lifecycle.sh:300-318` & `scripts/apollo-test.sh:160-171`):**
+   - *Problem:* `run_recovery_cleanup` snapshotted `final_status` before outputting its completion banner. An interrupt arriving during or after the banner recorded `INTERRUPTED_STATUS` but returned the stale snapshot (0).
+   - *Resolution:* Re-evaluated `if [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then final_status="${INTERRUPTED_STATUS}"; fi` immediately prior to return, and installed `recovery_exit_handler` trap on `EXIT` in `scripts/apollo-test.sh` cleanup mode. Verified with deterministic tests covering late SIGTERM, late SIGINT, and both signal arrival sequences.
+
+3. **P2 — Spawn Test Process Liveness & Readiness Verification (`tests/tooling/apollo-lifecycle.test.mjs`):**
+   - *Problem:* Harness generated literal `$$` inside single quotes, resulting in NaN and bypassing liveness assertion. Optional file checks swallowed missing readiness.
+   - *Resolution:* Converted to standalone helper scripts (`worker.sh` and `leader.sh`) that record real integer PIDs, write readiness files, and trigger deterministic signals without string-escaping issues. Replaced optional `.catch(() => {})` with mandatory `waitForFile` and explicit assertions verifying valid positive integer PIDs and `isProcessAlive(pid) === false`.
+
+4. **P2 — Basic Auth Percent-Encoding in Decoded Credentials (`scripts/apollo-fixtures.mjs:89-98`):**
+   - *Problem:* `parsed.username` and `parsed.password` in WHATWG `URL` objects are percent-encoded (`p%40ss`), causing HTTP Basic auth to send literal percent-encoded characters instead of decoded characters.
+   - *Resolution:* Decoded `decodeURIComponent(parsed.username)` and `decodeURIComponent(parsed.password)` before Base64 encoding. Verified that explicit caller-provided `Authorization` headers retain precedence.
+
+5. **Readiness Timeout Buffering:**
+   - *Problem:* High system load under full test runs caused 5-second readiness timeouts to intermittently flake.
+   - *Resolution:* Increased default timeouts in `waitForFile` (10s) and `waitForExit` (15s) in lifecycle test harnesses.
