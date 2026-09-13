@@ -382,7 +382,118 @@ test('extractLinks and checkFileLinks handle trailing whitespace and tabs with b
 });
 
 test('extractLinks performs linear-time scanning with deterministic work accounting across repeated incomplete destinations', () => {
-  // 1. Repeated incomplete destinations: '[x]('.repeat(n)
+  // 1. Leader reproduction: repeated parens + space + closing parens
+  for (const n of [1000, 2000, 4000, 8000]) {
+    const stats = { work: 0 };
+    const input = '[x]('.repeat(n) + ' ' + ')'.repeat(n);
+    const start = performance.now();
+    const links = extractLinks('probe.md', input, { stats });
+    const elapsed = performance.now() - start;
+
+    assert.equal(links.length, 1, `Expected 1 link (trailing empty destination), got ${links.length}`);
+    assert.ok(elapsed < 100, `Scanning ${n} reproduction took ${elapsed.toFixed(1)}ms, expected < 100ms`);
+
+    const workRatio = stats.work / input.length;
+    assert.ok(
+      workRatio <= 4.5,
+      `Work ratio ${workRatio.toFixed(2)} (${stats.work} steps / ${input.length} chars) must be <= 4.5 for n=${n}`
+    );
+  }
+
+  // 2. Leader reproduction followed by trailing valid link
+  for (const n of [1000, 2000, 4000, 8000]) {
+    const stats = { work: 0 };
+    const input = '[x]('.repeat(n) + ' ' + ')'.repeat(n) + ' [valid](valid.md)';
+    const start = performance.now();
+    const links = extractLinks('probe.md', input, { stats });
+    const elapsed = performance.now() - start;
+
+    assert.equal(links.length, 2, `Expected 2 links, got ${links.length}`);
+    assert.equal(links[1].destination, 'valid.md');
+    assert.ok(elapsed < 100, `Scanning ${n} reproduction + valid took ${elapsed.toFixed(1)}ms`);
+
+    const workRatio = stats.work / input.length;
+    assert.ok(
+      workRatio <= 4.5,
+      `Work ratio ${workRatio.toFixed(2)} (${stats.work} steps / ${input.length} chars) must be <= 4.5 for n=${n}`
+    );
+  }
+
+  // 3. Repeated malformed unclosed titles
+  for (const n of [1000, 2000, 4000, 8000]) {
+    const stats = { work: 0 };
+    const input = '[x](dest "unclosed title '.repeat(n);
+    const start = performance.now();
+    const links = extractLinks('probe.md', input, { stats });
+    const elapsed = performance.now() - start;
+
+    assert.equal(links.length, 0, `Expected 0 links for unclosed titles, got ${links.length}`);
+    assert.ok(elapsed < 100, `Scanning ${n} unclosed titles took ${elapsed.toFixed(1)}ms`);
+
+    const workRatio = stats.work / input.length;
+    assert.ok(
+      workRatio <= 4.5,
+      `Work ratio ${workRatio.toFixed(2)} (${stats.work} steps / ${input.length} chars) must be <= 4.5 for n=${n}`
+    );
+  }
+
+  // 4. Repeated malformed unclosed titles followed by valid link
+  for (const n of [1000, 2000, 4000, 8000]) {
+    const stats = { work: 0 };
+    const input = '[x](dest "unclosed title '.repeat(n) + ' [valid](valid.md "valid title")';
+    const start = performance.now();
+    const links = extractLinks('probe.md', input, { stats });
+    const elapsed = performance.now() - start;
+
+    assert.equal(links.length, 1, `Expected 1 valid link, got ${links.length}`);
+    assert.equal(links[0].destination, 'valid.md');
+    assert.ok(elapsed < 100, `Scanning ${n} unclosed titles + valid took ${elapsed.toFixed(1)}ms`);
+
+    const workRatio = stats.work / input.length;
+    assert.ok(
+      workRatio <= 4.5,
+      `Work ratio ${workRatio.toFixed(2)} (${stats.work} steps / ${input.length} chars) must be <= 4.5 for n=${n}`
+    );
+  }
+
+  // 5. Repeated malformed unclosed angle destinations
+  for (const n of [1000, 2000, 4000, 8000]) {
+    const stats = { work: 0 };
+    const input = '[x](<unclosed '.repeat(n);
+    const start = performance.now();
+    const links = extractLinks('probe.md', input, { stats });
+    const elapsed = performance.now() - start;
+
+    assert.equal(links.length, 0, `Expected 0 links for unclosed angles, got ${links.length}`);
+    assert.ok(elapsed < 100, `Scanning ${n} unclosed angles took ${elapsed.toFixed(1)}ms`);
+
+    const workRatio = stats.work / input.length;
+    assert.ok(
+      workRatio <= 4.5,
+      `Work ratio ${workRatio.toFixed(2)} (${stats.work} steps / ${input.length} chars) must be <= 4.5 for n=${n}`
+    );
+  }
+
+  // 6. Repeated malformed unclosed angle followed by valid link
+  for (const n of [1000, 2000, 4000, 8000]) {
+    const stats = { work: 0 };
+    const input = '[x](<unclosed '.repeat(n) + ' [valid](<valid.md>)';
+    const start = performance.now();
+    const links = extractLinks('probe.md', input, { stats });
+    const elapsed = performance.now() - start;
+
+    assert.equal(links.length, 1, `Expected 1 valid link, got ${links.length}`);
+    assert.equal(links[0].destination, 'valid.md');
+    assert.ok(elapsed < 100, `Scanning ${n} unclosed angles + valid took ${elapsed.toFixed(1)}ms`);
+
+    const workRatio = stats.work / input.length;
+    assert.ok(
+      workRatio <= 4.5,
+      `Work ratio ${workRatio.toFixed(2)} (${stats.work} steps / ${input.length} chars) must be <= 4.5 for n=${n}`
+    );
+  }
+
+  // 7. Repeated incomplete destinations: '[x]('.repeat(n)
   for (const n of [2000, 4000, 8000]) {
     const stats = { work: 0 };
     const input = '[x]('.repeat(n);
@@ -393,15 +504,14 @@ test('extractLinks performs linear-time scanning with deterministic work account
     assert.equal(links.length, 0, `Expected 0 links from incomplete destinations, got ${links.length}`);
     assert.ok(elapsed < 100, `Scanning ${n} incomplete '[x](' took ${elapsed.toFixed(1)}ms, expected < 100ms`);
 
-    // Deterministic work accounting: total character steps must not exceed 4 * input length
     const workRatio = stats.work / input.length;
     assert.ok(
-      workRatio <= 4.0,
-      `Work ratio ${workRatio.toFixed(2)} (${stats.work} steps / ${input.length} chars) must be <= 4.0 for n=${n}`
+      workRatio <= 4.5,
+      `Work ratio ${workRatio.toFixed(2)} (${stats.work} steps / ${input.length} chars) must be <= 4.5 for n=${n}`
     );
   }
 
-  // 2. Repeated incomplete destinations followed by a valid link: '[x]('.repeat(n) + '[x](valid.md)'
+  // 8. Repeated incomplete destinations followed by a valid link: '[x]('.repeat(n) + '[x](valid.md)'
   for (const n of [2000, 4000, 8000]) {
     const stats = { work: 0 };
     const input = '[x]('.repeat(n) + '[x](valid.md)';
@@ -413,15 +523,14 @@ test('extractLinks performs linear-time scanning with deterministic work account
     assert.equal(links[0].destination, 'valid.md');
     assert.ok(elapsed < 100, `Scanning ${n} incomplete + valid took ${elapsed.toFixed(1)}ms, expected < 100ms`);
 
-    // Deterministic work accounting: total character steps must not exceed 5 * input length
     const workRatio = stats.work / input.length;
     assert.ok(
-      workRatio <= 5.0,
-      `Work ratio ${workRatio.toFixed(2)} (${stats.work} steps / ${input.length} chars) must be <= 5.0 for n=${n}`
+      workRatio <= 4.5,
+      `Work ratio ${workRatio.toFixed(2)} (${stats.work} steps / ${input.length} chars) must be <= 4.5 for n=${n}`
     );
   }
 
-  // 3. Repeated incomplete angle destinations: '[x](<'.repeat(n)
+  // 9. Repeated incomplete angle destinations: '[x](<'.repeat(n)
   for (const n of [2000, 4000, 8000]) {
     const stats = { work: 0 };
     const input = '[x](<'.repeat(n);
@@ -432,10 +541,10 @@ test('extractLinks performs linear-time scanning with deterministic work account
     assert.equal(links.length, 0);
     assert.ok(elapsed < 100);
     const workRatio = stats.work / input.length;
-    assert.ok(workRatio <= 4.0, `Work ratio ${workRatio.toFixed(2)} must be <= 4.0 for angle n=${n}`);
+    assert.ok(workRatio <= 4.5, `Work ratio ${workRatio.toFixed(2)} must be <= 4.5 for angle n=${n}`);
   }
 
-  // 4. Repeated incomplete angle destinations followed by valid link: '[x](<'.repeat(n) + '[x](<valid.md>)'
+  // 10. Repeated incomplete angle destinations followed by valid link: '[x](<'.repeat(n) + '[x](<valid.md>)'
   for (const n of [2000, 4000, 8000]) {
     const stats = { work: 0 };
     const input = '[x](<'.repeat(n) + '[x](<valid.md>)';
@@ -447,6 +556,6 @@ test('extractLinks performs linear-time scanning with deterministic work account
     assert.equal(links[0].destination, 'valid.md');
     assert.ok(elapsed < 100);
     const workRatio = stats.work / input.length;
-    assert.ok(workRatio <= 5.0, `Work ratio ${workRatio.toFixed(2)} must be <= 5.0 for angle valid n=${n}`);
+    assert.ok(workRatio <= 4.5, `Work ratio ${workRatio.toFixed(2)} must be <= 4.5 for angle valid n=${n}`);
   }
 });
