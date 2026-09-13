@@ -222,3 +222,100 @@ test('extractLinks and checkFileLinks handle balanced inline destinations, escap
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('extractLinks and checkFileLinks handle escaped angle delimiters and titles in destinations', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'apollo-doc-link-escaped-angle-'));
+  try {
+    const sourceFile = path.join(tempDir, 'README.md');
+    // Create files with special delimiter characters in name
+    fs.writeFileSync(path.join(tempDir, 'guide>v2.md'), '# Guide with > in name\n', 'utf8');
+    fs.writeFileSync(path.join(tempDir, 'guide<v2.md'), '# Guide with < in name\n', 'utf8');
+
+    const content = [
+      '# Escaped Angle Test',
+      '',
+      '- [guide with >](<guide\\>v2.md>)',
+      '- [guide with title](<guide\\>v2.md> "Title with > and \\> inside")',
+      '- [guide with <](<guide\\<v2.md>)',
+      '- [missing with >](<missing\\>v2.md>)',
+      '',
+      '[ref-guide]: <guide\\>v2.md> "Ref title with >"',
+    ].join('\n');
+
+    const links = extractLinks(sourceFile, content);
+    assert.equal(links.length, 5, `Expected 5 links extracted, got: ${links.length}`);
+
+    // End-to-end file check
+    const broken = checkFileLinks(sourceFile, links, tempDir);
+    assert.equal(broken.length, 1, `Expected only missing>v2.md to be broken, got: ${JSON.stringify(broken)}`);
+    assert.equal(broken[0].rawTarget, '<missing\\>v2.md>');
+    assert.ok(broken[0].resolvedPath.endsWith('missing>v2.md'), `Resolved path must end in missing>v2.md, got: ${broken[0].resolvedPath}`);
+
+    // Synthetic link check (direct target without pre-parsed destination)
+    const syntheticLinks = [
+      { line: 10, target: '<guide\\>v2.md>' },
+      { line: 11, target: '<guide\\>v2.md> "Title with >"' },
+    ];
+    const syntheticBroken = checkFileLinks(sourceFile, syntheticLinks, tempDir);
+    assert.equal(syntheticBroken.length, 0, `Synthetic links with escaped angle must pass: ${JSON.stringify(syntheticBroken)}`);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('extractLinks performs linear-time scanning on adversarial unclosed/nested inputs without quadratic rescan', () => {
+  // 1. Unclosed brackets of increasing lengths must exhibit linear (O(N)), sub-50ms behavior
+  for (const n of [8000, 16000, 32000]) {
+    const start = performance.now();
+    const links = extractLinks('probe.md', '['.repeat(n));
+    const elapsed = performance.now() - start;
+    assert.equal(links.length, 0);
+    assert.ok(elapsed < 100, `Scanning ${n} unclosed '[' took ${elapsed.toFixed(1)}ms, expected < 100ms`);
+  }
+
+  // 2. Unclosed closing brackets
+  {
+    const start = performance.now();
+    const links = extractLinks('probe.md', ']'.repeat(32000));
+    const elapsed = performance.now() - start;
+    assert.equal(links.length, 0);
+    assert.ok(elapsed < 100, `Scanning 32000 unclosed ']' took ${elapsed.toFixed(1)}ms`);
+  }
+
+  // 3. Repeated empty pairs
+  {
+    const start = performance.now();
+    const links = extractLinks('probe.md', '[]'.repeat(16000));
+    const elapsed = performance.now() - start;
+    assert.equal(links.length, 0);
+    assert.ok(elapsed < 100, `Scanning 16000 '[]' pairs took ${elapsed.toFixed(1)}ms`);
+  }
+
+  // 4. Opening brackets followed by closing brackets
+  {
+    const start = performance.now();
+    const links = extractLinks('probe.md', '['.repeat(16000) + ']'.repeat(16000));
+    const elapsed = performance.now() - start;
+    assert.equal(links.length, 0);
+    assert.ok(elapsed < 100, `Scanning 16000 '[' + 16000 ']' took ${elapsed.toFixed(1)}ms`);
+  }
+
+  // 5. Many opening brackets followed by a valid link
+  {
+    const start = performance.now();
+    const links = extractLinks('probe.md', '['.repeat(16000) + '](valid.md)');
+    const elapsed = performance.now() - start;
+    assert.equal(links.length, 1);
+    assert.equal(links[0].target, 'valid.md');
+    assert.ok(elapsed < 100, `Scanning 16000 '[' followed by link took ${elapsed.toFixed(1)}ms`);
+  }
+
+  // 6. Unclosed angle destination after multiple brackets
+  {
+    const start = performance.now();
+    const links = extractLinks('probe.md', '['.repeat(1000) + '](<unclosed');
+    const elapsed = performance.now() - start;
+    assert.equal(links.length, 0);
+    assert.ok(elapsed < 100, `Scanning unclosed angle destination took ${elapsed.toFixed(1)}ms`);
+  }
+});

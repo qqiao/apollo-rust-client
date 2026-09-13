@@ -7,6 +7,7 @@ import {
   extractSnippets,
   validateInventory,
   compileSnippets,
+  formatFailureContext,
   REQUIRED_EXAMPLES,
 } from '../../scripts/check-doc-examples.mjs';
 
@@ -237,4 +238,41 @@ let x = 1;
     () => extractSnippets("invalid-opener.md", markdown),
     /Expected code fence after marker 'invalid-opener'/
   );
+});
+
+test('formatFailureContext distinguishes prefix IDs and attributes only the exact failing example', () => {
+  const snippets = [
+    { id: 'bad', filePath: 'good.md', markerLine: 2 },
+    { id: 'bad-long', filePath: 'bad.md', markerLine: 9 },
+  ];
+  const output = 'error: could not compile consumer (bin "example_bad_long")';
+  const msg = formatFailureContext(snippets, output, 'native-tls');
+  assert.ok(msg.includes("bad.md:9 (example 'bad-long')"), 'Must attribute exact failing ID');
+  assert.ok(!msg.includes("good.md:2 (example 'bad')"), 'Must NOT attribute prefix ID');
+});
+
+test('formatFailureContext distinguishes infrastructure failures from per-example failures', () => {
+  const snippets = [
+    { id: 'bad', filePath: 'good.md', markerLine: 2 },
+    { id: 'bad-long', filePath: 'bad.md', markerLine: 9 },
+  ];
+  const infraOutput = 'error: failed to load manifest\nerror: could not compile doc-examples-consumer';
+  const msg = formatFailureContext(snippets, infraOutput, 'native-tls');
+  assert.match(msg, /infrastructure failure/i);
+  assert.ok(!msg.includes("good.md:2 (example 'bad')"));
+  assert.ok(!msg.includes("bad.md:9 (example 'bad-long')"));
+});
+
+test('formatFailureContext attributes errors under both native-tls and rustls configurations', () => {
+  const snippets = [
+    { id: 'example-a', filePath: 'a.md', markerLine: 10 },
+  ];
+  const nativeOutput = '--> src/bin/example_example_a.rs:5:10\nerror[E0425]: cannot find value';
+  const rustlsOutput = '--> src/bin/example_example_a.rs:8:12\nerror[E0425]: cannot find value';
+  const nativeMsg = formatFailureContext(snippets, nativeOutput, 'native-tls');
+  const rustlsMsg = formatFailureContext(snippets, rustlsOutput, 'rustls');
+  assert.match(nativeMsg, /failed compilation under native-tls/);
+  assert.ok(nativeMsg.includes("a.md:10 (example 'example-a')"));
+  assert.match(rustlsMsg, /failed compilation under rustls/);
+  assert.ok(rustlsMsg.includes("a.md:10 (example 'example-a')"));
 });

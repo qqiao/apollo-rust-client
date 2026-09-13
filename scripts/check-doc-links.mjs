@@ -77,6 +77,222 @@ function parseOpeningFence(line) {
 }
 
 /**
+ * Parses an angle-bracket destination starting with '<' at startPos.
+ * CommonMark specification:
+ * An angle-bracket destination starts with '<', ends with unescaped '>',
+ * does not contain unescaped '<' or line breaks, and allows backslash escapes.
+ *
+ * Returns { destination, rawTarget, nextPos } or null if invalid/unclosed.
+ */
+export function parseAngleDestination(str, startPos = 0) {
+  if (startPos >= str.length || str[startPos] !== '<') {
+    return null;
+  }
+  let p = startPos + 1;
+  while (p < str.length) {
+    if (str[p] === '\\') {
+      p += 2;
+      continue;
+    }
+    if (str[p] === '<' || str[p] === '\n') {
+      return null;
+    }
+    if (str[p] === '>') {
+      return {
+        destination: str.slice(startPos + 1, p),
+        rawTarget: str.slice(startPos, p + 1),
+        nextPos: p + 1,
+      };
+    }
+    p++;
+  }
+  return null;
+}
+
+/**
+ * Parses a bare destination (not starting with '<') at startPos.
+ * In an inline link, bare destination terminates at:
+ * - unescaped whitespace (which may precede a title), OR
+ * - unescaped ')' when parenDepth is 0 (which ends the inline link).
+ *
+ * Returns { destination, rawTarget, nextPos } or null if invalid/unclosed.
+ */
+export function parseBareDestination(str, startPos = 0) {
+  if (startPos >= str.length || str[startPos] === '<') {
+    return null;
+  }
+  let p = startPos;
+  let parenDepth = 0;
+  while (p < str.length) {
+    if (str[p] === '\\') {
+      p += 2;
+      continue;
+    }
+    if (str[p] === '(') {
+      parenDepth++;
+      p++;
+      continue;
+    }
+    if (str[p] === ')') {
+      if (parenDepth > 0) {
+        parenDepth--;
+        p++;
+        continue;
+      }
+      const dest = str.slice(startPos, p).trim();
+      return {
+        destination: dest,
+        rawTarget: dest,
+        nextPos: p,
+      };
+    }
+    if (/\s/.test(str[p])) {
+      if (parenDepth === 0) {
+        const dest = str.slice(startPos, p).trim();
+        return {
+          destination: dest,
+          rawTarget: dest,
+          nextPos: p,
+        };
+      }
+      return null;
+    }
+    p++;
+  }
+  if (parenDepth === 0) {
+    const dest = str.slice(startPos, p).trim();
+    return {
+      destination: dest,
+      rawTarget: dest,
+      nextPos: p,
+    };
+  }
+  return null;
+}
+
+/**
+ * Parses an optional link title starting at startPos.
+ * Returns { title, nextPos } or null if invalid/unclosed.
+ * If no title opener is present, returns { title: null, nextPos: startPos }.
+ */
+export function parseLinkTitle(str, startPos = 0) {
+  let p = startPos;
+  while (p < str.length && /\s/.test(str[p])) {
+    p++;
+  }
+  if (p >= str.length) {
+    return { title: null, nextPos: p };
+  }
+  const opener = str[p];
+  if (opener !== '"' && opener !== "'" && opener !== '(') {
+    return { title: null, nextPos: startPos };
+  }
+  const closer = opener === '(' ? ')' : opener;
+  const titleStart = p + 1;
+  p++;
+  while (p < str.length) {
+    if (str[p] === '\\') {
+      p += 2;
+      continue;
+    }
+    if (str[p] === closer) {
+      const title = str.slice(titleStart, p);
+      p++;
+      while (p < str.length && /\s/.test(p)) {
+        p++;
+      }
+      return { title, nextPos: p };
+    }
+    p++;
+  }
+  return null;
+}
+
+/**
+ * Parses a destination starting at startPos, which may be angle-bracketed or bare.
+ */
+export function parseLinkDestination(str, startPos = 0) {
+  if (startPos >= str.length) return null;
+  if (str[startPos] === '<') {
+    return parseAngleDestination(str, startPos);
+  }
+  return parseBareDestination(str, startPos);
+}
+
+/**
+ * Normalizes a raw link target string (from link.target) for file checking.
+ */
+export function normalizeLinkDestination(raw) {
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('<')) {
+    const angle = parseAngleDestination(trimmed, 0);
+    if (angle) {
+      return angle.destination.trim();
+    }
+  }
+  const bare = parseBareDestination(trimmed, 0);
+  if (bare) {
+    return bare.destination.trim();
+  }
+  return trimmed;
+}
+
+/**
+ * Parses a reference definition line: [ref]: destination "title"
+ */
+function parseReferenceDefinition(line, lineNum) {
+  const match = line.match(/^ {0,3}\[/);
+  if (!match) return null;
+
+  let i = match[0].length;
+  const len = line.length;
+  let labelEnd = -1;
+
+  while (i < len) {
+    if (line[i] === '\\') {
+      i += 2;
+      continue;
+    }
+    if (line[i] === ']') {
+      labelEnd = i;
+      break;
+    }
+    i++;
+  }
+
+  if (labelEnd === -1 || labelEnd + 1 >= len || line[labelEnd + 1] !== ':') {
+    return null;
+  }
+
+  let destStart = labelEnd + 2;
+  while (destStart < len && /\s/.test(line[destStart])) {
+    destStart++;
+  }
+  if (destStart >= len) return null;
+
+  const destRes = parseLinkDestination(line, destStart);
+  if (!destRes) return null;
+
+  const titleRes = parseLinkTitle(line, destRes.nextPos);
+  if (!titleRes) return null;
+
+  let tail = titleRes.nextPos;
+  while (tail < len && /\s/.test(line[tail])) {
+    tail++;
+  }
+  if (tail < len) {
+    return null;
+  }
+
+  return {
+    line: lineNum,
+    target: destRes.rawTarget,
+    destination: destRes.destination,
+  };
+}
+
+/**
  * Parses markdown content and extracts local file links.
  */
 export function extractLinks(filePath, content) {
@@ -86,11 +302,10 @@ export function extractLinks(filePath, content) {
   let currentFenceChar = '';
   let currentFenceLen = 0;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (let lineNum = 0; lineNum < lines.length; lineNum++) {
+    const line = lines[lineNum];
 
     if (insideFence) {
-      // CommonMark: 0-3 leading spaces, matching fence char of at least open fence length, optional trailing spaces
       const closeRegex = new RegExp(`^ {0,3}\\${currentFenceChar}{${currentFenceLen},}\\s*$`);
       if (closeRegex.test(line)) {
         insideFence = false;
@@ -108,190 +323,61 @@ export function extractLinks(filePath, content) {
       continue;
     }
 
-    // Inline links: [text](target "optional title") with balanced parens, angle brackets, and escapes
-    let idx = 0;
-    const len = line.length;
-    while (idx < len) {
-      const openBracket = line.indexOf('[', idx);
-      if (openBracket === -1) break;
-
-      // Scan for matching ']' respecting escapes
-      let closeBracket = -1;
-      let b = openBracket + 1;
-      while (b < len) {
-        if (line[b] === '\\') {
-          b += 2;
-          continue;
-        }
-        if (line[b] === ']') {
-          closeBracket = b;
-          break;
-        }
-        b++;
-      }
-
-      if (closeBracket === -1 || closeBracket + 1 >= len || line[closeBracket + 1] !== '(') {
-        idx = openBracket + 1;
-        continue;
-      }
-
-      let p = closeBracket + 2;
-      while (p < len && /\s/.test(line[p])) {
-        p++;
-      }
-
-      if (p >= len) {
-        idx = openBracket + 1;
-        continue;
-      }
-
-      let target = null;
-      let linkEnd = -1;
-
-      if (line[p] === '<') {
-        // Angle-delimited destination: <...>
-        const startAngle = p;
-        p++;
-        let closedAngle = false;
-        while (p < len) {
-          if (line[p] === '\\') {
-            p += 2;
-            continue;
-          }
-          if (line[p] === '>') {
-            closedAngle = true;
-            break;
-          }
-          p++;
-        }
-
-        if (!closedAngle) {
-          idx = openBracket + 1;
-          continue;
-        }
-
-        target = line.slice(startAngle, p + 1);
-        p++; // past '>'
-
-        while (p < len && /\s/.test(line[p])) {
-          p++;
-        }
-
-        // Optional title
-        if (p < len && (line[p] === '"' || line[p] === "'" || line[p] === '(')) {
-          const titleOpen = line[p];
-          const titleClose = titleOpen === '(' ? ')' : titleOpen;
-          p++;
-          let closedTitle = false;
-          while (p < len) {
-            if (line[p] === '\\') {
-              p += 2;
-              continue;
-            }
-            if (line[p] === titleClose) {
-              closedTitle = true;
-              break;
-            }
-            p++;
-          }
-          if (!closedTitle) {
-            idx = openBracket + 1;
-            continue;
-          }
-          p++;
-          while (p < len && /\s/.test(line[p])) {
-            p++;
-          }
-        }
-
-        if (p < len && line[p] === ')') {
-          linkEnd = p;
-        }
-      } else {
-        // Bare destination: balanced parens and escapes
-        const startDest = p;
-        let parenDepth = 0;
-
-        while (p < len) {
-          if (line[p] === '\\') {
-            p += 2;
-            continue;
-          }
-          if (line[p] === '(') {
-            parenDepth++;
-            p++;
-            continue;
-          }
-          if (line[p] === ')') {
-            if (parenDepth > 0) {
-              parenDepth--;
-              p++;
-              continue;
-            }
-            target = line.slice(startDest, p).trim();
-            linkEnd = p;
-            break;
-          }
-          if (/\s/.test(line[p])) {
-            if (parenDepth === 0) {
-              target = line.slice(startDest, p).trim();
-              while (p < len && /\s/.test(line[p])) {
-                p++;
-              }
-              if (p < len && (line[p] === '"' || line[p] === "'" || line[p] === '(')) {
-                const titleOpen = line[p];
-                const titleClose = titleOpen === '(' ? ')' : titleOpen;
-                p++;
-                let closedTitle = false;
-                while (p < len) {
-                  if (line[p] === '\\') {
-                    p += 2;
-                    continue;
-                  }
-                  if (line[p] === titleClose) {
-                    closedTitle = true;
-                    break;
-                  }
-                  p++;
-                }
-                if (!closedTitle) {
-                  break;
-                }
-                p++;
-                while (p < len && /\s/.test(line[p])) {
-                  p++;
-                }
-              }
-              if (p < len && line[p] === ')') {
-                linkEnd = p;
-              }
-              break;
-            }
-          }
-          p++;
-        }
-      }
-
-      if (target !== null && linkEnd !== -1) {
-        links.push({
-          line: i + 1,
-          target,
-        });
-        idx = linkEnd + 1;
-      } else {
-        idx = openBracket + 1;
-      }
+    // Check for reference link definition: [ref]: destination "title"
+    const refDef = parseReferenceDefinition(line, lineNum + 1);
+    if (refDef) {
+      links.push(refDef);
+      continue;
     }
 
-    // Reference definitions: [ref]: target or [ref]: <target with spaces>
-    const refRegex = /^\s*\[([^\]]+)\]:\s*(?:<([^>]+)>|(\S+))/;
-    const refMatch = line.match(refRegex);
-    if (refMatch) {
-      const target = refMatch[2] !== undefined ? `<${refMatch[2]}>` : refMatch[3].trim();
-      links.push({
-        line: i + 1,
-        target,
-      });
+    // Single-pass forward scanner for inline links: [text](destination "optional title")
+    let i = 0;
+    const len = line.length;
+    let openBracketStack = [];
+
+    while (i < len) {
+      if (line[i] === '\\') {
+        i += 2;
+        continue;
+      }
+
+      if (line[i] === '[') {
+        openBracketStack.push(i);
+        i++;
+        continue;
+      }
+
+      if (line[i] === ']') {
+        if (openBracketStack.length > 0) {
+          const openBracket = openBracketStack.pop();
+          if (i + 1 < len && line[i + 1] === '(') {
+            let destStart = i + 2;
+            while (destStart < len && /\s/.test(line[destStart])) {
+              destStart++;
+            }
+            if (destStart < len) {
+              const destRes = parseLinkDestination(line, destStart);
+              if (destRes !== null) {
+                const titleRes = parseLinkTitle(line, destRes.nextPos);
+                if (titleRes !== null && titleRes.nextPos < len && line[titleRes.nextPos] === ')') {
+                  links.push({
+                    line: lineNum + 1,
+                    target: destRes.rawTarget,
+                    destination: destRes.destination,
+                  });
+                  i = titleRes.nextPos + 1;
+                  openBracketStack = [];
+                  continue;
+                }
+              }
+            }
+          }
+        }
+        i++;
+        continue;
+      }
+
+      i++;
     }
   }
 
@@ -305,21 +391,7 @@ export function checkFileLinks(filePath, links, repoRoot = REPO_ROOT) {
   const broken = [];
 
   for (const link of links) {
-    let raw = link.target;
-
-    // Handle angle brackets e.g. <path with spaces.md> or <path> "title"
-    if (raw.startsWith('<')) {
-      const closingAngle = raw.indexOf('>');
-      if (closingAngle !== -1) {
-        raw = raw.slice(1, closingAngle).trim();
-      }
-    } else {
-      // Strip title if present in unbracketed link, e.g. [text](path "title")
-      const spaceIndex = raw.indexOf(' ');
-      if (spaceIndex !== -1) {
-        raw = raw.slice(0, spaceIndex).trim();
-      }
-    }
+    let raw = link.destination !== undefined ? link.destination : normalizeLinkDestination(link.target);
 
     // Ignore external URLs (including protocol-relative URLs starting with //)
     if (/^(https?:|mailto:|ftp:|data:|\/\/)/i.test(raw)) {
@@ -332,8 +404,18 @@ export function checkFileLinks(filePath, links, repoRoot = REPO_ROOT) {
       targetPath = targetPath.slice(7);
     }
 
-    // Strip heading anchors / fragments
-    const fragmentIndex = targetPath.indexOf('#');
+    // Strip heading anchors / fragments (unescaped #)
+    let fragmentIndex = -1;
+    for (let j = 0; j < targetPath.length; j++) {
+      if (targetPath[j] === '\\') {
+        j++;
+        continue;
+      }
+      if (targetPath[j] === '#') {
+        fragmentIndex = j;
+        break;
+      }
+    }
     if (fragmentIndex !== -1) {
       targetPath = targetPath.slice(0, fragmentIndex);
     }
@@ -351,17 +433,15 @@ export function checkFileLinks(filePath, links, repoRoot = REPO_ROOT) {
     }
 
     // Unescape backslash escapes (e.g. \(, \), \<, \>, \\)
-    targetPath = targetPath.replace(/\\([\\()<>\[\]\s])/g, '$1');
+    targetPath = targetPath.replace(/\\(.)/g, '$1');
 
     let resolvedPath;
     if (path.isAbsolute(targetPath)) {
-      // If absolute, see if it maps into repoRoot or is existing system path
       if (targetPath.startsWith(repoRoot)) {
         resolvedPath = targetPath;
       } else if (fs.existsSync(targetPath)) {
         continue;
       } else {
-        // Assume absolute from repo root if leading slash
         resolvedPath = path.resolve(repoRoot, '.' + targetPath);
       }
     } else {

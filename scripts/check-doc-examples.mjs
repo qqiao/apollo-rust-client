@@ -215,28 +215,47 @@ export function validateInventory(repoRoot = REPO_ROOT, required = REQUIRED_EXAM
   return allSnippets;
 }
 
-function formatFailureContext(snippets, output, configName) {
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function formatFailureContext(snippets, output, configName) {
   const failedSnippets = snippets.filter((s) => {
     const safeName = s.id.replace(/-/g, '_');
     const binName = `example_${safeName}`;
     const binFile = `example_${safeName}.rs`;
-    return (
-      output.includes(binFile) ||
-      output.includes(`bin "${binName}"`) ||
-      output.includes(`(bin "${binName}" test)`) ||
-      output.includes(binName)
-    );
+
+    // 1. Exact bin target match: bin "example_safeName" (with closing quote, optional test suffix)
+    const binQuoteRegex = new RegExp(`(?:\\bbin\\s+")${escapeRegex(binName)}"(?:\\s+test)?(?:\\b|\\)|\\s|$)`);
+    if (binQuoteRegex.test(output)) {
+      return true;
+    }
+
+    // 2. Exact source file match: example_safeName.rs preceded by / or start, followed by : or word boundary
+    const binFileRegex = new RegExp(`(?:^|[\\/])${escapeRegex(binFile)}(?::|\\b)`);
+    if (binFileRegex.test(output)) {
+      return true;
+    }
+
+    return false;
   });
 
-  const targetSnippets = failedSnippets.length > 0 ? failedSnippets : snippets;
-  const contextLines = targetSnippets.map(
-    (s) => `  - ${s.filePath}:${s.markerLine} (example '${s.id}')`
-  );
+  if (failedSnippets.length > 0) {
+    const contextLines = failedSnippets.map(
+      (s) => `  - ${s.filePath}:${s.markerLine} (example '${s.id}')`
+    );
 
+    return (
+      `Doc examples failed compilation under ${configName}:\n` +
+      contextLines.join('\n') +
+      `\n\nCompiler output:\n${output}`
+    );
+  }
+
+  // Infrastructure / general compiler failure (no specific snippet attributed)
   return (
-    `Doc examples failed compilation under ${configName}:\n` +
-    contextLines.join('\n') +
-    `\n\nCompiler output:\n${output}`
+    `Doc examples build failed under ${configName} (infrastructure failure, no specific example attributed):\n\n` +
+    `Compiler output:\n${output}`
   );
 }
 
