@@ -1797,12 +1797,15 @@ mod tests {
         // Drive competing replacement through the boundary while restore is paused
         let cache2 = cache.clone();
         let new_clone = new_item.clone();
-        let replace_task = tokio::spawn(async move { cache2.replace_memory(new_clone).await });
+        let mut replace_fut = Box::pin(async move { cache2.replace_memory(new_clone).await });
 
-        // Yield to allow replace_task to execute.
-        // With update_lock, replace_task blocks on the lock and cannot proceed.
-        // Without update_lock, replace_task would immediately write "new" and emit "new" out of order.
-        tokio::task::yield_now().await;
+        // Explicitly poll replace_memory future while restore is paused.
+        // With update_lock held by restore, replace_memory must block on update_lock and return Pending.
+        // Without update_lock, replace_memory would run immediately, returning Ready(()) and overwriting memory.
+        assert!(
+            futures::poll!(&mut replace_fut).is_pending(),
+            "replace_memory must return Pending while restore holds update_lock"
+        );
 
         assert_eq!(
             cache
@@ -1822,17 +1825,16 @@ mod tests {
         // Release restore to proceed with its notification
         barrier.release_notify.notify_one();
 
-        // Unwrap both task results to ensure neither panicked
+        // Unwrap restore task result to ensure it did not panic
         let restore_res = tokio::time::timeout(Duration::from_secs(2), restore_task)
             .await
             .expect("restore task should finish")
             .expect("restore task panicked");
         assert_eq!(restore_res.config["value"], "old");
 
-        tokio::time::timeout(Duration::from_secs(2), replace_task)
+        tokio::time::timeout(Duration::from_secs(2), replace_fut)
             .await
-            .expect("replace task should finish")
-            .expect("replace task panicked");
+            .expect("replace future should finish");
 
         // Assert strictly ordered notifications: "old" must precede "new", never ["new", "old"]
         let event_list = events.lock().unwrap().clone();
