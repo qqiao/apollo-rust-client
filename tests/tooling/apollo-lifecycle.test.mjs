@@ -12,6 +12,53 @@ const REPO_ROOT = path.resolve(__dirname, '../..');
 const LIFECYCLE_SCRIPT = path.join(REPO_ROOT, 'scripts/apollo-test-lifecycle.sh');
 const MAIN_SCRIPT = path.join(REPO_ROOT, 'scripts/apollo-test.sh');
 
+
+function isProcessAlive(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function safeKillPid(pid) {
+  if (!pid) return;
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {}
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {}
+}
+
+async function waitForFile(filePath, timeoutMs = 5000) {
+  const start = Date.now();
+  while (!fs.existsSync(filePath)) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`Timed out waiting for file: ${filePath}`);
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+async function waitForExit(child, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {}
+      reject(new Error(`Child process ${child.pid} timed out waiting for exit`));
+    }, timeoutMs);
+
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal });
+    });
+  });
+}
+
 function makeTempDir(prefix = 'apollo-lifecycle-test-') {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
@@ -26,6 +73,29 @@ function createStubDocker(tempDir) {
 set -e
 LOG_FILE="${logPath}"
 printf "%s\\n" "$*" >> "$LOG_FILE"
+
+if [ -n "\${STUB_DOCKER_READY_FILE:-}" ]; then
+  trigger="\${STUB_TRIGGER_STAGE:-down}"
+  if [[ "$*" == *"$trigger"* ]]; then
+    pid_file="\${STUB_DOCKER_PID_FILE:-\${STUB_DOCKER_READY_FILE}.pid}"
+    echo "$$" > "$pid_file"
+    sleep 30 &
+    desc_pid=$!
+    echo "$desc_pid" >> "$pid_file"
+    touch "$STUB_DOCKER_READY_FILE"
+
+    if [ -n "\${STUB_RELEASE_FILE:-}" ]; then
+      while [ ! -f "\${STUB_RELEASE_FILE}" ]; do
+        sleep 0.05
+      done
+    elif [ "\${STUB_DOCKER_BLOCK:-0}" -eq 1 ]; then
+      sleep 30
+    fi
+    kill -TERM "$desc_pid" 2>/dev/null || true
+    wait "$desc_pid" 2>/dev/null || true
+  fi
+fi
+
 
 BEHAVIOR="\${STUB_DOCKER_BEHAVIOR:-success}"
 case "$BEHAVIOR" in
@@ -515,5 +585,290 @@ test('run directories with spaces and single quotes survive argv handling and pr
     assert.match(res.stderr, /run\\ with\\ spaces/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// T01 & T02 Review Follow-up Regressions (Finding V1)
+// -----------------------------------------------------------------------------
+
+test('status table: signal during automatic teardown (INT and TERM) finishes boundedly and reaps child process group', async () => {
+  for (const [sig, expectedStatus] of [['SIGTERM', 143], ['SIGINT', 130]]) {
+    const tempDir = makeTempDir();
+    const readyFile = path.join(tempDir, 'down_ready');
+    const pidFile = path.join(tempDir, 'down.pid');
+    let trackedPids = [];
+    let runnerChild = null;
+
+    try {
+      const { binDir, logPath } = createStubDocker(tempDir);
+      const runDir = path.join(tempDir, 'run');
+      fs.mkdirSync(runDir, { recursive: true });
+      fs.writeFileSync(path.join(runDir, 'ownership.json'), JSON.stringify({ project: 'apollo-test-v1' }));
+
+      const harness = `
+        set -euo pipefail
+        PATH="${binDir}:$PATH"
+        source "${LIFECYCLE_SCRIPT}"
+        COMPOSE_FILE="${tempDir}/compose.yaml"
+        touch "$COMPOSE_FILE"
+        PROJECT_NAME="apollo-test-v1"
+        RUN_DIR="${runDir}"
+        TEARDOWN_TIMEOUT=1
+        install_lifecycle_traps
+        exit 0
+      `;
+
+      const startTime = Date.now();
+      runnerChild = spawn('bash', ['-c', harness], {
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+          STUB_DOCKER_READY_FILE: readyFile,
+          STUB_DOCKER_PID_FILE: pidFile,
+          STUB_DOCKER_BLOCK: '1',
+        },
+      });
+      const exitPromise = waitForExit(runnerChild, 10000);
+
+      await waitForFile(readyFile, 5000);
+      const pidLines = fs.readFileSync(pidFile, 'utf8').trim().split('\n');
+      trackedPids = pidLines.map((l) => parseInt(l.trim(), 10)).filter((p) => !isNaN(p) && p > 0);
+      assert.ok(trackedPids.length >= 1, 'Stub docker should have recorded at least one PID');
+      for (const p of trackedPids) {
+        assert.ok(isProcessAlive(p), `Child PID ${p} should be alive initially`);
+      }
+
+      // Send signal while teardown is active
+      runnerChild.kill(sig);
+
+      const exitRes = await exitPromise;
+      const elapsedSec = (Date.now() - startTime) / 1000;
+
+      assert.equal(exitRes.code, expectedStatus, `Runner must exit with signal status ${expectedStatus}`);
+      assert.ok(elapsedSec <= 6.0, `Elapsed time must be bounded by timeout+grace (got ${elapsedSec}s)`);
+
+      // Verify NO surviving children
+      for (const p of trackedPids) {
+        assert.equal(isProcessAlive(p), false, `Supervised process ${p} must be terminated and reaped`);
+      }
+
+      const logCalls = fs.readFileSync(logPath, 'utf8').trim().split('\n');
+      assert.equal(logCalls.length, 1, `Teardown down must be called exactly once, got: ${logCalls.length}`);
+    } finally {
+      if (fs.existsSync(pidFile)) {
+        try {
+          const pids = fs.readFileSync(pidFile, 'utf8').trim().split('\n').map((l) => parseInt(l.trim(), 10)).filter((p) => !isNaN(p) && p > 0);
+          for (const p of pids) if (!trackedPids.includes(p)) trackedPids.push(p);
+        } catch {}
+      }
+      for (const p of trackedPids) safeKillPid(p);
+      if (runnerChild && isProcessAlive(runnerChild.pid)) safeKillPid(runnerChild.pid);
+      if (runnerChild) await waitForExit(runnerChild, 2000).catch(() => {});
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('status table: mixed repeated signals during cleanup (INT -> TERM and TERM -> INT) preserve first signal', async () => {
+  for (const [firstSig, secondSig, expectedStatus] of [['SIGINT', 'SIGTERM', 130], ['SIGTERM', 'SIGINT', 143]]) {
+    const tempDir = makeTempDir();
+    const workReadyFile = path.join(tempDir, 'work_ready');
+    const downReadyFile = path.join(tempDir, 'down_ready');
+    const pidFile = path.join(tempDir, 'down.pid');
+    let trackedPids = [];
+    let runnerChild = null;
+
+    try {
+      const { binDir, logPath } = createStubDocker(tempDir);
+      const runDir = path.join(tempDir, 'run');
+      fs.mkdirSync(runDir, { recursive: true });
+      fs.writeFileSync(path.join(runDir, 'ownership.json'), JSON.stringify({ project: 'apollo-test-mixed' }));
+
+      const harness = `
+        set -euo pipefail
+        PATH="${binDir}:$PATH"
+        source "${LIFECYCLE_SCRIPT}"
+        COMPOSE_FILE="${tempDir}/compose.yaml"
+        touch "$COMPOSE_FILE"
+        PROJECT_NAME="apollo-test-mixed"
+        RUN_DIR="${runDir}"
+        TEARDOWN_TIMEOUT=1
+        install_lifecycle_traps
+        touch "${workReadyFile}"
+        while true; do sleep 0.1; done
+      `;
+
+      runnerChild = spawn('bash', ['-c', harness], {
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+          STUB_DOCKER_READY_FILE: downReadyFile,
+          STUB_DOCKER_PID_FILE: pidFile,
+          STUB_DOCKER_BLOCK: '1',
+        },
+      });
+      const exitPromise = waitForExit(runnerChild, 10000);
+
+      await waitForFile(workReadyFile, 5000);
+      // First signal sends runner into cleanup
+      runnerChild.kill(firstSig);
+
+      // Wait until teardown down stage starts
+      await waitForFile(downReadyFile, 5000);
+      const pidLines = fs.readFileSync(pidFile, 'utf8').trim().split('\n');
+      trackedPids = pidLines.map((l) => parseInt(l.trim(), 10)).filter((p) => !isNaN(p) && p > 0);
+
+      // Second signal arrives while teardown is underway
+      runnerChild.kill(secondSig);
+
+      const exitRes = await exitPromise;
+      assert.equal(exitRes.code, expectedStatus, `First signal (${firstSig} -> ${expectedStatus}) must outrank second signal (${secondSig})`);
+
+      for (const p of trackedPids) {
+        assert.equal(isProcessAlive(p), false, `Tracked child ${p} must be reaped`);
+      }
+      const logCalls = fs.readFileSync(logPath, 'utf8').trim().split('\n');
+      const downCalls = logCalls.filter((call) => call.includes('down'));
+      assert.equal(downCalls.length, 1, `Teardown down must run only once despite repeated signals`);
+    } finally {
+      if (fs.existsSync(pidFile)) {
+        try {
+          const pids = fs.readFileSync(pidFile, 'utf8').trim().split('\n').map((l) => parseInt(l.trim(), 10)).filter((p) => !isNaN(p) && p > 0);
+          for (const p of pids) if (!trackedPids.includes(p)) trackedPids.push(p);
+        } catch {}
+      }
+      for (const p of trackedPids) safeKillPid(p);
+      if (runnerChild && isProcessAlive(runnerChild.pid)) safeKillPid(runnerChild.pid);
+      if (runnerChild) await waitForExit(runnerChild, 2000).catch(() => {});
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('status table: repeated signal during diagnostic collection preserves first signal and finishes teardown', async () => {
+  const tempDir = makeTempDir();
+  const diagReadyFile = path.join(tempDir, 'diag_ready');
+  const diagReleaseFile = path.join(tempDir, 'diag_release');
+  const pidFile = path.join(tempDir, 'diag.pid');
+  let trackedPids = [];
+  let runnerChild = null;
+
+  try {
+    const { binDir, logPath } = createStubDocker(tempDir);
+    const runDir = path.join(tempDir, 'run');
+    fs.mkdirSync(runDir, { recursive: true });
+    fs.writeFileSync(path.join(runDir, 'ownership.json'), JSON.stringify({ project: 'apollo-test-diag' }));
+
+    const harness = `
+      set -euo pipefail
+      PATH="${binDir}:$PATH"
+      source "${LIFECYCLE_SCRIPT}"
+      COMPOSE_FILE="${tempDir}/compose.yaml"
+      touch "$COMPOSE_FILE"
+      PROJECT_NAME="apollo-test-diag"
+      RUN_DIR="${runDir}"
+      TEARDOWN_TIMEOUT=1
+      install_lifecycle_traps
+      exit 7
+    `;
+
+    runnerChild = spawn('bash', ['-c', harness], {
+      env: {
+        ...process.env,
+        PATH: `${binDir}:${process.env.PATH}`,
+        STUB_TRIGGER_STAGE: 'logs',
+        STUB_DOCKER_READY_FILE: diagReadyFile,
+        STUB_DOCKER_PID_FILE: pidFile,
+        STUB_RELEASE_FILE: diagReleaseFile,
+      },
+    });
+    const exitPromise = waitForExit(runnerChild, 10000);
+
+    await waitForFile(diagReadyFile, 5000);
+    const pidLines = fs.readFileSync(pidFile, 'utf8').trim().split('\n');
+    trackedPids = pidLines.map((l) => parseInt(l.trim(), 10)).filter((p) => !isNaN(p) && p > 0);
+
+    // Send SIGINT while diagnostic logs are being captured
+    runnerChild.kill('SIGINT');
+
+    // Release the diagnostic step so it can finish boundedly
+    fs.writeFileSync(diagReleaseFile, 'release');
+
+    const exitRes = await exitPromise;
+    assert.equal(exitRes.code, 130, 'Signal (130) received during diagnostics must outrank stage failure (7)');
+
+    for (const p of trackedPids) {
+      assert.equal(isProcessAlive(p), false, `Diagnostic process ${p} must be reaped`);
+    }
+    const logCalls = fs.readFileSync(logPath, 'utf8').trim().split('\n');
+    // Diagnostic called ps and logs, then down
+    assert.ok(logCalls.some((c) => c.includes('down')), 'Teardown down must still execute');
+  } finally {
+    if (fs.existsSync(pidFile)) {
+      try {
+        const pids = fs.readFileSync(pidFile, 'utf8').trim().split('\n').map((l) => parseInt(l.trim(), 10)).filter((p) => !isNaN(p) && p > 0);
+        for (const p of pids) if (!trackedPids.includes(p)) trackedPids.push(p);
+      } catch {}
+    }
+    for (const p of trackedPids) safeKillPid(p);
+    if (runnerChild && isProcessAlive(runnerChild.pid)) safeKillPid(runnerChild.pid);
+    if (runnerChild) await waitForExit(runnerChild, 2000).catch(() => {});
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('CLI recovery: interrupted by SIGINT / SIGTERM reaps child and exits 130 / 143 without second down', async () => {
+  for (const [sig, expectedStatus] of [['SIGINT', 130], ['SIGTERM', 143]]) {
+    const tempDir = makeTempDir();
+    const readyFile = path.join(tempDir, 'rec_ready');
+    const pidFile = path.join(tempDir, 'rec.pid');
+    let trackedPids = [];
+    let runnerChild = null;
+
+    try {
+      const { binDir, logPath } = createStubDocker(tempDir);
+      const runDir = path.join(tempDir, 'run');
+      fs.mkdirSync(runDir, { recursive: true });
+      fs.writeFileSync(path.join(runDir, 'ownership.json'), JSON.stringify({ project: 'apollo-test-rec-sig' }));
+
+      runnerChild = spawn('bash', [MAIN_SCRIPT, 'cleanup', '--run-dir', runDir], {
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+          STUB_DOCKER_READY_FILE: readyFile,
+          STUB_DOCKER_PID_FILE: pidFile,
+          STUB_DOCKER_BLOCK: '1',
+          TEARDOWN_TIMEOUT: '1',
+        },
+      });
+      const exitPromise = waitForExit(runnerChild, 10000);
+
+      await waitForFile(readyFile, 5000);
+      const pidLines = fs.readFileSync(pidFile, 'utf8').trim().split('\n');
+      trackedPids = pidLines.map((l) => parseInt(l.trim(), 10)).filter((p) => !isNaN(p) && p > 0);
+
+      runnerChild.kill(sig);
+
+      const exitRes = await exitPromise;
+      assert.equal(exitRes.code, expectedStatus, `CLI recovery interrupted by ${sig} must exit ${expectedStatus}`);
+
+      for (const p of trackedPids) {
+        assert.equal(isProcessAlive(p), false, `Supervised process ${p} must not remain alive`);
+      }
+      const logCalls = fs.readFileSync(logPath, 'utf8').trim().split('\n');
+      assert.equal(logCalls.length, 1, `Recovery must run down exactly once`);
+    } finally {
+      if (fs.existsSync(pidFile)) {
+        try {
+          const pids = fs.readFileSync(pidFile, 'utf8').trim().split('\n').map((l) => parseInt(l.trim(), 10)).filter((p) => !isNaN(p) && p > 0);
+          for (const p of pids) if (!trackedPids.includes(p)) trackedPids.push(p);
+        } catch {}
+      }
+      for (const p of trackedPids) safeKillPid(p);
+      if (runnerChild && isProcessAlive(runnerChild.pid)) safeKillPid(runnerChild.pid);
+      if (runnerChild) await waitForExit(runnerChild, 2000).catch(() => {});
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   }
 });

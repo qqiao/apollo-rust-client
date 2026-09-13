@@ -9,6 +9,8 @@ CLEANED_UP=0
 CACHED_FINAL_STATUS=""
 INTERRUPTED_STATUS=0
 DIAGNOSTIC_FAILURE=0
+LIFECYCLE_PHASE="work"
+CLEANUP_IN_PROGRESS=0
 
 run_with_timeout() {
   local timeout_sec="$1"
@@ -25,13 +27,13 @@ run_with_timeout() {
     if [ "$elapsed" -ge "$timeout_sec" ]; then
       echo "ERROR: Command timed out after ${timeout_sec}s: $*" >&2
       kill -TERM -- "-$child_pid" 2>/dev/null || kill -TERM "$child_pid" 2>/dev/null || true
-      sleep 2
+      sleep 2 || true
       kill -KILL -- "-$child_pid" 2>/dev/null || kill -KILL "$child_pid" 2>/dev/null || true
       wait "$child_pid" 2>/dev/null || true
       CURRENT_CHILD_PID=""
       return 124
     fi
-    sleep 1
+    sleep 1 || true
     elapsed=$((elapsed + 1))
   done
 
@@ -98,16 +100,20 @@ teardown_project() {
 cleanup() {
   local original_status="${1:-$?}"
 
-  if [ "${CLEANED_UP:-0}" -eq 1 ]; then
+  if [ "${LIFECYCLE_PHASE:-}" = "finished" ] || [ "${CLEANED_UP:-0}" -eq 1 ]; then
     return "${CACHED_FINAL_STATUS:-0}"
   fi
-  CLEANED_UP=1
+  if [ "${CLEANUP_IN_PROGRESS:-0}" -eq 1 ]; then
+    return 0
+  fi
+  CLEANUP_IN_PROGRESS=1
+  LIFECYCLE_PHASE="cleanup"
 
   # 1. Terminate tracked child process group if alive
   if [ -n "${CURRENT_CHILD_PID:-}" ] && kill -0 "$CURRENT_CHILD_PID" 2>/dev/null; then
     echo "[apollo-test] Terminating supervised child process group ${CURRENT_CHILD_PID}..." >&2
     kill -TERM -- "-$CURRENT_CHILD_PID" 2>/dev/null || kill -TERM "$CURRENT_CHILD_PID" 2>/dev/null || true
-    sleep 1
+    sleep 1 || true
     kill -KILL -- "-$CURRENT_CHILD_PID" 2>/dev/null || kill -KILL "$CURRENT_CHILD_PID" 2>/dev/null || true
     wait "$CURRENT_CHILD_PID" 2>/dev/null || true
     CURRENT_CHILD_PID=""
@@ -154,6 +160,9 @@ cleanup() {
     final_status=0
   fi
 
+  CLEANED_UP=1
+  LIFECYCLE_PHASE="finished"
+  CLEANUP_IN_PROGRESS=0
   CACHED_FINAL_STATUS="$final_status"
 
   if [ "$final_status" -ne 0 ]; then
@@ -173,21 +182,33 @@ cleanup() {
 
 handle_signal() {
   local sig="$1"
-  echo "[apollo-test] Received signal ${sig}, aborting..." >&2
+  local sig_status=143
   if [ "$sig" = "SIGINT" ]; then
-    INTERRUPTED_STATUS=130
-    exit 130
+    sig_status=130
+  fi
+
+  # First signal wins: only record if INTERRUPTED_STATUS is not set yet
+  if [ "${INTERRUPTED_STATUS:-0}" -eq 0 ]; then
+    INTERRUPTED_STATUS="$sig_status"
+  fi
+
+  if [ "${LIFECYCLE_PHASE:-work}" = "work" ]; then
+    echo "[apollo-test] Received signal ${sig}, aborting..." >&2
+    LIFECYCLE_PHASE="cleanup"
+    exit "$sig_status"
   else
-    INTERRUPTED_STATUS=143
-    exit 143
+    echo "[apollo-test] Signal ${sig} deferred: bounded cleanup already in progress (phase: ${LIFECYCLE_PHASE})." >&2
+    return 0
   fi
 }
 
 lifecycle_exit_handler() {
   local exit_code=$?
-  trap - EXIT
+  LIFECYCLE_PHASE="cleanup"
   cleanup "$exit_code"
   local final_status=$?
+  LIFECYCLE_PHASE="finished"
+  trap - EXIT
   exit "$final_status"
 }
 
@@ -201,14 +222,18 @@ run_recovery_cleanup() {
   local target_dir="$1"
   local timeout_sec="${2:-${TEARDOWN_TIMEOUT:-30}}"
 
+  LIFECYCLE_PHASE="cleanup"
+
   if [ ! -d "$target_dir" ]; then
     echo "[apollo-test] Run directory does not exist or was already removed: ${target_dir}. Fallback cleanup is safe."
+    LIFECYCLE_PHASE="finished"
     return 0
   fi
 
   local ownership_file="${target_dir}/ownership.json"
   if [ ! -f "$ownership_file" ]; then
     echo "ERROR: Safety check failed: '${target_dir}' does not contain 'ownership.json'. Refusing cleanup." >&2
+    LIFECYCLE_PHASE="finished"
     return 1
   fi
 
@@ -217,6 +242,7 @@ run_recovery_cleanup() {
 
   if [ -z "$proj" ]; then
     echo "ERROR: Safety check failed: Failed to extract 'project' from '${ownership_file}'." >&2
+    LIFECYCLE_PHASE="finished"
     return 1
   fi
 
@@ -225,6 +251,7 @@ run_recovery_cleanup() {
       ;;
     *)
       echo "ERROR: Safety check failed: Project '${proj}' does not start with 'apollo-test-'. Refusing cleanup." >&2
+      LIFECYCLE_PHASE="finished"
       return 1
       ;;
   esac
@@ -237,10 +264,22 @@ run_recovery_cleanup() {
     td_status=$?
   fi
 
-  if [ "$td_status" -eq 0 ]; then
+  local final_status=0
+  if [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then
+    final_status="${INTERRUPTED_STATUS}"
+  elif [ "$td_status" -ne 0 ]; then
+    final_status="$td_status"
+  elif [ "${DIAGNOSTIC_FAILURE:-0}" -ne 0 ]; then
+    final_status=1
+  else
+    final_status=0
+  fi
+
+  if [ "$final_status" -eq 0 ]; then
     echo "[apollo-test] Recovery cleanup complete for project ${proj} (${target_dir})."
   else
-    echo "[apollo-test] Recovery cleanup failed for project ${proj} (${target_dir}) with status ${td_status}." >&2
+    echo "[apollo-test] Recovery cleanup failed for project ${proj} (${target_dir}) with status ${final_status}." >&2
   fi
-  return "$td_status"
+  LIFECYCLE_PHASE="finished"
+  return "$final_status"
 }

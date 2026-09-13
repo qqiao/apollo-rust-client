@@ -230,7 +230,9 @@ node scripts/apollo-fixtures.mjs set-and-publish \
   4. Diagnostic capture failure status (1) if teardown succeeded but log preparation failed.
   5. 0 (success).
 - **Signal Handling & Limitations**:
-  - Traps `SIGINT` (exit 130) and `SIGTERM` (exit 143), terminates active child processes, captures diagnostic logs, and cleans up Docker resources once via the unified EXIT trap.
+  - Traps `SIGINT` (exit 130) and `SIGTERM` (exit 143), terminates active child processes, captures diagnostic logs, and cleans up Docker resources via the protected lifecycle state machine (`LIFECYCLE_PHASE="work" | "cleanup" | "finished"`).
+  - First-signal-wins: the first received catchable signal sets `INTERRUPTED_STATUS` (130 or 143), which takes precedence over stage and teardown exit codes. Subsequent signals preserve this initial signal status.
+  - Signal deferral during cleanup/recovery: signals received during `cleanup` or `finished` phases are deferred without aborting the shell, resetting deadlines, or restarting `down`, ensuring the current process group is boundedly supervised and reaped.
   - OS kills that cannot be caught (e.g. `SIGKILL`, system crashes, Docker daemon restart) cannot run traps.
 - **Scoped Recovery Cleanup**:
   - If a previous run was aborted or killed, run:
