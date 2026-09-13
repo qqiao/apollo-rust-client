@@ -56,6 +56,7 @@ async fn get_config() -> Result<String, Error> {
         _ => Ok(String::new())
     }
 }
+```
 
 // Pattern 2: Explicit error handling with match
 

@@ -33,16 +33,70 @@ export const REQUIRED_EXAMPLES = [
 ];
 
 /**
+ * Parses a line to check if it is a valid opening code fence per CommonMark.
+ * Returns null if not a valid opening code fence.
+ * If valid, returns { char, len, lang, rawInfo, trimmedInfo }.
+ */
+function parseOpeningFence(line) {
+  // CommonMark: 0-3 leading spaces, followed by 3+ backticks or 3+ tildes, followed by info string
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+  if (!match) return null;
+
+  const fenceStr = match[1];
+  const char = fenceStr[0];
+  const len = fenceStr.length;
+  const rawInfo = match[2];
+
+  // CommonMark: info string for backtick code fence cannot contain backticks
+  if (char === "`" && rawInfo.includes("`")) {
+    return null;
+  }
+
+  const trimmedInfo = rawInfo.trim();
+  // First word of info string is the language tag
+  const lang = trimmedInfo.split(/\s+/)[0] || "";
+
+  return { char, len, lang, rawInfo, trimmedInfo };
+}
+
+/**
  * Extracts marked code snippets from Markdown content.
  */
 export function extractSnippets(filePath, content) {
-  const lines = content.split('\n');
+  // Normalize line endings to LF while preserving one-based line positions and exact line indentation/content
+  const lines = content.split(/\r?\n/);
   const markerRegex = /<!--\s*apollo-example:\s*([\w-]+)\s*-->/;
   const snippets = [];
   const seenIds = new Set();
 
+  let insideFence = false;
+  let currentFenceChar = "";
+  let currentFenceLen = 0;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    if (insideFence) {
+      // CommonMark closing fence: 0-3 spaces, matching fence char, at least currentFenceLen, optional whitespace, NO info string
+      const closeRegex = new RegExp(`^ {0,3}\\${currentFenceChar}{${currentFenceLen},}\\s*$`);
+      if (closeRegex.test(line)) {
+        insideFence = false;
+        currentFenceChar = "";
+        currentFenceLen = 0;
+      }
+      continue;
+    }
+
+    // Check if line opens an ordinary code fence (outside a marked example)
+    const openFence = parseOpeningFence(line);
+    if (openFence) {
+      insideFence = true;
+      currentFenceChar = openFence.char;
+      currentFenceLen = openFence.len;
+      continue;
+    }
+
+    // Only process markers outside active code fences
     const markerMatch = line.match(markerRegex);
     if (!markerMatch) continue;
 
@@ -56,41 +110,41 @@ export function extractSnippets(filePath, content) {
 
     // Look for fence opening immediately following the marker (allowing blank lines)
     let fenceLine = -1;
-    let lang = '';
+    let openExFence = null;
     let j = i + 1;
     while (j < lines.length) {
       const nextLine = lines[j].trim();
-      if (nextLine === '') {
+      if (nextLine === "") {
         j++;
         continue;
       }
-      const fenceMatch = nextLine.match(/^```(\w+)?/);
-      if (!fenceMatch) {
+      openExFence = parseOpeningFence(lines[j]);
+      if (!openExFence) {
         throw new Error(
           `Expected code fence after marker '${id}' in ${filePath} at line ${j + 1}, found: '${lines[j]}'`
         );
       }
       fenceLine = j + 1;
-      lang = fenceMatch[1] || '';
       break;
     }
 
-    if (fenceLine === -1) {
+    if (fenceLine === -1 || !openExFence) {
       throw new Error(`Unterminated marker '${id}' in ${filePath} at line ${markerLine}: no code block found`);
     }
 
-    if (lang !== 'rust') {
+    if (openExFence.lang !== "rust") {
       throw new Error(
-        `Snippet '${id}' in ${filePath} at line ${fenceLine} specifies language '${lang}', expected 'rust'`
+        `Snippet '${id}' in ${filePath} at line ${fenceLine} specifies language '${openExFence.lang}', expected 'rust'`
       );
     }
 
-    // Collect fence body until closing ```
+    // Collect fence body until matching closing fence
     const codeLines = [];
     let closed = false;
     let k = j + 1;
+    const exCloseRegex = new RegExp(`^ {0,3}\\${openExFence.char}{${openExFence.len},}\\s*$`);
     while (k < lines.length) {
-      if (lines[k].trim() === '```') {
+      if (exCloseRegex.test(lines[k])) {
         closed = true;
         break;
       }
@@ -104,8 +158,8 @@ export function extractSnippets(filePath, content) {
       );
     }
 
-    const code = codeLines.join('\n').trim();
-    if (code.length === 0) {
+    const snippetCode = codeLines.join("\n").trim();
+    if (snippetCode.length === 0) {
       throw new Error(`Empty code snippet '${id}' at line ${fenceLine} in ${filePath}`);
     }
 
@@ -114,7 +168,7 @@ export function extractSnippets(filePath, content) {
       filePath,
       markerLine,
       fenceLine,
-      code,
+      code: snippetCode,
     });
 
     i = k; // continue scan after the closed fence

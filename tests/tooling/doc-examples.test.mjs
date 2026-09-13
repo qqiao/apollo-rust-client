@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -114,5 +117,109 @@ test('compileSnippets rejects snippet with unavailable symbol in compiler failur
   assert.throws(
     () => compileSnippets(badSnippet),
     /Doc examples failed compilation under native-tls/
+  );
+});
+
+test("extractSnippets ignores markers placed inside active code fences", () => {
+  const markdown = `
+\`\`\`rust
+let a = 1;
+<!-- apollo-example: inside-fence -->
+\`\`\`rust
+let b = 2;
+\`\`\`
+`;
+  const snippets = extractSnippets("inside-fence.md", markdown);
+  assert.equal(snippets.length, 0, "Markers inside code fences must not be extracted");
+});
+
+test("extractSnippets correctly tracks 4-backtick fence requiring 4 backticks to close", () => {
+  const markdown = `
+\`\`\`\`markdown
+\`\`\`rust
+let x = 1;
+\`\`\`
+<!-- apollo-example: nested-marker -->
+\`\`\`\`
+
+<!-- apollo-example: after-4-backticks -->
+\`\`\`rust
+let y = 2;
+\`\`\`
+`;
+  const snippets = extractSnippets("nested.md", markdown);
+  assert.equal(snippets.length, 1);
+  assert.equal(snippets[0].id, "after-4-backticks");
+});
+
+test("extractSnippets correctly tracks tilde fences", () => {
+  const markdown = `
+~~~markdown
+<!-- apollo-example: inside-tildes -->
+~~~
+
+<!-- apollo-example: after-tildes -->
+\`\`\`rust
+let z = 3;
+\`\`\`
+`;
+  const snippets = extractSnippets("tildes.md", markdown);
+  assert.equal(snippets.length, 1);
+  assert.equal(snippets[0].id, "after-tildes");
+});
+
+test("validateInventory rejects hidden marker in active fence under both LF and CRLF, and accepts repaired form", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "apollo-doc-inventory-"));
+  const required = [{ doc: "example.md", id: "public-errors" }];
+  const malformedLf = "```rust\nlet old = 1;\n<!-- apollo-example: public-errors -->\n```rust\nlet inner = 2;\n```\n";
+  const malformedCrlf = malformedLf.replace(/\n/g, "\r\n");
+  const repairedLf = "```rust\nlet old = 1;\n```\n\n<!-- apollo-example: public-errors -->\n```rust\nlet inner = 2;\n```\n";
+  const repairedCrlf = repairedLf.replace(/\n/g, "\r\n");
+
+  try {
+    const docPath = path.join(tempDir, "example.md");
+
+    // 1. Malformed under LF must reject
+    fs.writeFileSync(docPath, malformedLf, "utf8");
+    assert.throws(
+      () => validateInventory(tempDir, required),
+      /Required example 'public-errors' missing from example\.md/
+    );
+
+    // 2. Malformed under CRLF must reject
+    fs.writeFileSync(docPath, malformedCrlf, "utf8");
+    assert.throws(
+      () => validateInventory(tempDir, required),
+      /Required example 'public-errors' missing from example\.md/
+    );
+
+    // 3. Repaired under LF must pass
+    fs.writeFileSync(docPath, repairedLf, "utf8");
+    const snippetsLf = validateInventory(tempDir, required);
+    assert.equal(snippetsLf.length, 1);
+    assert.equal(snippetsLf[0].id, "public-errors");
+    assert.equal(snippetsLf[0].code, "let inner = 2;");
+
+    // 4. Repaired under CRLF must pass
+    fs.writeFileSync(docPath, repairedCrlf, "utf8");
+    const snippetsCrlf = validateInventory(tempDir, required);
+    assert.equal(snippetsCrlf.length, 1);
+    assert.equal(snippetsCrlf[0].id, "public-errors");
+    assert.equal(snippetsCrlf[0].code, "let inner = 2;");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("extractSnippets rejects marked opener with invalid backtick info string before compilation", () => {
+  const markdown = `
+<!-- apollo-example: invalid-opener -->
+\`\`\`rust\`
+let x = 1;
+\`\`\`
+`;
+  assert.throws(
+    () => extractSnippets("invalid-opener.md", markdown),
+    /Expected code fence after marker 'invalid-opener'/
   );
 });
