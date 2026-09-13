@@ -79,7 +79,7 @@ Tasks below reflect the completed implementation and verification sequence.
   - Run `scripts/test.sh integration --suite native` to verify real Apollo test execution, idempotency, and clean teardown.
   - Run `git diff --check` to ensure no whitespace errors.
 - **Acceptance:**
-  - `scripts/test.sh fast` exits 0 (all unit, WASM, doc tests, clippy, and 52 tooling tests pass).
+  - `scripts/test.sh fast` exits 0 (all unit, WASM, doc tests, clippy, and tooling tests pass).
   - `scripts/test.sh integration --suite native` exits 0 with 0 container or volume leaks (all 6 integration tests pass).
   - `git diff --check` is clean.
 

@@ -23,8 +23,8 @@ run_with_timeout() {
     set -m
     "$@" &
     child_pid=$!
-    if [ -n "${LIFECYCLE_SPAWN_HOOK:-}" ]; then
-      eval "$LIFECYCLE_SPAWN_HOOK"
+    if [ "${LIFECYCLE_TEST_MODE:-0}" -eq 1 ] && declare -f __lifecycle_test_spawn_hook >/dev/null 2>&1; then
+      __lifecycle_test_spawn_hook "$child_pid" || true
     fi
     set +m
     CURRENT_CHILD_PID="$child_pid"
@@ -96,20 +96,24 @@ teardown_project() {
     DIAGNOSTIC_FAILURE=1
   fi
 
-  local td_status=0
   if [ "$log_failed" -eq 0 ]; then
-    if run_with_timeout "$timeout_seconds" docker compose -f "$compose_file" -p "$project" down --volumes --remove-orphans >> "$log_file" 2>&1; then
-      td_status=0
-    else
-      td_status=$?
+    if ! { exec 3>> "$log_file"; } 2>/dev/null; then
+      echo "[apollo-test] WARNING: Failed to open teardown log '${log_file}'; falling back to direct output." >&2
+      log_failed=1
+      DIAGNOSTIC_FAILURE=1
+      exec 3>&1
     fi
   else
-    if run_with_timeout "$timeout_seconds" docker compose -f "$compose_file" -p "$project" down --volumes --remove-orphans; then
-      td_status=0
-    else
-      td_status=$?
-    fi
+    exec 3>&1
   fi
+
+  local td_status=0
+  if run_with_timeout "$timeout_seconds" docker compose -f "$compose_file" -p "$project" down --volumes --remove-orphans >&3 2>&1; then
+    td_status=0
+  else
+    td_status=$?
+  fi
+  { exec 3>&-; } 2>/dev/null || true
 
   if [ "$td_status" -ne 0 ]; then
     echo "[apollo-test] ERROR: Teardown failed for Compose project '${project}' with status ${td_status}." >&2
@@ -134,6 +138,9 @@ cleanup() {
   local original_status="${1:-$?}"
 
   if [ "${LIFECYCLE_PHASE:-}" = "finished" ] || [ "${CLEANED_UP:-0}" -eq 1 ]; then
+    if [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then
+      return "${INTERRUPTED_STATUS}"
+    fi
     return "${CACHED_FINAL_STATUS:-0}"
   fi
   if [ "${CLEANUP_IN_PROGRESS:-0}" -eq 1 ]; then
@@ -248,6 +255,9 @@ lifecycle_exit_handler() {
   local final_status=$?
   LIFECYCLE_PHASE="finished"
   trap - EXIT
+  if [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then
+    final_status="${INTERRUPTED_STATUS}"
+  fi
   exit "$final_status"
 }
 

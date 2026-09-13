@@ -83,7 +83,7 @@ No production Rust or WASM client library runtime code is modified. No external 
 
 ## 4. Success Criteria
 
-- **SC-001:** All 45 tooling unit tests pass, plus new regression test cases covering F1 through F8.
+- **SC-001:** All tooling unit tests pass (`node --test tests/tooling/*.test.mjs`), including regression test cases covering F1 through F8 and post-review remediations.
 - **SC-002:** Fast check suite `scripts/test.sh fast` passes with zero regressions across Rust, Clippy, WASM, and Node tooling.
 - **SC-003:** Real Apollo native integration suite `scripts/test.sh integration --suite native` passes with clean setup and complete teardown.
 - **SC-004:** `git diff --check` reports zero whitespace or formatting issues.

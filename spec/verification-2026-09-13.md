@@ -36,7 +36,7 @@ Reviewed tree: HEAD `0a5e321` plus the coding agent's uncommitted follow-up chan
 | Rust doctests | 38 passed |
 | WASM library tests | 10 passed |
 | Clippy | Native, Rustls and wasm32 configurations passed with warnings denied |
-| Node tooling tests | 45 passed: lifecycle, fixture HTTP, document extraction and links |
+| Node tooling tests | Passed: lifecycle, fixture HTTP, document extraction and link validation suites |
 | Canonical Rust Markdown examples | Four examples compiled through Clippy under native TLS and Rustls |
 | `scripts/test.sh integration` | Exit 0; 6 native + 6 Rustls + 7 Node/WASM real Apollo tests passed |
 | Fixture setup and cleanup | Repeated seeding idempotent; owned project teardown completed successfully |

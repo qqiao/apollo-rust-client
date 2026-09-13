@@ -80,16 +80,16 @@ export async function requestJson(url, options = {}) {
   const { timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
   const method = (fetchOptions.method || 'GET').toUpperCase();
 
-  const headers = {
-    Accept: 'application/json',
-    ...(fetchOptions.headers || {}),
-  };
+  const headers = new Headers(fetchOptions.headers || {});
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json');
+  }
 
   let fetchUrl = url;
   try {
     const parsed = new URL(url);
     if (parsed.username || parsed.password) {
-      if (!headers['Authorization'] && !headers['authorization']) {
+      if (!headers.has('authorization')) {
         let username = parsed.username;
         let password = parsed.password;
         try {
@@ -99,7 +99,7 @@ export async function requestJson(url, options = {}) {
           password = decodeURIComponent(parsed.password);
         } catch {}
         const creds = Buffer.from(`${username}:${password}`).toString('base64');
-        headers['Authorization'] = `Basic ${creds}`;
+        headers.set('authorization', `Basic ${creds}`);
       }
       parsed.username = '';
       parsed.password = '';
@@ -111,7 +111,7 @@ export async function requestJson(url, options = {}) {
 
   let body = fetchOptions.body;
   if (body && typeof body === 'object') {
-    headers['Content-Type'] = 'application/json';
+    headers.set('Content-Type', 'application/json');
     body = JSON.stringify(body);
   }
 

@@ -116,3 +116,58 @@ test('checkFileLinks ignores protocol-relative external URLs (F4 / AC-006)', () 
   const broken = checkFileLinks('/tmp/dummy.md', links);
   assert.equal(broken.length, 0, `Expected 0 broken links for protocol-relative URLs, got: ${JSON.stringify(broken)}`);
 });
+
+test('extractLinks enforces CommonMark 0-3 space fence indentation and ignores 4-space indented fences', () => {
+  const markdown = [
+    '# Four Space Indented Fence Test',
+    '',
+    '    ```rust',
+    '    [indented-link](target-1.md)',
+    '    ```',
+    '',
+    '```markdown',
+    '    ```',
+    '[fenced-link](do-not-extract-inside-fence.md)',
+    '```',
+    '',
+    '[outside-link](target-2.md)',
+  ].join('\n');
+
+  const links = extractLinks('test.md', markdown);
+  // Line 4 link is in indented block (not CommonMark fence), so extractLinks extracts it.
+  // Line 8 has 4 spaces, so it cannot close the fence at line 7! Line 9 is still inside fence!
+  // Line 10 closes fence, so line 12 is extracted.
+  const targets = links.map((l) => l.target);
+  assert.ok(targets.includes('target-1.md'), 'Link inside 4-space indented block must be extracted');
+  assert.ok(targets.includes('target-2.md'), 'Link outside fence must be extracted');
+  assert.ok(!targets.includes('do-not-extract-inside-fence.md'), 'Link inside active fence must not be extracted prematurely by 4-space indented backticks');
+});
+
+test('extractLinks and checkFileLinks parse reference definitions with angle brackets and spaces', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'apollo-doc-link-ref-'));
+  try {
+    const docsDir = path.join(tempDir, 'docs');
+    fs.mkdirSync(docsDir, { recursive: true });
+    fs.writeFileSync(path.join(docsDir, 'Getting Started.md'), '# Getting Started\n', 'utf8');
+
+    const sourceFile = path.join(tempDir, 'README.md');
+    const content = [
+      '# Reference Links',
+      '',
+      '[guide]: <docs/Getting Started.md>',
+      '[guide-title]: <docs/Getting Started.md> "Guide Title"',
+      '',
+      'See the [guide] for details.',
+    ].join('\n');
+
+    const links = extractLinks(sourceFile, content);
+    assert.equal(links.length, 2, 'Expected 2 reference definition links extracted');
+    assert.equal(links[0].target, '<docs/Getting Started.md>');
+    assert.equal(links[1].target, '<docs/Getting Started.md>');
+
+    const broken = checkFileLinks(sourceFile, links, tempDir);
+    assert.equal(broken.length, 0, `Expected 0 broken links for reference definitions with angle brackets and spaces, got: ${JSON.stringify(broken)}`);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

@@ -1022,10 +1022,11 @@ sleep 30
       source "${LIFECYCLE_SCRIPT}"
       install_lifecycle_traps
 
-      export LIFECYCLE_SPAWN_HOOK='
-        printf "PHASE=%s\\nCURRENT_CHILD_PID=%s\\nCHILD_PID=%s\\n" "\${LIFECYCLE_PHASE:-none}" "\${CURRENT_CHILD_PID:-empty}" "\$child_pid" > "${proofFile}"
+      export LIFECYCLE_TEST_MODE=1
+      __lifecycle_test_spawn_hook() {
+        printf "PHASE=%s\\nCURRENT_CHILD_PID=%s\\nCHILD_PID=%s\\n" "\${LIFECYCLE_PHASE:-none}" "\${CURRENT_CHILD_PID:-empty}" "\$1" > "${proofFile}"
         kill -TERM "$$"
-      '
+      }
       run_with_timeout 10 "${workerScript}" "${pidFile}" "${readyFile}"
     `;
 
@@ -1225,8 +1226,8 @@ test('terminal-phase signal at CLI exit boundary exits with signal status (014/A
         review_injected=0
         LIFECYCLE_PHASE=""
         review_inject() {
-          if [ "$review_injected" -eq 0 ] && [ "$LIFECYCLE_PHASE" = finished ]; then
-            if [ "$1" = 'exit "$rc"' ]; then
+          if [ "$review_injected" -eq 0 ] && [ "\${LIFECYCLE_PHASE:-}" = finished ]; then
+            if [ "$1" = 'exit "$rc"' ] || [ "$1" = 'exit "$recovery_status"' ]; then
               review_injected=1
               kill -${sig} "$$"
             fi
@@ -1246,6 +1247,45 @@ test('terminal-phase signal at CLI exit boundary exits with signal status (014/A
 
       assert.equal(cli.status, expectedStatus, `CLI must exit ${expectedStatus} when interrupted at terminal exit boundary`);
       assert.match(cli.stderr, new RegExp(`Signal ${sig} received during terminal phase, exiting with status ${expectedStatus}`));
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('terminal-phase signal at automatic cleanup exit boundary exits with signal status (014/AC-009 / P2)', async () => {
+  for (const [sig, expectedStatus] of [['SIGTERM', 143], ['SIGINT', 130]]) {
+    const tempDir = makeTempDir();
+    try {
+      const hook = `
+        set -T
+        review_injected=0
+        LIFECYCLE_PHASE=""
+        review_inject() {
+          if [ "$review_injected" -eq 0 ] && [ "\${LIFECYCLE_PHASE:-}" = finished ]; then
+            review_injected=1
+            kill -${sig} "$$"
+          fi
+          return 0
+        }
+        trap 'review_inject "$BASH_COMMAND"' DEBUG
+      `;
+      const hookPath = path.join(tempDir, 'hook.sh');
+      fs.writeFileSync(hookPath, hook);
+
+      const res = spawnSync('bash', ['-c', `
+        source "${LIFECYCLE_SCRIPT}"
+        source "${hookPath}"
+        install_lifecycle_traps
+        teardown_project() { return 0; }
+        exit 0
+      `], {
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+
+      assert.equal(res.status, expectedStatus, `Automatic cleanup must exit ${expectedStatus} when interrupted at terminal boundary`);
+      assert.match(res.stderr, new RegExp(`Signal ${sig} received during terminal phase, exiting with status ${expectedStatus}`));
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

@@ -13,31 +13,32 @@
 - **Root Cause (F1):** Line 95 of `scripts/apollo-fixtures.mjs` directly templates `${url}` into the `TimeoutError` message. If the test or caller passes a URL with HTTP basic credentials (`http://admin:pass@host/api`) or sensitive query parameters (`?access_token=xyz&secret=123`), these secrets are emitted in the diagnostic output, violating AC-005 and FR-006 of specification 010.
 - **Technical Design:**
   1. Add a dedicated `redactUrl(rawUrl)` helper function:
-     ```javascript
-     export function redactUrl(rawUrl) {
-       try {
-         const parsed = new URL(rawUrl);
-         // Strip userinfo
-         if (parsed.username || parsed.password) {
-           parsed.username = '***';
-           parsed.password = '***';
-         }
-         // Redact sensitive query parameters
-         const SENSITIVE_PARAM_PATTERN = /^(token|secret|key|password|auth|credential|access_token|client_secret)$/i;
-         for (const [key, value] of parsed.searchParams.entries()) {
-           if (SENSITIVE_PARAM_PATTERN.test(key)) {
-             parsed.searchParams.set(key, 'REDACTED');
-           }
-         }
-         return parsed.toString();
-       } catch {
-         // Fallback for relative or malformed URLs: basic regex redaction
-         return rawUrl
-           .replace(/\/\/[^:]+:[^@]+@/, '//***:***@')
-           .replace(/([?&](?:token|secret|key|password|auth|credential)=)[^&]*/gi, '$1REDACTED');
-       }
-     }
-     ```
+
+```javascript
+export function redactUrl(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    // Strip userinfo
+    if (parsed.username || parsed.password) {
+      parsed.username = '***';
+      parsed.password = '***';
+    }
+    // Redact sensitive query parameters
+    const SENSITIVE_PARAM_PATTERN = /^(token|secret|key|password|auth|credential|access_token|client_secret)$/i;
+    for (const [key, value] of parsed.searchParams.entries()) {
+      if (SENSITIVE_PARAM_PATTERN.test(key)) {
+        parsed.searchParams.set(key, 'REDACTED');
+      }
+    }
+    return parsed.toString();
+  } catch {
+    // Fallback for relative or malformed URLs: basic regex redaction
+    return rawUrl
+      .replace(/\/\/[^:]+:[^@]+@/, '//***:***@')
+      .replace(/([?&](?:token|secret|key|password|auth|credential)=)[^&]*/gi, '$1REDACTED');
+  }
+}
+```
   2. In `requestJson`, format timeout error with `redactUrl(url)`.
 
 ---

@@ -57,7 +57,8 @@ export function findMarkdownFiles(repoRoot = REPO_ROOT) {
  * Parses a line to check if it is a valid opening code fence per CommonMark.
  */
 function parseOpeningFence(line) {
-  const match = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
+  // CommonMark: 0-3 leading spaces, followed by 3+ backticks or 3+ tildes, followed by info string
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
   if (!match) return null;
 
   const fenceStr = match[1];
@@ -89,7 +90,8 @@ export function extractLinks(filePath, content) {
     const line = lines[i];
 
     if (insideFence) {
-      const closeRegex = new RegExp(`^\\s*\\${currentFenceChar}{${currentFenceLen},}\\s*$`);
+      // CommonMark: 0-3 leading spaces, matching fence char of at least open fence length, optional trailing spaces
+      const closeRegex = new RegExp(`^ {0,3}\\${currentFenceChar}{${currentFenceLen},}\\s*$`);
       if (closeRegex.test(line)) {
         insideFence = false;
         currentFenceChar = '';
@@ -116,13 +118,14 @@ export function extractLinks(filePath, content) {
       });
     }
 
-    // Reference definitions: [ref]: target
-    const refRegex = /^\s*\[([^\]]+)\]:\s*(\S+)/;
+    // Reference definitions: [ref]: target or [ref]: <target with spaces>
+    const refRegex = /^\s*\[([^\]]+)\]:\s*(?:<([^>]+)>|(\S+))/;
     const refMatch = line.match(refRegex);
     if (refMatch) {
+      const target = refMatch[2] !== undefined ? `<${refMatch[2]}>` : refMatch[3].trim();
       links.push({
         line: i + 1,
-        target: refMatch[2].trim(),
+        target,
       });
     }
   }

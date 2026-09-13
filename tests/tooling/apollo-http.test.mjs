@@ -358,6 +358,21 @@ test('requestJson correctly decodes percent-encoded basic auth credentials and r
       headers: { 'Authorization': 'Bearer custom_override_token' },
     });
     assert.equal(customAuth.data.authorization, 'Bearer custom_override_token');
+
+    // Case-insensitive AUTHORIZATION header overrides URL credentials
+    const uppercaseAuth = await requestJson(authUrl, {
+      headers: { 'AUTHORIZATION': 'Bearer uppercase_override' },
+    });
+    assert.equal(uppercaseAuth.data.authorization, 'Bearer uppercase_override');
+
+    // Standard Headers instance overrides URL credentials and is preserved
+    const headersInstance = new Headers();
+    headersInstance.set('authorization', 'Bearer headers_instance_token');
+    headersInstance.set('X-Custom-Header', 'custom_val');
+    const instanceAuth = await requestJson(authUrl, {
+      headers: headersInstance,
+    });
+    assert.equal(instanceAuth.data.authorization, 'Bearer headers_instance_token');
   } finally {
     await authServer.close();
   }
