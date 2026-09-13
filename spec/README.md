@@ -34,6 +34,7 @@ The seven baseline remediation packages (006–012) and the review follow-up pac
 | [011 — Executable public docs](011-executable-public-docs/spec.md) | Correct current API examples/references and verify actual Markdown snippets and local links |
 | [012 — Accurate polling docs](012-accurate-polling-docs/spec.md) | Describe post-round timing and failure jitter without changing polling behavior |
 | [013 — Review follow-up](013-review-followup/spec.md) | Resolve cleanup signal supervision, Markdown fence tracking, and completion status |
+| [014 — Copilot remediation](014-copilot-remediation/spec.md) | Address GitHub Copilot findings: timeout URL redaction, link checker parsing, and process group signal races |
 
 ## Supporting material
 
