@@ -1,5 +1,7 @@
 # Plan: Fixture request body deadline
 
+**Status:** Implemented design plan retained for reference. Current verification and remaining acceptance limits are recorded in the [status audit](../verification-2026-09-13.md); original imperative/future-tense steps below are historical implementation guidance.
+
 ## Exact ownership change
 
 Inspect `fetchWithTimeout`, `requestJson`, and `probeWithRetry` in [scripts/apollo-fixtures.mjs](../../scripts/apollo-fixtures.mjs). Search all references before editing. At baseline only requestJson calls fetchWithTimeout; exported higher-level helpers eventually call requestJson.

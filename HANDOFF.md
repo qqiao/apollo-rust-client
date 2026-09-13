@@ -1,6 +1,8 @@
 # Codebase review handoff
 
-The review findings have detailed specifications, implementation plans, and task lists in this checkout. **All seven review remediation packages have been fully implemented, tested via TDD, and verified.** Use the package task lists below as the canonical completion record.
+All remediation packages 006–012 and follow-up package [013 — Review follow-up](spec/013-review-followup/spec.md) are fully implemented and verified in this checkout. Findings V1–V3 from the [verification review](spec/review-remediation/re-review.md) have been reproduced with deterministic regressions, resolved, and verified (see [remediation resolution](spec/review-remediation/re-review.md#remediation-resolution-2026-09-13)).
+
+Current verification and remaining acceptance limits are recorded in the [status audit](spec/verification-2026-09-13.md). Implemented does not mean every platform or acceptance clause has independent runtime coverage.
 
 ## Start here
 
@@ -9,7 +11,7 @@ The review findings have detailed specifications, implementation plans, and task
 3. Read the [execution guide](spec/review-remediation/execution.md) and the selected package's specification, plan, and tasks, in that order.
 4. Use the [validation map](spec/review-remediation/validation.md) to check acceptance coverage. The [specification index](spec/README.md) links the existing contracts that the fixes must preserve.
 
-## Implementation packages
+## Implemented baseline packages
 
 | Order | Finding and intended outcome | Specification | Plan | Tasks |
 |---|---|---|---|---|
@@ -20,17 +22,16 @@ The review findings have detailed specifications, implementation plans, and task
 | 010 | P2: Keep fixture request deadlines active through body completion | [spec](spec/010-fixture-body-deadlines/spec.md) | [plan](spec/010-fixture-body-deadlines/plan.md) | [tasks](spec/010-fixture-body-deadlines/tasks.md) |
 | 011 | P2: Make public examples and documentation references verifiable | [spec](spec/011-executable-public-docs/spec.md) | [plan](spec/011-executable-public-docs/plan.md) | [tasks](spec/011-executable-public-docs/tasks.md) |
 | 012 | P2: Document actual polling intervals, jitter, and latency limits | [spec](spec/012-accurate-polling-docs/spec.md) | [plan](spec/012-accurate-polling-docs/plan.md) | [tasks](spec/012-accurate-polling-docs/tasks.md) |
+| 013 | P1: Resolve cleanup signals, doc code fences, and status records | [spec](spec/013-review-followup/spec.md) | [plan](spec/013-review-followup/plan.md) | [tasks](spec/013-review-followup/tasks.md) |
 
-Execute in numeric order by default. Package 010 depends on 009; 011 depends on 007, 008, and 010; 012 follows 011. Consult the handoff index before dividing work because some packages edit shared files.
+The table records baseline packages (006–012) and follow-up package 013; all are completed and verified.
 
-## Copyable executor prompt
+## Next work
 
-Replace the package ID when assigning another package:
-
-> Implement package `006-cache-restore-ordering` in this repository. Start with `HANDOFF.md` and `spec/review-remediation/README.md`, then read the execution guide and the package's spec.md, plan.md, and tasks.md. Follow the tasks in order, preserve existing contracts and unrelated changes, and implement the specified regression coverage. Use scripts/test.sh as the Rust test entry point. Record actual verification commands and outcomes in the package's tasks.md; check tasks only after their acceptance criteria pass. Implement this package only. Do not add dependencies, change unrelated policies, publish, or merge. If a plan detail conflicts with the code, explain the evidence and make the smallest contract-preserving adjustment. Ask only when a material product decision blocks the authorized scope.
+No implementation redo is required for the reviewed findings. Consult the status audit for remaining verification and product-decision work before assigning a new task.
 
 ## Availability and status
 
-All linked artifacts are repository files; execution does not depend on the original temporary review probes. At handoff creation, these documents are local, uncommitted changes. Agents using this same checkout can read them immediately. Separate worktrees or clones need the changes transferred or committed before they can access them.
+All linked artifacts are repository files; execution does not depend on the original temporary review probes. New follow-up artifacts are local changes until committed or otherwise transferred. Agents using this same checkout can read them immediately. Separate worktrees or clones need the changes transferred or committed before they can access them.
 
-Maintain detailed requirements and status in the linked documents rather than copying them into this entry point. Historical passing tests in the review are baseline evidence, not proof that these pending fixes work.
+Maintain detailed requirements and status in the linked documents rather than copying them into this entry point. Historical passing tests in the review are baseline evidence, not a substitute for verification of a later change.

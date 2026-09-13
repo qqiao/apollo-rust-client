@@ -2,7 +2,7 @@
 
 **Feature ID:** `008-wasm-ownership-docs`
 **Created:** 2026-09-13
-**Status:** Specified; implementation not started.
+**Status:** Implemented and verified in baseline remediation (see tasks.md).
 **Review:** R3 / P2. Baseline: [004](../004-javascript-client/spec.md), 004/FR-010 and 004/AC-012; [ownership contract](../supporting/contracts.md#javascript-consumer-boundary).
 
 ## Purpose and scope

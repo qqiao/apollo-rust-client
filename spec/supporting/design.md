@@ -32,7 +32,7 @@ Native storage uses platform-standard project cache directories plus `config-cac
 
 The poller immediately snapshots eligible registered namespaces, refreshes up to four concurrently, waits for the batch, then sleeps the base interval. Native execution uses a Tokio task; WASM uses a local future with an abort handle. Stop/drop cancels that owned poller, not independently spawned stale revalidation tasks.
 
-For base interval b and failure count n, the nominal retry delay is `min(b * 2^min(n,4), max(b,300))` with saturating multiplication and integer ±10% jitter. Only polling tests the stored retry timestamp. Manual refresh and stale-read revalidation bypass it. Success clears failure state. The healthy polling sleep itself has no jitter in the current code despite broader wording in some documentation. For round duration R and interval I, the next round begins approximately R + I seconds after the previous round start (plus scheduling overhead); observation latency is not bounded by I alone.
+For base interval b and failure count n, the nominal retry delay is `min(b * 2^min(n,4), max(b,300))` with saturating multiplication and integer ±10% jitter. Only polling tests the stored retry timestamp. Manual refresh and stale-read revalidation bypass it. Success clears failure state. The healthy polling sleep itself has no jitter; package 012 corrected the broader documentation claim. For round duration R and interval I, the next round begins approximately R + I seconds after the previous round start (plus scheduling overhead); observation latency is not bounded by I alone.
 
 ## Style and constraints
 

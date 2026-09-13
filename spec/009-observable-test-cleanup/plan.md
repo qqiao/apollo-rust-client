@@ -1,5 +1,7 @@
 # Plan: Honest test lifecycle teardown
 
+**Status:** Implemented design plan retained for reference. Current verification and remaining acceptance limits are recorded in the [status audit](../verification-2026-09-13.md); original imperative/future-tense steps below are historical implementation guidance.
+
 ## Source context
 
 Read `run_with_timeout`, `cleanup`, `handle_signal`, EXIT traps, and `run_recovery_cleanup` in [scripts/apollo-test.sh](../../scripts/apollo-test.sh), both fast entry points, and the diagnostics/upload paths in [workflow](../../.github/workflows/rust.yml). Baseline `down` redirects both outputs to `/dev/null` and uses `|| true`; explicit recovery runs unbounded `docker compose down`.

@@ -1,5 +1,7 @@
 # Plan: Cache restoration ordering
 
+**Status:** Implemented design plan retained for reference. Current verification and remaining acceptance limits are recorded in the [status audit](../verification-2026-09-13.md); original imperative/future-tense steps below are historical implementation guidance.
+
 ## Read first
 
 Read the local [spec](spec.md), baseline 002/FR-004, FR-005, FR-011–012 and 003/FR-002–003. Inspect `Cache::get_value`, `load_persistent_item`, `replace_memory`, `perform_refresh`, `serve_cached_item`, and the existing tests in [src/cache.rs](../../src/cache.rs). `Client::cache` in [src/lib.rs](../../src/lib.rs) supplies shared namespace instances. Existing `TempDir`, `MockHttpsServer`, and `MockResponse` are sufficient for regression fixtures.

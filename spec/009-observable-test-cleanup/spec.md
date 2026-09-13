@@ -2,7 +2,7 @@
 
 **Feature ID:** `009-observable-test-cleanup`
 **Created:** 2026-09-13
-**Status:** Specified; implementation not started.
+**Status:** Implemented and verified in baseline remediation; follow-up cleanup-signal gap (Finding V1) resolved in [013-review-followup](../013-review-followup/spec.md).
 **Review:** R4 / P2. Baseline: [005](../005-real-apollo-testing/spec.md), 005/FR-010–012 and 005/AC-017.
 
 ## Purpose and scope

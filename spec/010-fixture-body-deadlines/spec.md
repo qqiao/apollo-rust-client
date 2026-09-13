@@ -2,7 +2,7 @@
 
 **Feature ID:** `010-fixture-body-deadlines`
 **Created:** 2026-09-13
-**Status:** Specified; implementation not started.
+**Status:** Implemented and verified in baseline remediation (see tasks.md).
 **Review:** R5 / P2. Baseline: [005](../005-real-apollo-testing/spec.md), 005/FR-010; execution follows package 009.
 
 ## Purpose and scope

@@ -6,6 +6,10 @@ All notable changes to the apollo-rust-client project will be documented in this
 
 ### Added
 
+- Public `CacheError` re-export so Rust consumers can match HTTP status, timeout, and other existing cache error variants without importing private modules.
+- Disposable real-Apollo integration testing for native TLS, Rustls, and Node/WASM, with pinned container images, dynamic loopback ports, declarative fixture seeding, idempotency checks, scoped recovery, and CI artifact collection.
+- Docker-independent lifecycle and fixture HTTP fault tests, external public-error consumer tests under both native TLS configurations, and automated checks for selected Rust documentation examples and local Markdown file links.
+- Executable WASM ownership documentation checks against generated Node bindings, including successful construction, untransferred configuration, application errors, and constructor validation failures.
 - Configurable `request_timeout` across the Rust builder, environment variables, and WASM API. The timeout covers request headers and response-body reads, including when a custom native HTTP client is supplied.
 - Native unit/mock tests now use a random-port, self-signed in-process HTTPS server; WASM tests use a mocked global `fetch`. The fast check suite (`scripts/test.sh fast`) is Docker-independent; full integration testing continues to validate against real Apollo Docker containers.
 - Platform-standard native cache directories and startup cleanup for orphaned versioned temporary files.
@@ -21,11 +25,22 @@ All notable changes to the apollo-rust-client project will be documented in this
 
 ### Fixed
 
+- Delayed persistent-cache restoration no longer overwrites an already-populated memory response after a concurrent refresh or emits a notification for a discarded stored value.
+- Integration teardown now retains diagnostics and reports failures/timeouts without masking prior test failures. Signals during cleanup or explicit recovery preserve bounded process supervision; repeated signals retain the first signal status and do not duplicate teardown.
+- Fixture HTTP deadlines remain active through response-body completion while preserving existing JSON/text/status handling.
+- Documentation example extraction now ignores markers inside code fences, handles LF/CRLF consistently, and validates marked and ordinary opening fences using the same rules.
 - Complete HTTP requests cannot hang indefinitely on stalled response bodies on native or WASM targets.
 - Read-path failures no longer spam listeners; listener errors are limited to manual and background refreshes.
 - Properties getters accept JSON string, number, and boolean scalars.
 - Native custom HTTP clients now produce a warning when `allow_insecure_https` would otherwise be silently ignored.
 - JavaScript serialization failures are logged and return `null` instead of panicking the WASM module.
+
+### Documentation
+
+- Corrected consumed `ClientConfig` ownership and cleanup guidance across JavaScript examples and translated guides.
+- Repaired current Rust configuration/import/error examples, the error-handling Markdown fence, and broken language-switch links; corrected cache paths, authentication/IP claims, and callback-lock descriptions.
+- Clarified polling cadence, failure-only jitter, retry eligibility, and why `refresh_interval` alone does not bound update latency.
+- Added feature specifications, implementation plans, review handoffs, and verification records; reconciled implemented feature status separately from outstanding product decisions and acceptance-coverage limitations.
 
 ## [0.7.0] - 2026-05-25
 

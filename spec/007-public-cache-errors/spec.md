@@ -2,7 +2,7 @@
 
 **Feature ID:** `007-public-cache-errors`
 **Created:** 2026-09-13
-**Status:** Specified; implementation not started.
+**Status:** Implemented and verified in baseline remediation (see tasks.md).
 **Review:** R2 / P2. Baseline: [001](../001-read-configuration/spec.md), 001/FR-010 and 001/AC-014.
 
 ## Purpose and scope

@@ -2,7 +2,7 @@
 
 **Feature ID**: `005-real-apollo-testing`
 **Created**: 2026-09-06
-**Status**: Implemented and verified — ready for maintainer review
+**Status**: Implemented and locally verified; remote CI execution and cross-platform acceptance remain unverified here. See [current audit](../verification-2026-09-13.md).
 **Input**: Restore real-server integration testing, preferably using Docker, initialize relevant data automatically, and support local development and GitHub Actions.
 **Historical Planning Context (2026-09-06)**: The initial planning phase specified requirements and designed test architecture prior to implementation. Real Apollo integration testing was subsequently implemented and verified.
 
@@ -144,7 +144,7 @@ As a contributor, I want bounded cleanup and an explicit fast mode so that integ
 - **SC-003**: A GitHub Actions PR run and main-push run execute the full suite using public dependencies and disposable credentials. An authorized fork PR run, or explicitly recorded fork-event verification, establishes AC-013 without claiming evidence that was not obtained.
 - **SC-004**: Deliberate missing-Docker, broken-seed, test-failure, and catchable-interrupt exercises demonstrate nonzero failure results and applicable diagnostics/cleanup; no required integration stage silently passes with zero selected tests.
 - **SC-005**: Two concurrent local runs demonstrate isolation, and teardown removes only their own resources. Explicit fast mode works with Docker unavailable.
-- **SC-006**: The handoff records a requirement-to-test migration mapping, pinned artifacts with provenance, measured execution evidence on Linux and macOS ARM64, and all remaining validation gaps. None of these runtime results is claimed by this documentation-only draft.
+- **SC-006**: The handoff records a requirement-to-test migration mapping, pinned artifacts with provenance, measured execution evidence on Linux and macOS ARM64, and all remaining validation gaps. The current audit records which runtime/platform results are established and which remain unverified.
 
 ## Assumptions and Dependencies
 
@@ -154,7 +154,7 @@ Contributors provide a working container runtime with adequate resources, stable
 
 ## Scoped fault-path amendments (2026-09-13)
 
-[009-observable-test-cleanup](../009-observable-test-cleanup/spec.md) (AC-019 / FR-015) and [010-fixture-body-deadlines](../010-fixture-body-deadlines/spec.md) (AC-020 / FR-016) are implemented and verified.
+[009-observable-test-cleanup](../009-observable-test-cleanup/spec.md) (AC-019 / FR-015) and [010-fixture-body-deadlines](../010-fixture-body-deadlines/spec.md) (AC-020 / FR-016) are implemented and verified (with follow-up cleanup-signal gap V1 resolved in [013-review-followup](../013-review-followup/spec.md)).
 
 - **AC-019:** Given success, a prior stage failure, or a catchable signal and a failed/timed-out teardown, when automatic cleanup finishes, then its failure is visible with diagnostics/recovery context and final status follows signal → original failure → teardown failure → diagnostic failure → success precedence. Valid explicit recovery is also bounded; invalid ownership remains a refusal to delete.
 - **AC-020:** Given a fixture HTTP response whose headers arrive but whose body stalls, when the five-second complete-request deadline expires, then the request is aborted and reports a contextual timeout instead of waiting for the coarse stage deadline. Completed non-2xx, empty, malformed-JSON, and ordinary transport outcomes keep their existing meanings.

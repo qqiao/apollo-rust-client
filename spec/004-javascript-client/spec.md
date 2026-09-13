@@ -2,7 +2,8 @@
 
 **Feature ID**: `004-javascript-client`
 **Created**: 2026-09-06
-**Status**: Draft — retrospectively reconstructed, pending maintainer acceptance
+**Implementation status**: Implemented; verified by source inspection and the available native/Rustls/WASM suites. Some acceptance clauses remain source-only or partially tested; see [current audit](../verification-2026-09-13.md) and [traceability](../supporting/traceability.md).
+**Specification acceptance**: Retrospectively reconstructed; maintainer acceptance of requirements/priorities remains pending.
 **Input**: Reconstruct the requirements for JavaScript developers using the client's WebAssembly package in browser and Node-style environments.
 
 ## Purpose and Scope
@@ -109,9 +110,9 @@ As a JavaScript developer, I want explicit ownership and release rules so that c
 
 Depends on features 001–003 for shared behavior. The host supplies a compatible fetch implementation, timers, and permission to access Apollo. This specification establishes no new minimum browser/Node version or measured leak-free guarantee; exact binding signatures and ownership evidence are in [contracts](../supporting/contracts.md) and [traceability](../supporting/traceability.md).
 
-## Planned ownership-guidance verification (2026-09-13)
+## Implemented ownership-guidance verification (2026-09-13)
 
-[008-wasm-ownership-docs](../008-wasm-ownership-docs/spec.md) corrects current examples and executes the existing ownership contract, including the constructor-error path. No constructor signature or generated-wrapper behavior change is planned.
+[008-wasm-ownership-docs](../008-wasm-ownership-docs/spec.md) corrected current examples and added execution of the existing ownership contract, including the constructor-error path. Constructor signatures and generated-wrapper behavior remain unchanged.
 
 - **AC-013:** Given a valid ClientConfig wrapper transferred to Client construction, when construction succeeds or consumes the wrapper before rejecting invalid settings, then documented cleanup does not free/reuse that consumed configuration; a later application/construction error is not masked by erroneous cleanup. Configuration that has not reached transfer remains the caller's to release.
 

@@ -2,7 +2,7 @@
 
 **Feature ID:** `006-cache-restore-ordering`
 **Created:** 2026-09-13
-**Status:** Specified; implementation not started.
+**Status:** Implemented and verified in baseline remediation (see tasks.md).
 **Review:** R1 / P1. Depends on [002](../002-retain-configuration/spec.md) and [003](../003-observe-updates/spec.md).
 
 ## Purpose and scope

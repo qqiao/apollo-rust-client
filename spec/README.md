@@ -2,7 +2,7 @@
 
 These feature specifications describe what application developers and operators need from the existing Apollo client, with observable requirements and acceptance scenarios. They were reconstructed on 2026-09-06 from revision `4473cffe7a8a45c86978053da23ef36553b0ea3d`. The manifest says 0.7.0; this checkout also contains work listed as Unreleased. The scope is the checkout, not a claim about a published package.
 
-**Status: Draft, pending maintainer acceptance.** The user selected Spec Kit-style documentation. Individual requirements and inferred priorities have not thereby received product approval.
+**Implementation status:** Features 001–013 are implemented. See the [current verification and status audit](verification-2026-09-13.md) for runtime evidence and remaining acceptance-coverage limits. **Specification acceptance:** retrospective requirements and inferred priorities still await maintainer acceptance; implemented code is not product approval.
 
 ## Feature specifications
 
@@ -20,9 +20,9 @@ Read in numerical order. These boundaries follow consumer capabilities; they do 
 
 Each `spec.md` uses prioritized stories, Given/When/Then scenarios, functional requirements, conceptual entities, and measurable outcomes, following the structure of GitHub's [Spec Kit feature template](https://github.com/github/spec-kit/blob/main/templates/spec-template.md). This is a format adaptation inside the requested `spec/` directory, not an installation of Spec Kit or a claim that a Specify CLI workflow/feature branch was executed.
 
-## Planned review remediation (2026-09-13)
+## Review remediation (2026-09-13)
 
-The seven findings from the 2026-09-12 codebase review now have separate specifications, technical plans, and task lists. **Implementation has not started.** Read the [remediation handoff](review-remediation/README.md) for the package map, dependencies, executor prompt, scope exclusions, and verification rules. These narrow amendments do not promote all retrospective requirements or deferred policies to approved scope.
+The seven baseline remediation packages (006–012) and the review follow-up package ([013 — Review follow-up](013-review-followup/spec.md)) are implemented and verified by the available local checks; acceptance-coverage and remote CI limits are recorded in the status audit. Follow-up findings V1–V3 from the [verification review](review-remediation/re-review.md) are resolved. Read the [remediation handoff](review-remediation/README.md) for the package map, dependencies, executor prompt, scope exclusions, and verification rules. These narrow amendments do not promote all retrospective requirements or deferred policies to approved scope.
 
 | Package | Intended correction |
 |---|---|
@@ -33,6 +33,7 @@ The seven findings from the 2026-09-12 codebase review now have separate specifi
 | [010 — Fixture body deadlines](010-fixture-body-deadlines/spec.md) | Keep fixture request deadlines active through response-body completion |
 | [011 — Executable public docs](011-executable-public-docs/spec.md) | Correct current API examples/references and verify actual Markdown snippets and local links |
 | [012 — Accurate polling docs](012-accurate-polling-docs/spec.md) | Describe post-round timing and failure jitter without changing polling behavior |
+| [013 — Review follow-up](013-review-followup/spec.md) | Resolve cleanup signal supervision, Markdown fence tracking, and completion status |
 
 ## Supporting material
 

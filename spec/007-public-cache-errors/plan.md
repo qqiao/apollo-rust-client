@@ -1,5 +1,7 @@
 # Plan: Public cache error re-export
 
+**Status:** Implemented design plan retained for reference. Current verification and remaining acceptance limits are recorded in the [status audit](../verification-2026-09-13.md); original imperative/future-tense steps below are historical implementation guidance.
+
 ## Source and exact change
 
 Inspect [src/lib.rs](../../src/lib.rs) (`mod cache;`, public `Error`) and [src/cache.rs](../../src/cache.rs) (public internal-module enum Error). Add a documented re-export near module declarations:

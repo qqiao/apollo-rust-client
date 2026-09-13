@@ -1,5 +1,7 @@
 # Plan: Executable WASM ownership guidance
 
+**Status:** Implemented design plan retained for reference. Current verification and remaining acceptance limits are recorded in the [status audit](../verification-2026-09-13.md); original imperative/future-tense steps below are historical implementation guidance.
+
 ## Read and inventory
 
 Inspect `Client::new(config: ClientConfig)` and WASM conversion in [src/lib.rs](../../src/lib.rs), `ClientConfig::new` in [src/client_config.rs](../../src/client_config.rs), [scripts/wasm_api_smoke.js](../../scripts/wasm_api_smoke.js), [scripts/build.sh](../../scripts/build.sh), and ownership handling in [tests/apollo/wasm.cjs](../../tests/apollo/wasm.cjs).

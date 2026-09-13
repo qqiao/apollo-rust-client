@@ -2,7 +2,8 @@
 
 **Feature ID**: `002-retain-configuration`
 **Created**: 2026-09-06
-**Status**: Draft — retrospectively reconstructed, pending maintainer acceptance
+**Implementation status**: Implemented; verified by source inspection and the available native/Rustls/WASM suites. Some acceptance clauses remain source-only or partially tested; see [current audit](../verification-2026-09-13.md) and [traceability](../supporting/traceability.md).
+**Specification acceptance**: Retrospectively reconstructed; maintainer acceptance of requirements/priorities remains pending.
 **Input**: Reconstruct the client's availability and startup requirements for applications that must reuse configuration when Apollo is slow or unavailable.
 
 ## Purpose and Scope
@@ -115,9 +116,9 @@ As an application developer, I want concurrent callers to reuse in-progress retr
 
 Depends on feature 001 for remote retrieval and typed consumption. Storage is optional and managed by the deployment/runtime. Restart scenarios assume persistence actually completed. The retention policy favors availability; no maximum stale age or cross-namespace consistency guarantee is newly introduced by this reconstruction.
 
-## Planned scoped amendment — restoration ordering (2026-09-13)
+## Scoped amendment — restoration ordering (2026-09-13)
 
-Implementation is pending under [006-cache-restore-ordering](../006-cache-restore-ordering/spec.md). This refines same-client retained-state behavior without introducing server-version ordering, timestamp conflict resolution, or cross-process coordination.
+Implemented and verified under [006-cache-restore-ordering](../006-cache-restore-ordering/spec.md). This refines same-client retained-state behavior without introducing server-version ordering, timestamp conflict resolution, or cross-process coordination.
 
 - **AC-017:** Given a suspended persistent restoration of an older value and an overlapping refresh that successfully populates memory first, when restoration resumes, then the cold read uses the memory winner, does not overwrite it, and emits no notification for the discarded stored candidate.
 - **FR-013:** Persistent restoration MUST check for an existing memory item and perform any installation atomically; if memory is already populated, it MUST use that item instead of the stored candidate. Ordinary persisted fallback, stale availability, and cancellation safety MUST be preserved.

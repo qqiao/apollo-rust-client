@@ -2,7 +2,7 @@
 
 **Feature ID:** `012-accurate-polling-docs`
 **Created:** 2026-09-13
-**Status:** Specified; implementation not started.
+**Status:** Implemented and verified in baseline remediation (see tasks.md).
 **Review:** R7 / P2. Baseline: [003](../003-observe-updates/spec.md), 003/FR-007/FR-009 and 003/AC-008–010. Finish 011 first to avoid shared-document conflicts.
 
 ## Purpose and scope

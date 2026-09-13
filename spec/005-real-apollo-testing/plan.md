@@ -1,7 +1,7 @@
 # Implementation Plan: Real Apollo integration testing
 
 **Feature**: [005-real-apollo-testing](spec.md)
-**Status**: Proposed technical handoff; no implementation or runtime validation performed
+**Status**: Implemented technical plan. Original design instructions are retained for context; see tasks.md and the [current audit](../verification-2026-09-13.md) for implementation and verification evidence. Remote CI/platform results remain separate.
 **Baseline**: `f3c3f4e` on 2026-09-06
 **Task list**: [tasks.md](tasks.md) is the authoritative implementation checklist.
 
@@ -128,7 +128,7 @@ Controller inspection establishes the starting contract; T01/T02 must confirm ac
 
 ## 4. Lifecycle and Command Contract
 
-### Planned repository commands
+### Implemented repository commands
 
 These commands are targets for implementation, **not available modes in the current script**.
 
@@ -145,7 +145,7 @@ These commands are targets for implementation, **not available modes in the curr
 
 Unknown modes/flags fail with usage. Public test invocation remains `scripts/test.sh` under repository rules. Helpers below are implementation internals and recovery tools, not competing test entry points.
 
-### Planned files and responsibilities
+### Implemented files and responsibilities
 
 | File | Responsibility |
 |---|---|

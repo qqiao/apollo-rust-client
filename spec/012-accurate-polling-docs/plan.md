@@ -1,5 +1,7 @@
 # Plan: Document the actual polling model
 
+**Status:** Implemented design plan retained for reference. Current verification and remaining acceptance limits are recorded in the [status audit](../verification-2026-09-13.md); original imperative/future-tense steps below are historical implementation guidance.
+
 ## Source anchors and facts
 
 Read [src/lib.rs](../../src/lib.rs) `refresh_loop`, `platform_sleep`, `start_background`; [src/cache.rs](../../src/cache.rs) `refresh_delay_seconds`, `is_backing_off`, `perform_refresh`, `schedule_revalidation`, `is_fresh`; and [003](../003-observe-updates/spec.md).

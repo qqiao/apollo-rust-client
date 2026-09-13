@@ -42,10 +42,10 @@ node --check tests/apollo/wasm.cjs
 
 The build script removes/regenerates `pkg`; inspect status before running and preserve unrelated user artifacts. Use `mktemp -d` plus `wasm-pack build --target nodejs --dev --out-dir "$task_package_dir"` when verifying bindings without that side effect; the package-008 plan defines the smoke command's optional package path. That optional argument does not exist until 008-T01 is implemented.
 
-## Planned check commands — not available until their owning tasks land
+## Implemented remediation check commands
 
-- `node --test tests/tooling/*.test.mjs`: Node fault tests introduced by 009 and 010. Their scripts must be invoked by **both** existing fast-check paths, and failure must propagate. Until 009 lands, this glob may have no matches; do not call that a pass.
-- `node scripts/check-doc-examples.mjs`: selected current Rust Markdown snippets compile through rustdoc; introduced by 011. No placeholder implementation or copying snippets manually into tests.
+- `node --test tests/tooling/*.test.mjs`: Node fault tests introduced by 009 and 010. Their scripts must be invoked by **both** existing fast-check paths, and failure must propagate. These tests are implemented and selected by both fast paths.
+- `node scripts/check-doc-examples.mjs`: selected current Rust Markdown snippets compile in temporary consumer crates through Clippy under native TLS and Rustls; introduced by 011. No placeholder implementation or copying snippets manually into tests.
 - `node scripts/check-doc-links.mjs`: local link checker introduced by 011. Scope, fragment handling, and exclusions are defined there.
 
 These checks are Docker-independent, but Rust/WASM tools and dependencies remain prerequisites. A network/runtime failure is a blocked check with its actual diagnostic, not proof of a source regression or a passing suite.

@@ -72,3 +72,8 @@ R1 (persisted restoration overwriting a completed refresh), R2 (unnameable publi
 Accuracy clarification from source recheck: `DeserializeError` **does exist** inside `namespace::json::Error` and `namespace::yaml::Error`; it is not a direct variant of `namespace::Error`. R6 must correct the hierarchy/path and distinguish `to_object` return errors, not delete the valid nested variants. Historical migration examples containing `.await` are not automatically current API defects.
 
 The selected new policies are explicit in their specs: public alias is `CacheError`; successful-stage teardown failure becomes nonzero with original failure/signal precedence; fixture timeout remains 5000 ms through the body; polling documentation is corrected without adding healthy jitter. These are prospective implementation details for the requested handoff, not claims of completed fixes or new external verification.
+
+
+## Current implementation disposition (2026-09-13)
+
+The planning passages above are historical. Packages 006–013 are implemented; the latest parser follow-up is verified in the [current audit](../verification-2026-09-13.md). Both native feature configurations execute unit and public-consumer tests. The D-001–D-011 decisions remain open; completion of the narrow remediation does not resolve them.

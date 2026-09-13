@@ -94,3 +94,50 @@ The runtime design change is appropriately narrow: conditional restoration is se
 ## Limits
 
 This review compared all seven packages with their contracts and inspected the source, tests, scripts, and documentation changes relative to the previously reviewed baseline. It does not establish Linux CI execution, browser-host certification, Windows support, external-link validity, heading-anchor validity, every unmarked wiki example, production load behavior, or resolution of the explicitly deferred D-001–D-011 policy decisions. Those remain outside this remediation's acceptance scope.
+
+
+## Remediation resolution (2026-09-13)
+
+Implemented and verified under [spec/013-review-followup](../013-review-followup/spec.md) (tasks T01–T07, Checkpoints A & B).
+
+### V1 Resolution: Lifecycle signal handling during cleanup and recovery
+- **Root cause:** `lifecycle_exit_handler` disabled the EXIT trap prior to `cleanup`; `handle_signal` unconditionally called `exit`, which terminated the runner shell immediately while leaving `CURRENT_CHILD_PID` active and unmonitored.
+- **Fix:**
+  - Added explicit lifecycle phase tracking (`LIFECYCLE_PHASE="work" | "cleanup" | "finished"`, `CLEANUP_IN_PROGRESS=0 | 1`, and `INTERRUPTED_STATUS=0 | 130 | 143`) to `scripts/apollo-test-lifecycle.sh`.
+  - In `handle_signal`, recorded the first signal status (preserving INT 130 vs TERM 143 precedence) and deferred signals received during `cleanup` or `finished` phases without exiting early or restarting teardown.
+  - Hardened child wait/kill loops and added `sleep || true` guards in `run_with_timeout` so trapped signals under `set -e` do not abort the supervision shell.
+  - Applied the same phase management and signal precedence to CLI explicit recovery in `scripts/apollo-test.sh` (`run_recovery_cleanup`).
+- **Verification evidence:**
+  - Added 4 deterministic regression tests in `tests/tooling/apollo-lifecycle.test.mjs` verifying:
+    1. Automatic teardown signal interruption (SIGTERM -> 143, SIGINT -> 130) cleanly reaps child process groups within bounded timeout.
+    2. Mixed repeated signals (SIGINT -> SIGTERM, SIGTERM -> SIGINT) preserve the first signal and call down exactly once.
+    3. Signal during diagnostic collection preserves signal status and completes teardown.
+    4. Recovery cleanup interrupted by signals terminates child process groups and exits with signal status without second down call.
+  - All 21 tests in `tests/tooling/apollo-lifecycle.test.mjs` passed with 0 failures.
+  - Live native integration suite (`scripts/test.sh integration --suite native`) completed and cleanly tore down Compose project `apollo-test-1789283757-30de25e0` with 0 leaked containers or processes.
+
+### V2 Resolution: Markdown fence state tracking and closed example fence
+- **Root cause:** In `docs/wiki/en/Error-Handling.md`, the code fence opened at line 44 remained unclosed before the `<!-- apollo-example: public-errors -->` marker; `scripts/check-doc-examples.mjs` extracted snippets without tracking active code fences, extracting an inner snippet that masked the malformed documentation fence from validation.
+- **Fix:**
+  - Closed the unclosed code fence after `get_config()` in `docs/wiki/en/Error-Handling.md`.
+  - Updated `extractSnippets` in `scripts/check-doc-examples.mjs` with normalized line endings (`/\r?\n/`) and unified CommonMark fence recognition (`parseOpeningFence`), validating delimiter runs, matching length, and backtick restrictions in info strings before selecting language.
+  - Ignored markers placed inside active code fences under both LF and CRLF lines.
+  - Rejected malformed marked opening fences (e.g. backticks in info strings) before compilation.
+- **Verification evidence:**
+  - Added regression tests in `tests/tooling/doc-examples.test.mjs` verifying:
+    1. Rejection of markers inside active fences under both LF and CRLF via `validateInventory`.
+    2. Rejection of marked openers with invalid backtick info strings before compilation.
+    3. 4-backtick fence matching and tilde fence matching.
+    4. Successful extraction and compilation of repaired standalone example under both LF and CRLF.
+  - All 13 tests in `tests/tooling/doc-examples.test.mjs` passed (45 total tooling tests passed).
+  - Verified `node scripts/check-doc-examples.mjs`: all 4 canonical examples compiled successfully under both `native-tls` and `rustls`.
+  - Verified `node scripts/check-doc-links.mjs`: 441 links verified across 82 markdown files with 0 broken links.
+  - Documented signal deferral and first-signal-wins semantics in `tests/apollo/README.md`; hardened exit listener promises and finally PID cleanup in `tests/tooling/apollo-lifecycle.test.mjs`.
+
+### V3 Resolution: Synchronized specification and handoff completion status
+- **Root cause:** `spec.md` status headers across packages 006–012 still stated "Specified; implementation not started" despite checked-off task lists and verified baseline implementations.
+- **Fix:**
+  - Reconciled package statuses in `spec/006-*` through `spec/012-*/spec.md` to "Implemented and verified in baseline remediation".
+  - Reconciled scoped amendments in `spec/001-read-configuration/spec.md`, `spec/002-retain-configuration/spec.md`, and `spec/005-real-apollo-testing/spec.md`.
+  - Updated `spec/supporting/contracts.md` and `spec/supporting/traceability.md` to reflect implemented deltas and package 013 verification.
+  - Updated `HANDOFF.md`, `spec/README.md`, `spec/review-remediation/README.md`, and `spec/013-review-followup/{spec.md,tasks.md}`.

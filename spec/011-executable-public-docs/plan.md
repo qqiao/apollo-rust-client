@@ -1,5 +1,7 @@
 # Plan: Public documentation correctness and drift checks
 
+**Status:** Implemented design plan retained for reference. Current verification and remaining acceptance limits are recorded in the [status audit](../verification-2026-09-13.md); original imperative/future-tense steps below are historical implementation guidance.
+
 ## Read and recheck the inventory
 
 Read baseline contracts, package 007's public alias and package 008's ownership changes. Inspect source enum/struct definitions rather than treating old prose as the source of truth.

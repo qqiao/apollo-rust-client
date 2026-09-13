@@ -74,7 +74,7 @@ Callbacks receive `(data, error)`: the inapplicable argument is `undefined`. Cau
 
 The request deadline bounds asynchronous network waiting, including body reading. It does not cover mutex waits, synchronous parsing monopolizing the executor, persistence, or callbacks as an overall operation deadline. The native custom transport may return its own error before that deadline. Error details/logs are not a declared redaction or payload-size policy.
 
-## Planned remediation deltas (2026-09-13; not implemented)
+## Remediation deltas (2026-09-13; implemented and verified)
 
 - [007](../007-public-cache-errors/spec.md) added `pub use cache::Error as CacheError` at the crate root with compiler-verified rustdoc; the `cache` module remains private. Coalesced refresh followers (`CacheError::CoalescedRefresh(String)`) and listener notifications (`Error::Refresh(String)`) retain their existing snapshot strings rather than guaranteeing original typed error variants.
 - [006](../006-cache-restore-ordering/spec.md) made persistent installation conditional on empty memory (`restore_memory_if_empty`), preserving newer in-memory winners across concurrent refreshes. Storage schema, identity, remote refresh replacement, and freshness policy are unchanged.
@@ -82,4 +82,4 @@ The request deadline bounds asynchronous network waiting, including body reading
 - [011](../011-executable-public-docs/spec.md) and [012](../012-accurate-polling-docs/spec.md) correct/verify documentation of existing boundaries; they do not invent root ClientConfig, exported Cache, healthy jitter, or stronger lifecycle guarantees.
 - [009](../009-observable-test-cleanup/spec.md) and [010](../010-fixture-body-deadlines/spec.md) amend test-tooling outcome/deadline contracts only. Their exact status table and HTTP behavior are in those specs.
 
-Move each completed delta into the relevant current section and record evidence when that implementation actually lands. Do not describe pending siblings as shipped.
+All deltas for packages 006–012 and 013 are implemented and verified by automated tests in scripts/test.sh fast and integration suites; see traceability.md.

@@ -2,6 +2,8 @@
 
 **Date:** 2026-09-13. **Scope:** validate this specification/plan/task handoff, not implement or verify the future fixes.
 
+This is a historical planning record. Its statements about pending implementation and planning-only checks describe that phase; current status is recorded in the [verification audit](../verification-2026-09-13.md).
+
 ## Coverage check
 
 The seven packages contain 46 local functional requirements, 47 acceptance scenarios, and 22 success criteria. All local FR/AC/SC declarations are unique and consecutively numbered per package. Original IDs in features 001–005 were preserved; the appended scoped amendments are prospective and explicitly marked pending.

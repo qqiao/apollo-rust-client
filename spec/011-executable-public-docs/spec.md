@@ -2,7 +2,7 @@
 
 **Feature ID:** `011-executable-public-docs`
 **Created:** 2026-09-13
-**Status:** Specified; implementation not started.
+**Status:** Implemented and verified in baseline remediation; follow-up markdown-fence gap (Finding V2) resolved in [013-review-followup](../013-review-followup/spec.md).
 **Review:** R6 / P2, plus concrete adjacent documentation inconsistencies and broken links from the review.
 **Dependencies:** [007](../007-public-cache-errors/spec.md), [008](../008-wasm-ownership-docs/spec.md), and 010's completed fast-runner edits; baseline 001–005 contracts.
 
