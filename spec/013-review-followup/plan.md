@@ -2,7 +2,7 @@
 
 **Status:** Implemented design plan retained for reference. Current verification and remaining acceptance limits are recorded in the [status audit](../verification-2026-09-13.md); original imperative/future-tense steps below are historical implementation guidance.
 
-Read [specification](spec.md), [tasks](tasks.md), [review evidence](../review-remediation/re-review.md), repository instructions, and the relevant 009/011 contracts before editing. This package is the current work assignment; earlier package plans are baseline context.
+Read [specification](spec.md), [tasks](tasks.md), [historical review evidence](https://github.com/qqiao/apollo-rust-client/blob/1ca68717e268a5298b814c97cd0703cd950554fa/spec/review-remediation/re-review.md), repository instructions, and the relevant 009/011 contracts before editing. This package is the current work assignment; earlier package plans are baseline context.
 
 ## Current implementation and failure mechanisms
 

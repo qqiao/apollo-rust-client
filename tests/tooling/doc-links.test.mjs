@@ -171,3 +171,54 @@ test('extractLinks and checkFileLinks parse reference definitions with angle bra
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('extractLinks and checkFileLinks handle balanced inline destinations, escapes, titles, and unclosed inputs (R3-3)', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'apollo-doc-link-r3-3-'));
+  try {
+    const docsDir = path.join(tempDir, 'docs');
+    fs.mkdirSync(docsDir, { recursive: true });
+    // Create actual files
+    fs.writeFileSync(path.join(docsDir, 'guide_(v2).md'), '# Guide v2\n', 'utf8');
+    fs.writeFileSync(path.join(docsDir, 'guide (v2).md'), '# Guide with space and parens\n', 'utf8');
+    fs.writeFileSync(path.join(docsDir, 'regular.md'), '# Regular\n', 'utf8');
+
+    const sourceFile = path.join(tempDir, 'README.md');
+    const content = [
+      '# Balanced and Escaped Inline Links',
+      '',
+      '- [v2 balanced](docs/guide_(v2).md)',
+      '- [v2 escaped](docs/guide_\\(v2\\).md)',
+      '- [v2 with title](docs/guide_(v2).md "Title with (parens)")',
+      '- [v2 angle with space and parens](<docs/guide (v2).md>)',
+      '- [v2 angle with title](<docs/guide (v2).md> "Title (v2)")',
+      '- [regular](docs/regular.md)',
+      '- [missing balanced](docs/nonexistent_(v1).md)',
+      '',
+      'Malformed/unclosed lines that must terminate without spurious truncated targets:',
+      '- [unclosed paren](docs/guide_(v2).md',
+      '- [unclosed angle](<docs/guide_(v2).md',
+      '- [unclosed title](docs/guide_(v2).md "unclosed title)',
+      '- [unclosed bracket(docs/guide_(v2).md)',
+    ].join('\n');
+
+    const links = extractLinks(sourceFile, content);
+    const targets = links.map((l) => l.target);
+
+    // Assert targets correctly extracted
+    assert.ok(targets.includes('docs/guide_(v2).md'), 'Must extract balanced paren link intact without truncation');
+    assert.ok(targets.includes('docs/guide_\\(v2\\).md'), 'Must extract escaped paren link intact');
+    assert.ok(targets.includes('<docs/guide (v2).md>'), 'Must extract angle-delimited link with spaces and parens');
+    assert.ok(targets.includes('docs/regular.md'), 'Must extract regular link');
+    assert.ok(targets.includes('docs/nonexistent_(v1).md'), 'Must extract missing link target');
+
+    // Assert unclosed/malformed inputs did not produce spurious partial targets
+    assert.ok(!targets.some((t) => t.includes('unclosed')), 'Malformed lines must not emit spurious links');
+
+    // Run checkFileLinks to verify existing files pass and missing files fail
+    const broken = checkFileLinks(sourceFile, links, tempDir);
+    assert.equal(broken.length, 1, `Expected exactly 1 broken link for nonexistent file, got: ${JSON.stringify(broken)}`);
+    assert.ok(broken[0].rawTarget.includes('nonexistent_(v1).md'), 'The broken link must be the nonexistent file');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

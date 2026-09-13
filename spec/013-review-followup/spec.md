@@ -2,7 +2,7 @@
 
 **Feature ID:** `013-review-followup`
 **Status:** Implemented and verified (see tasks.md).
-**Source:** [Verification review](../review-remediation/re-review.md), findings V1–V3.
+**Source:** Historical verification review (findings V1–V3; reference preserved at [commit 1ca6871](https://github.com/qqiao/apollo-rust-client/blob/1ca68717e268a5298b814c97cd0703cd950554fa/spec/review-remediation/re-review.md)).
 **Baseline contracts:** [009 cleanup](../009-observable-test-cleanup/spec.md) and [011 documentation](../011-executable-public-docs/spec.md). Existing identifiers and obligations remain in force.
 
 ## Scope

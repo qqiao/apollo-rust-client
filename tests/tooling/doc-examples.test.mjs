@@ -103,20 +103,35 @@ test('validateInventory rejects missing required snippet', () => {
   );
 });
 
-test('compileSnippets rejects snippet with unavailable symbol in compiler failure', () => {
+test('compileSnippets rejects snippet with unavailable symbol in compiler failure and maps to source example (R3-4)', () => {
   const badSnippet = [
     {
+      id: 'good-symbol',
+      filePath: 'docs/wiki/en/good.md',
+      markerLine: 5,
+      fenceLine: 6,
+      code: 'let _ = 1 + 1;',
+    },
+    {
       id: 'bad-symbol',
-      filePath: 'test-bad.md',
-      markerLine: 10,
-      fenceLine: 11,
+      filePath: 'docs/wiki/en/test-bad.md',
+      markerLine: 42,
+      fenceLine: 43,
       code: 'let _ = apollo_rust_client::client_config::ClientConfig::nonexistent_symbol_call();',
     },
   ];
 
   assert.throws(
     () => compileSnippets(badSnippet),
-    /Doc examples failed compilation under native-tls/
+    (err) => {
+      assert.match(err.message, /Doc examples failed compilation under native-tls/);
+      assert.ok(err.message.includes('docs/wiki/en/test-bad.md'), 'Must report actual source file test-bad.md');
+      assert.ok(err.message.includes('42'), 'Must report actual marker line 42');
+      assert.ok(err.message.includes('bad-symbol'), 'Must report actual snippet ID bad-symbol');
+      assert.ok(!err.message.includes('good-symbol'), 'Must not misattribute failure to good-symbol');
+      assert.match(err.message, /nonexistent_symbol_call/, 'Must preserve compiler diagnostic details');
+      return true;
+    }
   );
 });
 

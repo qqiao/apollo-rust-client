@@ -17,7 +17,7 @@ Tasks below reflect the completed implementation and verification sequence.
   - Add unit tests in `tests/tooling/apollo-http.test.mjs` verifying redaction of basic auth userinfo and sensitive query values, while preserving standard URLs, paths, and benign parameters.
 - **Acceptance:**
   - Timeout diagnostics omit passwords and tokens without hiding request method, host, path, or non-sensitive query attributes.
-  - `node --test tests/tooling/apollo-http.test.mjs` passes cleanly (9/9 tests pass).
+  - `node --test tests/tooling/apollo-http.test.mjs` passes cleanly (all tests pass without failures).
 
 ---
 
@@ -36,7 +36,7 @@ Tasks below reflect the completed implementation and verification sequence.
   - Four-backtick code blocks containing three-backtick examples do not leak inner links.
   - Valid local links in angle brackets with spaces resolve to existing files without false positives.
   - Protocol-relative URLs are excluded from local file existence checks.
-  - `node --test tests/tooling/doc-links.test.mjs` passes cleanly (7/7 tests pass).
+  - `node --test tests/tooling/doc-links.test.mjs` passes cleanly (all tests pass without failures).
 
 ---
 
@@ -55,7 +55,7 @@ Tasks below reflect the completed implementation and verification sequence.
 - **Acceptance:**
   - No background subprocess is orphaned if group leader exits prematurely.
   - Signals during child spawn or recovery cleanup guarantee non-zero signal exit codes (130/143) and reaped process groups.
-  - `node --test tests/tooling/apollo-lifecycle.test.mjs` passes all tests cleanly with zero process leaks (23/23 tests pass).
+  - `node --test tests/tooling/apollo-lifecycle.test.mjs` passes all tests cleanly with zero process leaks (all tests pass without failures).
 
 ---
 

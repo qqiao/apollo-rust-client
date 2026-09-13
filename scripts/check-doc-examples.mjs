@@ -215,6 +215,31 @@ export function validateInventory(repoRoot = REPO_ROOT, required = REQUIRED_EXAM
   return allSnippets;
 }
 
+function formatFailureContext(snippets, output, configName) {
+  const failedSnippets = snippets.filter((s) => {
+    const safeName = s.id.replace(/-/g, '_');
+    const binName = `example_${safeName}`;
+    const binFile = `example_${safeName}.rs`;
+    return (
+      output.includes(binFile) ||
+      output.includes(`bin "${binName}"`) ||
+      output.includes(`(bin "${binName}" test)`) ||
+      output.includes(binName)
+    );
+  });
+
+  const targetSnippets = failedSnippets.length > 0 ? failedSnippets : snippets;
+  const contextLines = targetSnippets.map(
+    (s) => `  - ${s.filePath}:${s.markerLine} (example '${s.id}')`
+  );
+
+  return (
+    `Doc examples failed compilation under ${configName}:\n` +
+    contextLines.join('\n') +
+    `\n\nCompiler output:\n${output}`
+  );
+}
+
 export function compileSnippets(snippets, repoRoot = REPO_ROOT) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'apollo-doc-examples-'));
   const targetDir = path.resolve(repoRoot, 'target/doc-examples');
@@ -283,8 +308,10 @@ ${binConfigs.join('\n\n')}
     );
 
     if (nativeRun.status !== 0) {
-      console.error(`[check-doc-examples] Clippy failed for native-tls:\n${nativeRun.stderr || nativeRun.stdout}`);
-      throw new Error(`Doc examples failed compilation under native-tls`);
+      const output = nativeRun.stderr || nativeRun.stdout;
+      const errorMsg = formatFailureContext(snippets, output, 'native-tls');
+      console.error(`[check-doc-examples] Clippy failed for native-tls:\n${errorMsg}`);
+      throw new Error(errorMsg);
     }
 
     console.log(`[check-doc-examples] Compiling ${snippets.length} examples under rustls...`);
@@ -311,8 +338,10 @@ ${binConfigs.join('\n\n')}
     );
 
     if (rustlsRun.status !== 0) {
-      console.error(`[check-doc-examples] Clippy failed for rustls:\n${rustlsRun.stderr || rustlsRun.stdout}`);
-      throw new Error(`Doc examples failed compilation under rustls`);
+      const output = rustlsRun.stderr || rustlsRun.stdout;
+      const errorMsg = formatFailureContext(snippets, output, 'rustls');
+      console.error(`[check-doc-examples] Clippy failed for rustls:\n${errorMsg}`);
+      throw new Error(errorMsg);
     }
 
     console.log(`[check-doc-examples] All ${snippets.length} examples compiled successfully!`);

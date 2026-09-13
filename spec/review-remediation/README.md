@@ -1,6 +1,6 @@
 # Review remediation: start here
 
-**Status:** Packages 006–013 are implemented and verified. The verification review findings V1–V3 are resolved in [013 — Review follow-up](../013-review-followup/spec.md) and documented in [re-review.md](re-review.md#remediation-resolution-2026-09-13).
+**Status:** Packages 006–014 are implemented and verified. The historical verification review findings V1–V3 are resolved in [013 — Review follow-up](../013-review-followup/spec.md), and GitHub Copilot review findings are addressed in [014 — Copilot remediation](../014-copilot-remediation/spec.md) (prior review record preserved at [commit 1ca6871](https://github.com/qqiao/apollo-rust-client/blob/1ca68717e268a5298b814c97cd0703cd950554fa/spec/review-remediation/re-review.md)).
 **Source review:** 2026-09-12, checkout `9f18e3942008d5280a63809655aa9a073c3f0507`.
 **User request:** Prepare a detailed, accurate handoff for a smaller model to fix the review findings. This planning task changes specification documents only. A later instruction to implement a package supplies execution authorization; do not demand repeated approval of ordinary steps within that authorized package.
 
@@ -20,6 +20,7 @@ Each row has a separate specification, plan, and task list. This was the origina
 | R6, P2 | 011 — Make current public examples and references reliable | [spec](../011-executable-public-docs/spec.md) | [plan](../011-executable-public-docs/plan.md) | [tasks](../011-executable-public-docs/tasks.md) | 007 public alias; 008 ownership text; 010 runner edits |
 | R7, P2 | 012 — Describe actual polling timing and jitter | [spec](../012-accurate-polling-docs/spec.md) | [plan](../012-accurate-polling-docs/plan.md) | [tasks](../012-accurate-polling-docs/tasks.md) | Land after 011 to avoid overlapping guide edits |
 | V1–V3, P1 | 013 — Review follow-up | [spec](../013-review-followup/spec.md) | [plan](../013-review-followup/plan.md) | [tasks](../013-review-followup/tasks.md) | Follow-up for 009, 011, and status reconciliation |
+| Copilot F1–F8 | 014 — Copilot remediation | [spec](../014-copilot-remediation/spec.md) | [plan](../014-copilot-remediation/plan.md) | [tasks](../014-copilot-remediation/tasks.md) | Follow-up for 009, 010, 011, and PR #133 Copilot review |
 
 006 and 007 can be implemented independently, but both touch `src/lib.rs`/cache documentation indirectly. 009 and 010 share test scripts; 008/011/012 share documentation. Default to serial execution. This map describes dependencies, not authorization to launch other agents or tasks.
 
@@ -49,7 +50,7 @@ Confirmed probes: delayed persistent read rolled memory from `new` back to `old`
 
 ## Planning validation
 
-See [validation.md](validation.md) for the acceptance-to-task coverage map, checked assumptions, and limits of this documentation-only handoff.
+See [current verification and status audit](../verification-2026-09-13.md) for the acceptance-to-task coverage map, checked assumptions, and verification limits (historical planning validation preserved at [commit 1ca6871](https://github.com/qqiao/apollo-rust-client/blob/1ca68717e268a5298b814c97cd0703cd950554fa/spec/review-remediation/validation.md)).
 
 ## Program completion
 

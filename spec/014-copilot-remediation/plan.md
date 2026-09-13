@@ -170,7 +170,7 @@ During independent re-review of commit `0273182`, three required findings were i
 
 2. **P2 — Spawn Race Window & Deterministic Handshake Injection (`scripts/apollo-test-lifecycle.sh` & `tests/tooling/apollo-lifecycle.test.mjs`):**
    - *Problem:* The previous spawn test signaled the parent from the child worker script, which could execute after `CURRENT_CHILD_PID` was already assigned, passing even against pre-fix helpers lacking spawn-phase protection.
-   - *Resolution:* Added `LIFECYCLE_SPAWN_HOOK` injection point in `run_with_timeout` immediately after background spawn (`$!`) and before `CURRENT_CHILD_PID="$child_pid"`. The test uses this hook to assert `PHASE=spawning` and `CURRENT_CHILD_PID=empty`, injects `kill -TERM "$$"`, and asserts the runner exits 143 while the child process is terminated and reaped (`014/AC-007`). Ordinary worker interrupt test preserved separately.
+   - *Resolution:* Added gated `__lifecycle_test_spawn_hook` callback in `run_with_timeout` active only when `LIFECYCLE_TEST_MODE=1`, immediately after background spawn (`$!`) and before `CURRENT_CHILD_PID="$child_pid"`. The test defines this shell function to assert `PHASE=spawning` and `CURRENT_CHILD_PID=empty`, injects `kill -TERM "$$"`, and asserts the runner exits 143 while the child process is terminated and reaped (`014/AC-007`). Ordinary worker interrupt test preserved separately.
 
 3. **P2 — Readiness Timeout Budgets & Startup Latency Analysis (`tests/tooling/apollo-lifecycle.test.mjs`):**
    - *Problem:* Explicit call sites passed 5000ms for file readiness and 10000ms for exit watchdog at lines 711, 718, 845, and 847, which were unaffected by helper function default changes.

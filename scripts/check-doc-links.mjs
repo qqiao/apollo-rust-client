@@ -108,14 +108,179 @@ export function extractLinks(filePath, content) {
       continue;
     }
 
-    // Inline links: [text](target)
-    const inlineRegex = /\[([^\]]*)\]\(([^)]+)\)/g;
-    let match;
-    while ((match = inlineRegex.exec(line)) !== null) {
-      links.push({
-        line: i + 1,
-        target: match[2].trim(),
-      });
+    // Inline links: [text](target "optional title") with balanced parens, angle brackets, and escapes
+    let idx = 0;
+    const len = line.length;
+    while (idx < len) {
+      const openBracket = line.indexOf('[', idx);
+      if (openBracket === -1) break;
+
+      // Scan for matching ']' respecting escapes
+      let closeBracket = -1;
+      let b = openBracket + 1;
+      while (b < len) {
+        if (line[b] === '\\') {
+          b += 2;
+          continue;
+        }
+        if (line[b] === ']') {
+          closeBracket = b;
+          break;
+        }
+        b++;
+      }
+
+      if (closeBracket === -1 || closeBracket + 1 >= len || line[closeBracket + 1] !== '(') {
+        idx = openBracket + 1;
+        continue;
+      }
+
+      let p = closeBracket + 2;
+      while (p < len && /\s/.test(line[p])) {
+        p++;
+      }
+
+      if (p >= len) {
+        idx = openBracket + 1;
+        continue;
+      }
+
+      let target = null;
+      let linkEnd = -1;
+
+      if (line[p] === '<') {
+        // Angle-delimited destination: <...>
+        const startAngle = p;
+        p++;
+        let closedAngle = false;
+        while (p < len) {
+          if (line[p] === '\\') {
+            p += 2;
+            continue;
+          }
+          if (line[p] === '>') {
+            closedAngle = true;
+            break;
+          }
+          p++;
+        }
+
+        if (!closedAngle) {
+          idx = openBracket + 1;
+          continue;
+        }
+
+        target = line.slice(startAngle, p + 1);
+        p++; // past '>'
+
+        while (p < len && /\s/.test(line[p])) {
+          p++;
+        }
+
+        // Optional title
+        if (p < len && (line[p] === '"' || line[p] === "'" || line[p] === '(')) {
+          const titleOpen = line[p];
+          const titleClose = titleOpen === '(' ? ')' : titleOpen;
+          p++;
+          let closedTitle = false;
+          while (p < len) {
+            if (line[p] === '\\') {
+              p += 2;
+              continue;
+            }
+            if (line[p] === titleClose) {
+              closedTitle = true;
+              break;
+            }
+            p++;
+          }
+          if (!closedTitle) {
+            idx = openBracket + 1;
+            continue;
+          }
+          p++;
+          while (p < len && /\s/.test(line[p])) {
+            p++;
+          }
+        }
+
+        if (p < len && line[p] === ')') {
+          linkEnd = p;
+        }
+      } else {
+        // Bare destination: balanced parens and escapes
+        const startDest = p;
+        let parenDepth = 0;
+
+        while (p < len) {
+          if (line[p] === '\\') {
+            p += 2;
+            continue;
+          }
+          if (line[p] === '(') {
+            parenDepth++;
+            p++;
+            continue;
+          }
+          if (line[p] === ')') {
+            if (parenDepth > 0) {
+              parenDepth--;
+              p++;
+              continue;
+            }
+            target = line.slice(startDest, p).trim();
+            linkEnd = p;
+            break;
+          }
+          if (/\s/.test(line[p])) {
+            if (parenDepth === 0) {
+              target = line.slice(startDest, p).trim();
+              while (p < len && /\s/.test(line[p])) {
+                p++;
+              }
+              if (p < len && (line[p] === '"' || line[p] === "'" || line[p] === '(')) {
+                const titleOpen = line[p];
+                const titleClose = titleOpen === '(' ? ')' : titleOpen;
+                p++;
+                let closedTitle = false;
+                while (p < len) {
+                  if (line[p] === '\\') {
+                    p += 2;
+                    continue;
+                  }
+                  if (line[p] === titleClose) {
+                    closedTitle = true;
+                    break;
+                  }
+                  p++;
+                }
+                if (!closedTitle) {
+                  break;
+                }
+                p++;
+                while (p < len && /\s/.test(line[p])) {
+                  p++;
+                }
+              }
+              if (p < len && line[p] === ')') {
+                linkEnd = p;
+              }
+              break;
+            }
+          }
+          p++;
+        }
+      }
+
+      if (target !== null && linkEnd !== -1) {
+        links.push({
+          line: i + 1,
+          target,
+        });
+        idx = linkEnd + 1;
+      } else {
+        idx = openBracket + 1;
+      }
     }
 
     // Reference definitions: [ref]: target or [ref]: <target with spaces>
@@ -184,6 +349,9 @@ export function checkFileLinks(filePath, links, repoRoot = REPO_ROOT) {
     } catch {
       // ignore decode failure
     }
+
+    // Unescape backslash escapes (e.g. \(, \), \<, \>, \\)
+    targetPath = targetPath.replace(/\\([\\()<>\[\]\s])/g, '$1');
 
     let resolvedPath;
     if (path.isAbsolute(targetPath)) {

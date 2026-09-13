@@ -49,7 +49,13 @@ function validateLoopbackUrl(urlString, name) {
   return parsed.origin;
 }
 
-const SENSITIVE_PARAM_REGEX = /^(token|secret|key|password|auth|credential|access_token|client_secret)$/i;
+const SENSITIVE_PARAM_NAMES_PATTERN =
+  '(?:token|secret|key|password|auth|credentials?|authorization|api[-_]?key|(?:access|client|app)[-_]?(?:token|secret|key))';
+const SENSITIVE_PARAM_REGEX = new RegExp(`^${SENSITIVE_PARAM_NAMES_PATTERN}$`, 'i');
+const SENSITIVE_FALLBACK_REPLACE_REGEX = new RegExp(
+  `([?&]${SENSITIVE_PARAM_NAMES_PATTERN}=)[^&#]*`,
+  'gi'
+);
 
 export function redactUrl(rawUrl) {
   if (!rawUrl) {
@@ -62,17 +68,21 @@ export function redactUrl(rawUrl) {
       parsed.username = '***';
       parsed.password = '***';
     }
-    for (const key of Array.from(parsed.searchParams.keys())) {
+    const entries = Array.from(parsed.searchParams.entries());
+    parsed.search = '';
+    for (const [key, val] of entries) {
       if (SENSITIVE_PARAM_REGEX.test(key)) {
-        parsed.searchParams.set(key, 'REDACTED');
+        parsed.searchParams.append(key, 'REDACTED');
+      } else {
+        parsed.searchParams.append(key, val);
       }
     }
     return parsed.toString();
   } catch {
     // Fallback for relative or malformed URLs
     return urlString
-      .replace(/(\/\/[^:@/]+):[^@/]+@/, '$1:***@')
-      .replace(/([?&](?:token|secret|key|password|auth|credential|access_token|client_secret)=)[^&]*/gi, '$1REDACTED');
+      .replace(/(^|[^/]*\/\/)([^:@/\s]+):([^@/\s]+)@/, '$1***:***@')
+      .replace(SENSITIVE_FALLBACK_REPLACE_REGEX, '$1REDACTED');
   }
 }
 

@@ -2,9 +2,9 @@
 
 ## Result and scope
 
-Features 001–013 have implementations in this checkout. The latest parser corrections resolve both reproduced defects from [the package-013 review](review-remediation/re-review-013.md). No new blocking implementation defect was found in this verification. Implementation status is separate from complete acceptance-test coverage and maintainer acceptance of retrospective requirements.
+Features 001–013 have implementations in this checkout (with package 014 addressing subsequent PR #133 Copilot review findings). The latest parser corrections resolve both reproduced defects from the package-013 review (preserved historically at [commit 1ca6871](https://github.com/qqiao/apollo-rust-client/blob/1ca68717e268a5298b814c97cd0703cd950554fa/spec/review-remediation/re-review-013.md)). No new blocking implementation defect was found in this verification. Implementation status is separate from complete acceptance-test coverage and maintainer acceptance of retrospective requirements.
 
-This audit covers all 43 Markdown documents in `spec/`: feature requirements, plans, task lists, supporting contracts/design/research/traceability, the checklist, handoffs, and historical review records. It checks current status against source/test evidence, references, and available runtime verification. Historical planning instructions and review findings remain dated history; they are not active implementation backlogs.
+This historical audit covers the 43 Markdown documents present in `spec/` at the time of review (features 001–013, supporting contracts/design/research/traceability, the checklist, and handoffs; subsequent package 014 Copilot remediation documents are tracked in `spec/014-copilot-remediation/`). It checks status against source/test evidence, references, and available runtime verification. Historical planning instructions and review findings remain dated history; they are not active implementation backlogs.
 
 Reviewed tree: HEAD `0a5e321` plus the coding agent's uncommitted follow-up changes. This verification changed changelog/specification/handoff documentation only and preserved the agent's implementation. The last published version is not inferred from this working tree; recent changes remain under Unreleased.
 

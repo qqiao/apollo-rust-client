@@ -377,3 +377,86 @@ test('requestJson correctly decodes percent-encoded basic auth credentials and r
     await authServer.close();
   }
 });
+
+test('redactUrl covers common secret query forms, duplicate keys, and preserves ordinary parameters (R3-2 / 014/AC-003)', async () => {
+  // 1. Table of sensitive keys in various naming forms (camelCase, snake_case, kebab-case, UPPERCASE)
+  const sensitiveCases = [
+    ['appSecret', 'appSecretVal'],
+    ['app_secret', 'app_secret_val'],
+    ['app-secret', 'app-secret-val'],
+    ['APP_SECRET', 'APP_SECRET_VAL'],
+    ['clientSecret', 'clientSecretVal'],
+    ['client_secret', 'client_secret_val'],
+    ['client-secret', 'client-secret-val'],
+    ['CLIENT_SECRET', 'CLIENT_SECRET_VAL'],
+    ['apiKey', 'apiKeyVal'],
+    ['api_key', 'api_key_val'],
+    ['api-key', 'api-key-val'],
+    ['API_KEY', 'API_KEY_VAL'],
+    ['accessKey', 'accessKeyVal'],
+    ['access_key', 'access_key_val'],
+    ['access-key', 'access-key-val'],
+    ['ACCESS_KEY', 'ACCESS_KEY_VAL'],
+    ['accessToken', 'accessTokenVal'],
+    ['access_token', 'access_token_val'],
+    ['access-token', 'access-token-val'],
+    ['authorization', 'authHeaderVal'],
+    ['AUTHORIZATION', 'AUTHHEADERVAL'],
+    ['token', 'tokVal'],
+    ['secret', 'secVal'],
+    ['key', 'keyVal'],
+    ['password', 'pwVal'],
+    ['auth', 'authVal'],
+    ['credential', 'credVal'],
+    ['credentials', 'credsVal'],
+  ];
+
+  for (const [key, val] of sensitiveCases) {
+    const raw = `http://127.0.0.1:8080/configs?${key}=${val}&env=DEV&releaseKey=20260914`;
+    const redacted = redactUrl(raw);
+    assert.ok(!redacted.includes(val), `Key '${key}' with value '${val}' must be redacted`);
+    assert.match(redacted, new RegExp(`${key}=REDACTED`, 'i'), `Must show ${key}=REDACTED`);
+    assert.match(redacted, /env=DEV/, `Ordinary param env=DEV must be preserved for ${key}`);
+    assert.match(redacted, /releaseKey=20260914/, `releaseKey must be preserved as ordinary param for ${key}`);
+  }
+
+  // 2. Duplicate sensitive query keys must all be redacted without leaking values
+  const dupUrl = 'http://127.0.0.1:8080/configs?apiKey=secret_one&apiKey=secret_two&appSecret=app_sec1&appSecret=app_sec2&appId=SampleApp';
+  const redactedDup = redactUrl(dupUrl);
+  assert.ok(!redactedDup.includes('secret_one'), 'First duplicate key value must not leak');
+  assert.ok(!redactedDup.includes('secret_two'), 'Second duplicate key value must not leak');
+  assert.ok(!redactedDup.includes('app_sec1'), 'First duplicate appSecret must not leak');
+  assert.ok(!redactedDup.includes('app_sec2'), 'Second duplicate appSecret must not leak');
+  assert.match(redactedDup, /appId=SampleApp/, 'Ordinary appId must be preserved');
+
+  // 3. Fallback relative and malformed URLs
+  const relativeUrl = '/api/v1/configs?appSecret=rel_secret&apiKey=rel_key&cluster=default';
+  const redactedRel = redactUrl(relativeUrl);
+  assert.ok(!redactedRel.includes('rel_secret'), 'Relative URL secret must be redacted');
+  assert.ok(!redactedRel.includes('rel_key'), 'Relative URL apiKey must be redacted');
+  assert.match(redactedRel, /cluster=default/, 'Ordinary cluster parameter in relative URL must be preserved');
+
+  // 4. Real request timeout diagnostic redaction with extended secret forms and duplicate keys
+  const fixtureServer = await createTestServer((req, res) => {
+    // Hangs
+  });
+  try {
+    const timeoutUrl = `${fixtureServer.baseUrl}/hang?appSecret=SYNTH_APP_SEC&apiKey=SYNTH_API_KEY1&apiKey=SYNTH_API_KEY2&accessKey=SYNTH_ACC_KEY&authorization=SYNTH_AUTH&cluster=testCluster`;
+    await assert.rejects(
+      async () => {
+        await requestJson(timeoutUrl, { timeoutMs: 100 });
+      },
+      (err) => {
+        assert.ok(!err.message.includes('SYNTH_APP_SEC'), 'Must not leak SYNTH_APP_SEC');
+        assert.ok(!err.message.includes('SYNTH_API_KEY1'), 'Must not leak SYNTH_API_KEY1');
+        assert.ok(!err.message.includes('SYNTH_API_KEY2'), 'Must not leak SYNTH_API_KEY2');
+        assert.ok(!err.message.includes('SYNTH_ACC_KEY'), 'Must not leak SYNTH_ACC_KEY');
+        assert.ok(!err.message.includes('SYNTH_AUTH'), 'Must not leak SYNTH_AUTH');
+        assert.match(err.message, /cluster=testCluster/, 'Must preserve cluster in timeout error');
+        return true;
+      }
+    );
+  } finally {
+    await fixtureServer.close();
+  }
+});
