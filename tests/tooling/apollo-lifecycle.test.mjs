@@ -547,6 +547,77 @@ test('CLI recovery: invalid project prefix refuses cleanup and exits 1 without c
   }
 });
 
+test('CLI recovery: nested project before actual owner selects top-level owner (009/FR-003 / P1)', () => {
+  const tempDir = makeTempDir();
+  try {
+    const { binDir, logPath } = createStubDocker(tempDir);
+    const runDir = path.join(tempDir, 'run');
+    fs.mkdirSync(runDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'ownership.json'),
+      JSON.stringify({ metadata: { project: 'apollo-test-unrelated' }, project: 'apollo-test-owner' })
+    );
+
+    const res = spawnSync('bash', [MAIN_SCRIPT, 'cleanup', '--run-dir', runDir], {
+      env: { ...process.env, PATH: `${binDir}:${process.env.PATH}` },
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    assert.equal(res.status, 0, `Recovery failed: ${res.stderr}`);
+    assert.match(res.stdout, /Recovery cleanup complete for project apollo-test-owner/);
+    const dockerCalls = fs.readFileSync(logPath, 'utf8');
+    assert.match(dockerCalls, /-p apollo-test-owner down --volumes --remove-orphans/);
+    assert.doesNotMatch(dockerCalls, /apollo-test-unrelated/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('CLI recovery: malformed JSON ownership refuses cleanup and exits 1 without calling docker (009/AC-008 / P1)', () => {
+  const tempDir = makeTempDir();
+  try {
+    const { binDir, logPath } = createStubDocker(tempDir);
+    const runDir = path.join(tempDir, 'run');
+    fs.mkdirSync(runDir, { recursive: true });
+    fs.writeFileSync(path.join(runDir, 'ownership.json'), 'not JSON "project":"apollo-test-unrelated"');
+
+    const res = spawnSync('bash', [MAIN_SCRIPT, 'cleanup', '--run-dir', runDir], {
+      env: { ...process.env, PATH: `${binDir}:${process.env.PATH}` },
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, /Safety check failed: Failed to extract 'project'/);
+    assert.ok(!fs.existsSync(logPath), 'Docker down must NOT be called for malformed ownership');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('CLI recovery: nested-only project without top-level owner refuses cleanup and exits 1 without calling docker (009/AC-008 / P1)', () => {
+  const tempDir = makeTempDir();
+  try {
+    const { binDir, logPath } = createStubDocker(tempDir);
+    const runDir = path.join(tempDir, 'run');
+    fs.mkdirSync(runDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runDir, 'ownership.json'),
+      JSON.stringify({ metadata: { project: 'apollo-test-unrelated' } })
+    );
+
+    const res = spawnSync('bash', [MAIN_SCRIPT, 'cleanup', '--run-dir', runDir], {
+      env: { ...process.env, PATH: `${binDir}:${process.env.PATH}` },
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, /Safety check failed: Failed to extract 'project'/);
+    assert.ok(!fs.existsSync(logPath), 'Docker down must NOT be called when top-level project is absent');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('CLI recovery: nonexistent directory exits 0 safely without calling docker', () => {
   const tempDir = makeTempDir();
   try {

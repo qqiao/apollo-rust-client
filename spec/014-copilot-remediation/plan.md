@@ -171,10 +171,16 @@ During independent re-review of commit `0273182`, three required findings were i
    - *Problem:* The previous spawn test signaled the parent from the child worker script, which could execute after `CURRENT_CHILD_PID` was already assigned, passing even against pre-fix helpers lacking spawn-phase protection.
    - *Resolution:* Added `LIFECYCLE_SPAWN_HOOK` injection point in `run_with_timeout` immediately after background spawn (`$!`) and before `CURRENT_CHILD_PID="$child_pid"`. The test uses this hook to assert `PHASE=spawning` and `CURRENT_CHILD_PID=empty`, injects `kill -TERM "$$"`, and asserts the runner exits 143 while the child process is terminated and reaped (`014/AC-007`). Ordinary worker interrupt test preserved separately.
 
-3. **P2 — Readiness Timeout Budgets & Startup Latency Analysis (`tests/tooling/apollo-lifecycle.test.mjs` & `scripts/apollo-test-lifecycle.sh`):**
+3. **P2 — Readiness Timeout Budgets & Startup Latency Analysis (`tests/tooling/apollo-lifecycle.test.mjs`):**
    - *Problem:* Explicit call sites passed 5000ms for file readiness and 10000ms for exit watchdog at lines 711, 718, 845, and 847, which were unaffected by helper function default changes.
-   - *Investigation & Startup Timings:*
+   - *Investigation & Latency Analysis:*
      - Teardown pipeline executes multiple subshells sequentially (`docker compose ps --format json`, `docker compose logs --no-color`, `docker compose down --volumes --remove-orphans`) and process tree traversal.
-     - Recovery cleanup previously invoked `node -e` to parse `ownership.json`, introducing ~300ms of Node startup latency per invocation. Replaced with fast grep/sed extraction (<5ms) with Node fallback.
-     - On macOS / Darwin, sequential process spawning and polling under multi-process test load can aggregate several seconds of latency before Docker down is invoked.
+     - On macOS / Darwin, sequential process spawning and polling under multi-process test load aggregates several seconds of latency before Docker down is invoked.
      - Updated explicit test call sites to 10000ms for file readiness and 20000ms for exit watchdog. Production timeout contracts in `scripts/apollo-test.sh` and `scripts/apollo-test-lifecycle.sh` remain unchanged.
+
+4. **P1 — Strict JSON Ownership Validation (`scripts/apollo-test-lifecycle.sh:run_recovery_cleanup`):**
+   - *Problem:* An attempted regex fast path (`grep | head | sed`) bypassed JSON structure validation, potentially selecting a nested `project` property before the actual top-level owner, or accepting malformed JSON / nested-only projects (violating `009/AC-008`, `009/FR-003`, and `014/FR-008`).
+   - *Resolution:* Removed regex parsing entirely and restored strict Node-based `JSON.parse` validating that the parsed document is an object and the top-level `project` is a string. Added negative regression tests in `tests/tooling/apollo-lifecycle.test.mjs` for:
+     1. Nested project before actual owner selecting the top-level owner (`009/FR-003`).
+     2. Malformed JSON ownership refusing cleanup (exit 1) without calling Docker (`009/AC-008`).
+     3. Nested-only project without top-level owner refusing cleanup (exit 1) without calling Docker (`009/AC-008`).

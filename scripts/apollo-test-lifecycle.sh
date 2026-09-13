@@ -276,11 +276,8 @@ run_recovery_cleanup() {
     return 1
   fi
 
-  local proj=""
-  proj=$(grep -o '"project"[[:space:]]*:[[:space:]]*"[^"]*"' "$ownership_file" 2>/dev/null | head -n 1 | sed 's/.*:[[:space:]]*"//;s/"$//')
-  if [ -z "$proj" ]; then
-    proj=$(node -e "const fs=require('fs'); try { const d=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); console.log(d.project || ''); } catch { process.exit(1); }" "$ownership_file" 2>/dev/null || true)
-  fi
+  local proj
+  proj=$(node -e "const fs=require('fs'); try { const d=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); if (typeof d === 'object' && d !== null && typeof d.project === 'string') { console.log(d.project); } else { process.exit(1); } } catch { process.exit(1); }" "$ownership_file" 2>/dev/null || true)
 
   if [ -z "$proj" ]; then
     echo "ERROR: Safety check failed: Failed to extract 'project' from '${ownership_file}'." >&2
