@@ -573,3 +573,37 @@ test('extractLinks ignores link syntax inside inline backtick code spans', () =>
   assert.equal(links.length, 1, `Expected only 1 link outside inline code spans, got ${links.length}`);
   assert.equal(links[0].target, '../spec/README.md');
 });
+
+test('extractLinks treats backslashes literally inside code spans per CommonMark §6.1', () => {
+  const input = '`code\\` [real](missing.md) `tail`';
+  const links = extractLinks('probe.md', input);
+  assert.equal(links.length, 1, 'Real link between code spans must be checked');
+  assert.equal(links[0].destination, 'missing.md');
+});
+
+test('extractLinks selects code span openers in actual parsing context after backtick in destination', () => {
+  const input = '[real](a`b.md) `[fake](missing.md)`';
+  const links = extractLinks('probe.md', input);
+  assert.equal(links.length, 1, 'Only the real link should be extracted');
+  assert.equal(links[0].destination, 'a`b.md');
+});
+
+test('extractLinks handles escaped backticks and code spans in link labels', () => {
+  // Escaped backtick outside code spans
+  const inputEscaped = '\\`code` [real](missing.md)';
+  const linksEscaped = extractLinks('probe.md', inputEscaped);
+  assert.equal(linksEscaped.length, 1);
+  assert.equal(linksEscaped[0].destination, 'missing.md');
+
+  // Double backslash (escaped backslash, unescaped backtick opener)
+  const inputDouble = '\\\\`code` [real](missing.md)';
+  const linksDouble = extractLinks('probe.md', inputDouble);
+  assert.equal(linksDouble.length, 1);
+  assert.equal(linksDouble[0].destination, 'missing.md');
+
+  // Link label containing code span with bracket inside
+  const inputBracketInSpan = '[link `code with [` text](target.md)';
+  const linksBracket = extractLinks('probe.md', inputBracketInSpan);
+  assert.equal(linksBracket.length, 1);
+  assert.equal(linksBracket[0].destination, 'target.md');
+});
