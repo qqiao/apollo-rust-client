@@ -8,7 +8,7 @@ Current verification and remaining acceptance limits: [status audit](../verifica
 
 ## Historical baseline package map
 
-Each row has a separate specification, plan, and task list. This was the original implementation order; the current assignment is package 013. Requirements use qualified IDs such as `006-cache-restore-ordering/FR-001`; task IDs are local to their package.
+Each row has a separate specification, plan, and task list. This was the original implementation order; packages 006–014 are now completed and verified. Requirements use qualified IDs such as `006-cache-restore-ordering/FR-001`; task IDs are local to their package.
 
 | Review finding | Package / outcome | Specification | Plan | Tasks | Implementation dependencies |
 |---|---|---|---|---|---|
@@ -34,7 +34,7 @@ Each row has a separate specification, plan, and task list. This was the origina
 6. Keep shared contracts/descriptive docs current without claiming that pending siblings have shipped. No requirement can be weakened merely to match the implementation.
 7. Report the selected package ID, completed tasks, behavior changed, checks run, and unresolved limitations. Stop at the authorized scope; do not silently implement the next package.
 
-The current executor prompt is in [013/tasks.md](../013-review-followup/tasks.md#copyable-assignment). Assign package 013 to close V1–V3; the original packages above remain baseline context.
+The historical executor prompt for package 013 is preserved in [013/tasks.md](../013-review-followup/tasks.md#copyable-assignment) for provenance. Packages 006–014 are complete, and subsequent review remediations are tracked in [014/tasks.md](../014-copilot-remediation/tasks.md).
 
 ## Scope boundary
 

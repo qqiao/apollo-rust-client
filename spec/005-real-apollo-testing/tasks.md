@@ -318,7 +318,7 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 ## Implementation and Verification Evidence
 
-All implementation tasks T01 through T11b and Checkpoints A through D have been fully completed, verified, and audited:
+All implementation tasks T01 through T11b and Checkpoints A through C have been fully completed, verified, and audited; T10 acceptance and Checkpoint D remain pending the remote CI and Linux environment acceptance evidence documented in Checkpoint D above:
 1. **Full Integration Testing against Live Apollo 2.5.2**:
    - Pinned multi-platform container images (`mysql:8.4.11`, `apolloconfig/apollo-configservice:2.5.2`, `apolloconfig/apollo-adminservice:2.5.2`).
    - Upstream SQL schema (`tests/apollo/sql/apolloconfigdb.sql`) with SHA-256 `7b725d81410d502c7a6ead3a16b6b4daf3b4434b3fa9c57829e67a87ff47ab26`.

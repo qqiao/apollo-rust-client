@@ -157,35 +157,40 @@ async function main() {
   clientConfig.ip = "192.168.1.100";
 
   const client = new Client(clientConfig);
+  let namespace = null;
 
-  // 启动后台轮询
-  await client.start();
+  try {
+    // 启动后台轮询
+    await client.start();
 
-  // 获取类型化命名空间
-  const namespace = await client.namespace("application");
+    // 获取类型化命名空间
+    namespace = await client.namespace("application");
 
-  // 检索不同数据类型
-  const appName = namespace.get_string("app.name");
-  const serverPort = namespace.get_int("server.port");
-  const debugEnabled = namespace.get_bool("debug.enabled");
+    // 检索不同数据类型
+    const appName = namespace.get_string("app.name");
+    const serverPort = namespace.get_int("server.port");
+    const debugEnabled = namespace.get_bool("debug.enabled");
 
-  console.log(`应用: ${appName}, 端口: ${serverPort}, 调试: ${debugEnabled}`);
+    console.log(`应用: ${appName}, 端口: ${serverPort}, 调试: ${debugEnabled}`);
 
-  // 添加配置变更事件监听器
-  await client.add_listener("application", (data, error) => {
-    if (error) {
-      console.error("配置更新错误:", error);
-    } else {
-      console.log("配置已更新:", data);
+    // 添加配置变更事件监听器
+    await client.add_listener("application", (data, error) => {
+      if (error) {
+        console.error("配置更新错误:", error);
+      } else {
+        console.log("配置已更新:", data);
+      }
+    });
+  } finally {
+    // 重要：使用完毕后释放内存
+    // Properties 实例是 WASM 堆对象需释放；JSON/YAML/Text 为普通 JS 对象
+    // ClientConfig 已由 new Client(clientConfig) 消费，不可再释放
+    client.stop();
+    if (namespace) {
+      namespace.free();
     }
-  });
-
-  // 重要：使用完毕后释放内存
-  // Properties 实例是 WASM 堆对象需释放；JSON/YAML/Text 为普通 JS 对象
-  // ClientConfig 已由 new Client(clientConfig) 消费，不可再释放
-  client.stop();
-  namespace.free();
-  client.free();
+    client.free();
+  }
 }
 
 main().catch(console.error);

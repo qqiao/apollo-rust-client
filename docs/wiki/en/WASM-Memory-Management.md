@@ -17,8 +17,11 @@ WebAssembly objects allocated on the Rust heap must be explicitly freed when no 
 
 Other returned namespace formats like JSON, YAML, or Text are standard JavaScript objects or strings managed automatically by JavaScript garbage collection and do not need to be freed manually.
 
+The following snippet illustrates the canonical pattern as a function body fragment (assumes `Client` and `ClientConfig` are already in scope, e.g. imported from `@qqiao/apollo-rust-client`):
+
 <!-- apollo-example: wasm-ownership -->
 ```javascript
+// Function body fragment (requires Client and ClientConfig in scope):
 const client = new Client(new ClientConfig("app_id", "http://server:8080", "default"));
 try {
   // Use client. Config is consumed by Client construction and must not be freed.

@@ -65,7 +65,8 @@ function parseOpeningFence(line) {
 export function extractSnippets(filePath, content) {
   // Normalize line endings to LF while preserving one-based line positions and exact line indentation/content
   const lines = content.split(/\r?\n/);
-  const markerRegex = /<!--\s*apollo-example:\s*([\w-]+)\s*-->/;
+  // CommonMark: 0-3 leading spaces for block structure; standalone marker line avoids indented code blocks
+  const markerRegex = /^ {0,3}<!--\s*apollo-example:\s*([\w-]+)\s*-->\s*$/;
   const snippets = [];
   const seenIds = new Set();
 
@@ -178,6 +179,10 @@ export function extractSnippets(filePath, content) {
 }
 
 export function validateInventory(repoRoot = REPO_ROOT, required = REQUIRED_EXAMPLES) {
+  if (!Array.isArray(required) || required.length === 0) {
+    throw new Error('validateInventory requires a non-empty array of required examples');
+  }
+
   const extractedByDoc = new Map();
   const allSnippets = [];
 
@@ -231,32 +236,21 @@ export function formatFailureContext(snippets, output, configName) {
       return true;
     }
 
-    // 2. Exact source file match: example_safeName.rs preceded by / or start, followed by : or word boundary
-    const binFileRegex = new RegExp(`(?:^|[\\/])${escapeRegex(binFile)}(?::|\\b)`);
-    if (binFileRegex.test(output)) {
-      return true;
-    }
-
-    return false;
+    // 2. Exact source file match in backtraces / error locations: /example_safeName.rs:line:col
+    const fileLocRegex = new RegExp(`[/\\\\]${escapeRegex(binFile)}:\\d+:\\d+`);
+    return fileLocRegex.test(output);
   });
 
-  if (failedSnippets.length > 0) {
-    const contextLines = failedSnippets.map(
-      (s) => `  - ${s.filePath}:${s.markerLine} (example '${s.id}')`
-    );
-
-    return (
-      `Doc examples failed compilation under ${configName}:\n` +
-      contextLines.join('\n') +
-      `\n\nCompiler output:\n${output}`
-    );
+  if (failedSnippets.length === 0) {
+    // If output indicates compiler errors but no specific example binary matched, report infrastructure failure
+    return `Doc examples build failed under ${configName} (infrastructure failure, no specific example attributed):\n\nCompiler output:\n${output}`;
   }
 
-  // Infrastructure / general compiler failure (no specific snippet attributed)
-  return (
-    `Doc examples build failed under ${configName} (infrastructure failure, no specific example attributed):\n\n` +
-    `Compiler output:\n${output}`
-  );
+  const header = `Doc examples failed compilation under ${configName}:\n`;
+  const list = failedSnippets
+    .map((s) => `  - ${s.filePath}:${s.markerLine} (example '${s.id}')`)
+    .join('\n');
+  return `${header}${list}\n\nCompiler output:\n${output}`;
 }
 
 export function compileSnippets(snippets, repoRoot = REPO_ROOT) {
@@ -269,10 +263,21 @@ export function compileSnippets(snippets, repoRoot = REPO_ROOT) {
     fs.mkdirSync(binDir, { recursive: true });
 
     const binConfigs = [];
+    const seenBinNames = new Map();
 
     for (const snippet of snippets) {
       const safeName = snippet.id.replace(/-/g, '_');
-      const binFileName = `example_${safeName}.rs`;
+      const binName = `example_${safeName}`;
+
+      if (seenBinNames.has(binName)) {
+        const existing = seenBinNames.get(binName);
+        throw new Error(
+          `Normalized binary name collision '${binName}' between example '${snippet.id}' (${snippet.filePath}:${snippet.markerLine}) and '${existing.id}' (${existing.filePath}:${existing.markerLine})`
+        );
+      }
+      seenBinNames.set(binName, snippet);
+
+      const binFileName = `${binName}.rs`;
       const binFilePath = path.join(binDir, binFileName);
 
       const fileContent = `// Extracted from ${snippet.filePath}:${snippet.markerLine} (${snippet.id})

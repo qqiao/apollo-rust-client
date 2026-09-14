@@ -559,3 +559,17 @@ test('extractLinks performs linear-time scanning with deterministic work account
     assert.ok(workRatio <= 4.5, `Work ratio ${workRatio.toFixed(2)} must be <= 4.5 for angle valid n=${n}`);
   }
 });
+
+test('extractLinks ignores link syntax inside inline backtick code spans', () => {
+  const markdown = [
+    '# Inline Code Span Test',
+    '',
+    'See `[missing](not-a-file.md)` in backticks.',
+    'Also double backtick: ``[another-missing](also-not-a-file.md)`` inside code.',
+    'Valid link outside: [valid](../spec/README.md).',
+  ].join('\n');
+
+  const links = extractLinks('inline-code.md', markdown);
+  assert.equal(links.length, 1, `Expected only 1 link outside inline code spans, got ${links.length}`);
+  assert.equal(links[0].target, '../spec/README.md');
+});

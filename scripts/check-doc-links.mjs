@@ -92,6 +92,7 @@ export function buildLinkParseTables(line, stats = null) {
   const isEscaped = new Uint8Array(L);
   const matchingParen = new Int32Array(L).fill(-1);
   const parenStack = [];
+  const backtickRuns = [];
   let p = 0;
 
   while (p < L) {
@@ -110,8 +111,55 @@ export function buildLinkParseTables(line, stats = null) {
           const open = parenStack.pop();
           matchingParen[open] = p;
         }
+      } else if (line[p] === '`') {
+        const start = p;
+        while (p < L && line[p] === '`') {
+          if (p > start && stats) stats.work++;
+          p++;
+        }
+        backtickRuns.push({ start, end: p, len: p - start });
+        continue;
       }
       p++;
+    }
+  }
+
+  // Precompute inline code spans per CommonMark:
+  // A code span begins with a backtick string of length k and ends with the first subsequent
+  // backtick string of exact length k. Characters inside are literal and do not contain links.
+  const codeSpanEnd = new Int32Array(L + 1).fill(-1);
+  if (backtickRuns.length >= 2) {
+    const runsByLen = new Map();
+    for (let r = 0; r < backtickRuns.length; r++) {
+      const k = backtickRuns[r].len;
+      let arr = runsByLen.get(k);
+      if (!arr) {
+        arr = [];
+        runsByLen.set(k, arr);
+      }
+      arr.push(r);
+    }
+
+    const ptrByLen = new Map();
+    let r = 0;
+    while (r < backtickRuns.length) {
+      const k = backtickRuns[r].len;
+      const list = runsByLen.get(k);
+      let ptr = ptrByLen.get(k) || 0;
+      while (ptr < list.length && list[ptr] <= r) {
+        ptr++;
+      }
+      if (ptr < list.length) {
+        const closerRunIdx = list[ptr];
+        const opener = backtickRuns[r];
+        const closer = backtickRuns[closerRunIdx];
+        codeSpanEnd[opener.start] = closer.end;
+        r = closerRunIdx + 1;
+        ptr = ptr + 1;
+      } else {
+        r++;
+      }
+      ptrByLen.set(k, ptr);
     }
   }
 
@@ -212,6 +260,7 @@ export function buildLinkParseTables(line, stats = null) {
     bareDestEnd,
     angleDestEnd,
     titleEnd,
+    codeSpanEnd,
   };
 }
 
@@ -409,6 +458,10 @@ export function extractLinks(filePath, content, options = {}) {
 
     while (i < len) {
       if (stats) stats.work++;
+      if (tables.codeSpanEnd && tables.codeSpanEnd[i] !== -1) {
+        i = tables.codeSpanEnd[i];
+        continue;
+      }
       if (tables.isEscaped[i]) {
         i++;
         continue;

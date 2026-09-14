@@ -101,13 +101,13 @@
 
 - [x] Complete T07.
 - **Depends on:** T06.
-- **Files (5):** `HANDOFF.md`, `spec/README.md`, `spec/review-remediation/README.md`, this package's `spec.md` and `tasks.md`.
+- **Files (4):** `spec/README.md`, `spec/review-remediation/README.md`, this package's `spec.md` and `tasks.md`.
 - **Contracts:** all FR/AC/SC, with AC-009/010 status audit.
 - **Work:** reconcile entry points and record final package status. Keep links to review, resolution, and historical packages. Report behavior changed, checks, and gaps; do not claim independent approval.
 - **Acceptance:** all required tasks and checkpoints above have evidence; no root prompt sends an executor back to already implemented 006; no completion claim contradicts a pending task.
 - **Verify:** local links and whitespace, final scope diff. Preserve optional suggestions as optional.
 - **Evidence:**
-  - Reconciled `HANDOFF.md`, `spec/README.md`, `spec/review-remediation/README.md`, and `spec/013-review-followup/{spec.md,tasks.md}`.
+  - Reconciled `spec/README.md`, `spec/review-remediation/README.md`, and `spec/013-review-followup/{spec.md,tasks.md}`.
   - Validated local links and run diff check.
 
 ## Coverage map
@@ -122,7 +122,7 @@
 
 ## Copyable assignment
 
-> Implement `spec/013-review-followup` in this checkout. Read HANDOFF.md, the verification review, and this package's spec.md, plan.md, and tasks.md. Execute T01–T07 in order, including both checkpoints. Reproduce the two gaps with deterministic regressions before fixing them; preserve existing contracts and unrelated changes. Record actual verification evidence and reconcile current completion records. Work only on V1–V3; do not reimplement packages 006–012, add dependencies, publish, push, or merge. Ask only if a material ambiguity blocks the assigned work. Finish by reporting changes, checks, and unresolved gaps.
+> Implement `spec/013-review-followup` in this checkout. Read `spec/review-remediation/README.md`, the verification review, and this package's spec.md, plan.md, and tasks.md. Execute T01–T07 in order, including both checkpoints. Reproduce the two gaps with deterministic regressions before fixing them; preserve existing contracts and unrelated changes. Record actual verification evidence and reconcile current completion records. Work only on V1–V3; do not reimplement packages 006–012, add dependencies, publish, push, or merge. Ask only if a material ambiguity blocks the assigned work. Finish by reporting changes, checks, and unresolved gaps.
 
 
 ## Final parser follow-up verification (2026-09-13)

@@ -276,3 +276,57 @@ test('formatFailureContext attributes errors under both native-tls and rustls co
   assert.match(rustlsMsg, /failed compilation under rustls/);
   assert.ok(rustlsMsg.includes("a.md:10 (example 'example-a')"));
 });
+
+test('extractSnippets ignores markers inside 4-space-indented code blocks', () => {
+  const markdown = `
+# Indented Code Block Test
+
+    <!-- apollo-example: indented-marker -->
+    \`\`\`rust
+    let x = 1;
+    \`\`\`
+
+<!-- apollo-example: valid-standalone -->
+\`\`\`rust
+let y = 2;
+\`\`\`
+`;
+  const snippets = extractSnippets('indented.md', markdown);
+  assert.equal(snippets.length, 1);
+  assert.equal(snippets[0].id, 'valid-standalone');
+});
+
+test('validateInventory rejects non-array or empty required inventory', () => {
+  assert.throws(
+    () => validateInventory(undefined, []),
+    /non-empty/i
+  );
+  assert.throws(
+    () => validateInventory(undefined, null),
+    /non-empty/i
+  );
+});
+
+test('compileSnippets rejects normalized bin name collision between different IDs', () => {
+  const collidingSnippets = [
+    {
+      id: 'public-errors',
+      filePath: 'docs/wiki/en/a.md',
+      markerLine: 1,
+      fenceLine: 2,
+      code: 'let _ = 1;',
+    },
+    {
+      id: 'public_errors',
+      filePath: 'docs/wiki/en/b.md',
+      markerLine: 10,
+      fenceLine: 11,
+      code: 'let _ = 2;',
+    },
+  ];
+
+  assert.throws(
+    () => compileSnippets(collidingSnippets),
+    /collision/i
+  );
+});

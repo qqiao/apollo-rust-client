@@ -171,35 +171,40 @@ async function main() {
   clientConfig.ip = "192.168.1.100";
 
   const client = new Client(clientConfig);
+  let namespace = null;
 
-  // Start background polling
-  await client.start();
+  try {
+    // Start background polling
+    await client.start();
 
-  // Get a typed namespace
-  const namespace = await client.namespace("application");
+    // Get a typed namespace
+    namespace = await client.namespace("application");
 
-  // Retrieve different data types
-  const appName = namespace.get_string("app.name");
-  const serverPort = namespace.get_int("server.port");
-  const debugEnabled = namespace.get_bool("debug.enabled");
+    // Retrieve different data types
+    const appName = namespace.get_string("app.name");
+    const serverPort = namespace.get_int("server.port");
+    const debugEnabled = namespace.get_bool("debug.enabled");
 
-  console.log(`App: ${appName}, Port: ${serverPort}, Debug: ${debugEnabled}`);
+    console.log(`App: ${appName}, Port: ${serverPort}, Debug: ${debugEnabled}`);
 
-  // Add event listener for configuration changes
-  await client.add_listener("application", (data, error) => {
-    if (error) {
-      console.error("Configuration update error:", error);
-    } else {
-      console.log("Configuration updated:", data);
+    // Add event listener for configuration changes
+    await client.add_listener("application", (data, error) => {
+      if (error) {
+        console.error("Configuration update error:", error);
+      } else {
+        console.log("Configuration updated:", data);
+      }
+    });
+  } finally {
+    // IMPORTANT: Properties namespaces are WASM class instances and must be freed.
+    // JSON, YAML, and Text values are ordinary JavaScript values.
+    // ClientConfig was consumed by new Client(clientConfig) and must not be freed.
+    client.stop();
+    if (namespace) {
+      namespace.free();
     }
-  });
-
-  // IMPORTANT: Properties namespaces are WASM class instances and must be freed.
-  // JSON, YAML, and Text values are ordinary JavaScript values.
-  // ClientConfig was consumed by new Client(clientConfig) and must not be freed.
-  client.stop();
-  namespace.free();
-  client.free();
+    client.free();
+  }
 }
 
 main().catch(console.error);
