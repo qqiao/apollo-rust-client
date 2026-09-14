@@ -2,7 +2,7 @@
 
 **Feature**: [005-real-apollo-testing](spec.md)
 **Technical contract**: [plan.md](plan.md)
-**Status**: Unstarted implementation backlog. This session is planning only; stop after delivering these documents.
+**Status**: Implementation complete; local runtime verification recorded below and in the [current audit](../verification-2026-09-13.md). Remote CI execution and platform certification are not established by local results. Task instructions below are the retained implementation checklist, not a new assignment.
 
 All `AC-*`, `FR-*`, and `SC-*` below refer to feature **005-real-apollo-testing** unless another feature is explicitly named. Each task should be a focused agent session. Load this feature's spec/plan and only the source files needed for the assigned task. Read `AGENTS.md`, `.agent/**/*.md`, and relevant existing feature contracts first.
 
@@ -245,7 +245,7 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 ## T10 — Integrate the same lifecycle with GitHub Actions
 
-- [x] **T10 complete**
+- [ ] **T10 acceptance verification complete** — workflow implementation is present; remote PR/main/fork and failure-artifact evidence remains unverified in this audit.
 
 **Purpose**: Make ordinary CI use the local test lifecycle and retain useful diagnostics for setup and assertion failures.
 
@@ -259,8 +259,8 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 **Acceptance**:
 
-- [x] PR/main test runs execute identical local orchestration and all three real runtimes; existing quality/build/export checks remain.
-- [x] Setup/assertion failures preserve logs/metadata as downloadable artifacts and leave the job failed; fallback cleanup is safe when setup never started or already cleaned up.
+- [ ] PR/main test runs execute identical local orchestration and all three real runtimes; workflow configuration is present, but run evidence has not been established here.
+- [ ] Remote setup/assertion failures preserve downloadable artifacts and leave the job failed. Upload/fallback configuration is present and local cleanup is tested; remote failure-artifact evidence remains unverified.
 - [x] The workflow requires no credentials unavailable to fork PRs and never uses privileged PR triggers to bypass that constraint.
 
 **Verification**: Validate workflow syntax with available repository-compatible tooling; execute on an authorized PR branch and inspect job logs/artifacts. Exercise one intentional controlled failure in a disposable verification branch if authorized, or record that CI failure-path verification remains pending. Record actual PR/main run links as they become available; do not merge/push/create external activity solely to manufacture evidence without session authorization.
@@ -311,14 +311,14 @@ No task assumes another agent's uncommitted changes are disposable. T08 and T09 
 
 ### Checkpoint D — Implementation ready for maintainer review
 
-- [x] Required local and CI acceptance evidence is linked, with any environmental gap explicitly reported.
+- [ ] Required CI acceptance evidence is linked. Local evidence is available; remote verification remains a recorded gap (005/SC-003 and Linux portion of SC-006).
 - [x] All scoped checks pass; no compatibility test is silently skipped or served by an Apollo emulator.
 - [x] Documentation and migration traceability match the final behavior.
 - [x] No production server, external configuration, unrelated Docker resources, public client API, or unresolved product policy was changed.
 
 ## Implementation and Verification Evidence
 
-All implementation tasks T01 through T11b and Checkpoints A through D have been fully completed, verified, and audited:
+All implementation tasks T01 through T11b and Checkpoints A through C have been fully completed, verified, and audited; T10 acceptance and Checkpoint D remain pending the remote CI and Linux environment acceptance evidence documented in Checkpoint D above:
 1. **Full Integration Testing against Live Apollo 2.5.2**:
    - Pinned multi-platform container images (`mysql:8.4.11`, `apolloconfig/apollo-configservice:2.5.2`, `apolloconfig/apollo-adminservice:2.5.2`).
    - Upstream SQL schema (`tests/apollo/sql/apolloconfigdb.sql`) with SHA-256 `7b725d81410d502c7a6ead3a16b6b4daf3b4434b3fa9c57829e67a87ff47ab26`.

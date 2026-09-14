@@ -81,6 +81,39 @@ cfg_if::cfg_if! {
 
 mod cache;
 
+/// Errors produced by configuration retrieval and cache operations.
+///
+/// Match this enum inside [`Error::Cache`]. Coalesced refresh followers and
+/// listener notifications (`Error::Refresh`) receive string snapshots instead
+/// of the original typed error variant.
+///
+/// # Examples
+///
+/// ```rust
+/// use apollo_rust_client::{CacheError, Error};
+///
+/// fn handle_error(error: Error) {
+///     match error {
+///         Error::Cache(CacheError::HttpStatus { status, body }) => {
+///             eprintln!("HTTP {status}: {body}");
+///         }
+///         Error::Cache(CacheError::Timeout { seconds }) => {
+///             eprintln!("Request timed out after {seconds} seconds");
+///         }
+///         Error::Cache(CacheError::CoalescedRefresh(snapshot)) => {
+///             eprintln!("Coalesced refresh failed: {snapshot}");
+///         }
+///         Error::Cache(other) => {
+///             eprintln!("Other cache error: {other}");
+///         }
+///         other => {
+///             eprintln!("Other client error: {other}");
+///         }
+///     }
+/// }
+/// ```
+pub use cache::Error as CacheError;
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test_support;
 
@@ -203,13 +236,17 @@ cfg_if::cfg_if! {
 #[cfg(target_arch = "wasm32")]
 fn check_local_storage_availability() -> bool {
     let global = js_sys::global();
-    let Ok(storage) = js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("localStorage")) else {
+    let Ok(storage) =
+        js_sys::Reflect::get(&global, &wasm_bindgen::JsValue::from_str("localStorage"))
+    else {
         return false;
     };
     if storage.is_undefined() || storage.is_null() {
         return false;
     }
-    let Ok(get_item_fn) = js_sys::Reflect::get(&storage, &wasm_bindgen::JsValue::from_str("getItem")) else {
+    let Ok(get_item_fn) =
+        js_sys::Reflect::get(&storage, &wasm_bindgen::JsValue::from_str("getItem"))
+    else {
         return false;
     };
     get_item_fn.is_function()
@@ -321,8 +358,9 @@ impl Client {
 
     /// Registers a listener for changes and refresh errors in one namespace.
     ///
-    /// Listeners run synchronously, in registration order, after internal locks
-    /// are released. A panic in one listener is caught and logged so it cannot
+    /// Listeners run synchronously, in registration order, after internal memory
+    /// and listener-list locks are released (load/refresh coordination locks may remain held).
+    /// A panic in one listener is caught and logged so it cannot
     /// stop cache refresh or prevent later listeners from running.
     pub async fn add_listener(&self, namespace: &str, listener: EventListener) {
         let cache = self.cache(namespace).await;
@@ -622,7 +660,9 @@ impl Client {
             if check_local_storage_availability() {
                 log::info!("localStorage is available for persistent configuration caching.");
             } else {
-                log::info!("localStorage is not available. Falling back to in-memory configuration caching.");
+                log::info!(
+                    "localStorage is not available. Falling back to in-memory configuration caching."
+                );
             }
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -1622,22 +1662,35 @@ mod tests {
         let _ = client.namespace("application").await;
         let _ = client.namespace("failing").await;
 
-        let before_app = server.request_count_for_path("/configfiles/json/101010101/default/application");
-        let before_fail = server.request_count_for_path("/configfiles/json/101010101/default/failing");
+        let before_app =
+            server.request_count_for_path("/configfiles/json/101010101/default/application");
+        let before_fail =
+            server.request_count_for_path("/configfiles/json/101010101/default/failing");
 
-        client.start().await.expect("Failed to start client background task");
+        client
+            .start()
+            .await
+            .expect("Failed to start client background task");
 
         tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
 
         client.stop().await;
 
-        let after_app = server.request_count_for_path("/configfiles/json/101010101/default/application");
-        let after_fail = server.request_count_for_path("/configfiles/json/101010101/default/failing");
+        let after_app =
+            server.request_count_for_path("/configfiles/json/101010101/default/application");
+        let after_fail =
+            server.request_count_for_path("/configfiles/json/101010101/default/failing");
 
         let app_refreshes = after_app.saturating_sub(before_app);
         let fail_refreshes = after_fail.saturating_sub(before_fail);
 
-        assert!(app_refreshes >= 2, "Expected at least 2 refreshes for healthy namespace, got {app_refreshes}");
-        assert!(fail_refreshes <= 1, "Expected at most 1 refresh for failing namespace due to backoff, got {fail_refreshes}");
+        assert!(
+            app_refreshes >= 2,
+            "Expected at least 2 refreshes for healthy namespace, got {app_refreshes}"
+        );
+        assert!(
+            fail_refreshes <= 1,
+            "Expected at most 1 refresh for failing namespace due to backoff, got {fail_refreshes}"
+        );
     }
 }

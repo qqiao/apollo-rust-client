@@ -1,4 +1,4 @@
-[English](../en/Design-Client.md) | [中文繁體](../zh-TW/Design-Client.md)
+[English](../en/Design-Client.md)
 [返回首页](Home.md)
 
 # Client 详情
@@ -36,7 +36,7 @@
     -   如果否，它会使用客户端的 `client_config` 和给定的命名空间名称创建一个新的 `Cache` 实例，将其存储在 `namespaces` 映射中，然后返回它。
     -   **返回类型差异**:
         -   **非 WASM**: 返回 `Arc<Cache>`。这允许调用者共享缓存的所有权。
-        -   **WASM**: 直接返回 `Cache`。在 WASM 上下文中，与 Rust 的直接共享所有权不太常见，JavaScript 管理 `Cache` 对象的生命周期。`Cache` 本身在内部对某些字段使用 `Arc`。
+        -   **WASM**: 返回映射的 `JsValue`（Properties 格式返回 `Properties` 类实例，JSON 格式返回原生 JS 对象，YAML/Text 格式返回原生 JS 字符串）。
 
 -   **`start(&mut self) -> impl Future<Output = Result<(), Error>> + Send`**:
     启动用于配置更新的后台轮询机制。
@@ -47,9 +47,10 @@
         -   **WASM**: 使用 `wasm_bindgen_futures::spawn_local` 和可取消 future。
     -   **后台任务逻辑**:
         1.  进入一个循环，只要 `*self.running.read().unwrap()` 为 `true`，该循环就会继续。
-        2.  休眠固定间隔（当前为 30 秒）。
-        3.  以最多四个并发请求刷新命名空间。
-        4.  失败时采用有上限的指数退避和抖动。
+        2.  快照当前已注册命名空间，并过滤掉处于故障退避中的命名空间。
+        3.  以最多四个并发任务执行整轮刷新。
+        4.  单个命名空间失败时采用带 ±10% 抖动的有界指数退避；成功刷新会重置退避状态。
+        5.  整轮所有任务完成后，休眠配置的 `refresh_interval`（健康休眠无刻意抖动）。下一轮启动时间约为上一轮开始时间 + 整轮耗时 + `refresh_interval`。
     -   该方法本身在生成任务后迅速返回。
 
 -   **`stop(&mut self)`**:

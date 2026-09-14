@@ -2,7 +2,7 @@
 
 These feature specifications describe what application developers and operators need from the existing Apollo client, with observable requirements and acceptance scenarios. They were reconstructed on 2026-09-06 from revision `4473cffe7a8a45c86978053da23ef36553b0ea3d`. The manifest says 0.7.0; this checkout also contains work listed as Unreleased. The scope is the checkout, not a claim about a published package.
 
-**Status: Draft, pending maintainer acceptance.** The user selected Spec Kit-style documentation. Individual requirements and inferred priorities have not thereby received product approval.
+**Implementation status:** Features 001–013 and remediation package 014 are implemented. See the [current verification and status audit](verification-2026-09-13.md) for runtime evidence and remaining acceptance-coverage limits. **Specification acceptance:** retrospective requirements and inferred priorities still await maintainer acceptance; implemented code is not product approval.
 
 ## Feature specifications
 
@@ -19,6 +19,22 @@ Feature 005 was requested on 2026-09-06 as a prospective capability following th
 Read in numerical order. These boundaries follow consumer capabilities; they do not propose source modules or an implementation schedule. Each story can be demonstrated independently with the underlying dependency contracts/fixtures available; “independent” does not mean implementing a subscription without any retrieval mechanism.
 
 Each `spec.md` uses prioritized stories, Given/When/Then scenarios, functional requirements, conceptual entities, and measurable outcomes, following the structure of GitHub's [Spec Kit feature template](https://github.com/github/spec-kit/blob/main/templates/spec-template.md). This is a format adaptation inside the requested `spec/` directory, not an installation of Spec Kit or a claim that a Specify CLI workflow/feature branch was executed.
+
+## Review remediation (2026-09-13)
+
+The seven baseline remediation packages (006–012), the review follow-up package ([013 — Review follow-up](013-review-followup/spec.md)), and the Copilot remediation package ([014 — Copilot remediation](014-copilot-remediation/spec.md)) are implemented and verified by the available local checks; acceptance-coverage and remote CI limits are recorded in the status audit. Follow-up findings V1–V3 from the historical verification review are resolved in [013 — Review follow-up](013-review-followup/spec.md) (review preserved at [commit 1ca6871](https://github.com/qqiao/apollo-rust-client/blob/1ca68717e268a5298b814c97cd0703cd950554fa/spec/review-remediation/re-review.md)). Read the [remediation handoff](review-remediation/README.md) for the package map, dependencies, executor prompt, scope exclusions, and verification rules. These narrow amendments do not promote all retrospective requirements or deferred policies to approved scope.
+
+| Package | Intended correction |
+|---|---|
+| [006 — Cache restore ordering](006-cache-restore-ordering/spec.md) | Prevent delayed persistence restoration from replacing an already-populated memory response |
+| [007 — Public cache errors](007-public-cache-errors/spec.md) | Expose the existing error enum through a documented public alias |
+| [008 — WASM ownership docs](008-wasm-ownership-docs/spec.md) | Correct consumed-config cleanup and execute canonical ownership guidance |
+| [009 — Observable test cleanup](009-observable-test-cleanup/spec.md) | Preserve stage/signal status and expose bounded teardown failures |
+| [010 — Fixture body deadlines](010-fixture-body-deadlines/spec.md) | Keep fixture request deadlines active through response-body completion |
+| [011 — Executable public docs](011-executable-public-docs/spec.md) | Correct current API examples/references and verify actual Markdown snippets and local links |
+| [012 — Accurate polling docs](012-accurate-polling-docs/spec.md) | Describe post-round timing and failure jitter without changing polling behavior |
+| [013 — Review follow-up](013-review-followup/spec.md) | Resolve cleanup signal supervision, Markdown fence tracking, and completion status |
+| [014 — Copilot remediation](014-copilot-remediation/spec.md) | Address GitHub Copilot findings: timeout URL redaction, link checker parsing, and process group signal races |
 
 ## Supporting material
 

@@ -1,4 +1,4 @@
-[中文简体](../zh-CN/Design-WASM.md) | [中文繁體](../zh-TW/Design-WASM.md)
+[中文简体](../zh-CN/Design-WASM.md)
 [Back to Home](Home.md)
 
 # WASM Design Considerations
@@ -30,7 +30,7 @@ Key areas where conditional compilation is applied:
 
 The `wasm-bindgen` tool and attributes are crucial for creating the JavaScript interface for the library.
 
--   **`#[wasm_bindgen]`**: This attribute is used on structs (`ClientConfig`, `Client`, `Cache`) and their methods to make them accessible from JavaScript.
+-   **`#[wasm_bindgen]`**: This attribute is used on structs (`ClientConfig`, `Client`, `Properties`) and their methods to make them accessible from JavaScript.
     -   For structs, it typically generates JavaScript classes.
     -   For methods, it generates corresponding JavaScript methods on these classes.
 
@@ -46,7 +46,8 @@ The `wasm-bindgen` tool and attributes are crucial for creating the JavaScript i
 ## Memory Management
 
 -   **`free()` Method**:
-    -   `wasm-bindgen` generates a `free()` method on the JavaScript side for Rust structs exposed to WASM that are not `Copy` types. It is crucial for JavaScript code to call this `free()` method when the Rust objects (`ClientConfig`, `Client`, `Cache`) are no longer needed.
+    -   `wasm-bindgen` generates a `free()` method on the JavaScript side for Rust structs exposed to WASM that are not `Copy` types. JavaScript code must call `free()` on live `Client` and `Properties` instances when they are no longer needed.
+    -   When `ClientConfig` is passed by value to `new Client(config)`, its ownership is consumed by Rust; attempting to call `config.free()` afterward throws an error. Call `config.free()` only if the config was created but never passed to `new Client(config)`.
     -   This releases the memory allocated by Rust on the WebAssembly heap. Failure to do so can lead to memory leaks in the WASM module.
     -   *(Note: The `free()` method itself is not explicitly defined in the Rust code of this library; `wasm-bindgen` provides the necessary bindings and JavaScript glue code for memory deallocation when the JS object is freed.)*
 

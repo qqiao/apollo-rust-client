@@ -15,7 +15,7 @@ Each internal `Cache` owns one Apollo namespace. It combines a timestamped memor
 
 ## Read path
 
-`get_value()` returns any memory value immediately. An expired value triggers one background refresh while every reader continues to succeed with stale data. On a cold miss it acquires `load_lock`, repeats the check, then reads native disk or browser localStorage. Persistent values follow the same stale-while-revalidate rule; only a true cold miss waits for Apollo.
+`get_value()` returns any memory value immediately. An expired value triggers one background refresh while every reader continues to succeed with stale data. On a cold miss it acquires `load_lock`, repeats the memory check, then reads native disk or browser localStorage. Persistent restoration populates empty memory only; if a concurrent refresh completes while storage is read, the in-memory winner is preserved and the restored candidate does not overwrite it. Persistent values follow the same stale-while-revalidate rule; only a true cold miss waits for Apollo.
 
 Only successful HTTP responses are parsed and cached. Persistence is best-effort: an unwritable directory or unavailable localStorage is logged but cannot discard a valid remote response. `cache_ttl = 0` is an always-revalidate mode, not a loss of stale availability.
 
@@ -25,9 +25,15 @@ Only successful HTTP responses are parsed and cached. Persistence is best-effort
 
 Native writes use a unique create-new temporary file in the destination directory, flush it, and atomically rename it. Concurrent writers therefore cannot share or truncate a deterministic temporary path. Client startup removes orphaned versioned temporary files.
 
+## Failure Backoff and Refresh Cadence
+
+Each cache tracks consecutive failures for background polling. For base interval $b$ and consecutive failures $n$, the nominal retry delay is $\min(b \cdot 2^{\min(n, 4)}, \max(b, 300))$ seconds, with integer $\pm 10\%$ jitter applied within $\lfloor \text{delay} / 10 \rfloor$.
+Only background polling checks this backoff timestamp (`is_backing_off`); manual `refresh()` and stale-read revalidation bypass backoff. A successful refresh immediately resets the failure count and clears backoff state.
+Healthy periodic polling sleeps the exact `refresh_interval` after each completed round without jitter.
+
 ## Listeners
 
-Listeners run synchronously in registration order after internal locks are released. Successful callbacks are emitted only when the configuration value changed. Manual, polling, and stale-while-revalidate failures are delivered as owned `Error::Refresh` values; ordinary cold read failures do not emit listener telemetry. Callback panics are caught and logged so later listeners still run.
+Listeners run synchronously in registration order after internal memory and listener-list locks are released (load/refresh coordination locks may remain held). Successful callbacks are emitted only when the configuration value changed. Manual, polling, and stale-while-revalidate failures are delivered as owned `Error::Refresh` values; ordinary cold read failures do not emit listener telemetry. Callback panics are caught and logged so later listeners still run.
 
 Register native listeners with `client.add_listener(namespace, Arc::new(callback)).await`. JavaScript uses `await client.add_listener(namespace, callback)`. JavaScript callback arguments are `(data, error)` with the unused side set to `undefined`; Properties listener data is a plain object and needs no `.free()` call.
 

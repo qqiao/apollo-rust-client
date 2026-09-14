@@ -40,8 +40,8 @@ use log::{debug, trace, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
-use std::sync::atomic::{AtomicU64, AtomicU32, AtomicI64, Ordering};
 use std::hash::BuildHasher;
+use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::{fmt::Write, sync::Arc};
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::io::AsyncWriteExt;
@@ -206,6 +206,16 @@ pub enum Error {
 ///
 /// - **Native Rust**: Full feature set with file caching and background refresh
 /// - **WebAssembly**: Persistent caching using browser localStorage with in-memory fallback and single-threaded execution
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[derive(Default)]
+pub(crate) struct TestRestoreBarrier {
+    pub(crate) loaded: tokio::sync::Notify,
+    pub(crate) release: tokio::sync::Notify,
+    pub(crate) pause_before_notify: std::sync::atomic::AtomicBool,
+    pub(crate) installed: tokio::sync::Notify,
+    pub(crate) release_notify: tokio::sync::Notify,
+}
+
 #[cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
 #[derive(Clone)]
 pub(crate) struct Cache {
@@ -237,6 +247,9 @@ pub(crate) struct Cache {
     /// Single-flight lock shared by cold loads, manual refreshes, and polling.
     refresh_lock: Arc<Mutex<()>>,
 
+    /// Lock serializing memory updates and their corresponding listener notifications.
+    update_lock: Arc<Mutex<()>>,
+
     /// Completed refresh generation used to coalesce concurrent waiters.
     refresh_generation: Arc<AtomicU64>,
 
@@ -259,6 +272,9 @@ pub(crate) struct Cache {
 
     /// HTTP client for making network requests.
     http_client: reqwest::Client,
+
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    test_barrier: Option<Arc<TestRestoreBarrier>>,
 }
 
 fn cache_identity(client_config: &ClientConfig, namespace: &str) -> String {
@@ -331,6 +347,7 @@ impl Cache {
             listeners: Arc::new(RwLock::new(Vec::new())),
             load_lock: Arc::new(Mutex::new(())),
             refresh_lock: Arc::new(Mutex::new(())),
+            update_lock: Arc::new(Mutex::new(())),
             refresh_generation: Arc::new(AtomicU64::new(0)),
             consecutive_failures: Arc::new(AtomicU32::new(0)),
             next_allowed_refresh_timestamp: Arc::new(AtomicI64::new(0)),
@@ -341,7 +358,15 @@ impl Cache {
             #[cfg(target_arch = "wasm32")]
             wasm_cache_key,
             http_client,
+
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            test_barrier: None,
         }
+    }
+
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    pub(crate) fn set_test_barrier(&mut self, barrier: Arc<TestRestoreBarrier>) {
+        self.test_barrier = Some(barrier);
     }
 
     /// Get a configuration from the cache.
@@ -384,7 +409,7 @@ impl Cache {
         }
 
         if let Some(item) = self.load_persistent_item().await {
-            self.replace_memory(item.clone()).await;
+            let item = self.restore_memory_if_empty(item).await;
             return Ok(self.serve_cached_item(item));
         }
 
@@ -448,7 +473,7 @@ impl Cache {
     async fn load_persistent_item(&self) -> Option<CacheItem> {
         cfg_if! {
             if #[cfg(not(target_arch = "wasm32"))] {
-                match tokio::fs::read(&self.file_path).await {
+                let item = match tokio::fs::read(&self.file_path).await {
                     Ok(content) => match serde_json::from_slice(&content) {
                         Ok(item) => Some(item),
                         Err(error) => {
@@ -461,7 +486,13 @@ impl Cache {
                         warn!("Unable to read cache file {}: {error}", self.file_path.display());
                         None
                     }
+                };
+                #[cfg(all(test, not(target_arch = "wasm32")))]
+                if let (Some(_), Some(barrier)) = (&item, &self.test_barrier) {
+                    barrier.loaded.notify_one();
+                    barrier.release.notified().await;
                 }
+                item
             } else {
                 load_from_local_storage(&self.wasm_cache_key).and_then(|cached| {
                     match serde_json::from_str(&cached) {
@@ -518,7 +549,8 @@ impl Cache {
                 self.persist_best_effort(&item).await;
                 self.replace_memory(item).await;
                 self.consecutive_failures.store(0, Ordering::Release);
-                self.next_allowed_refresh_timestamp.store(0, Ordering::Release);
+                self.next_allowed_refresh_timestamp
+                    .store(0, Ordering::Release);
                 Ok(())
             }
             Err(error) => {
@@ -529,7 +561,8 @@ impl Cache {
                 let delay = refresh_delay_seconds(base_interval, failures, random);
                 #[allow(clippy::cast_possible_wrap)]
                 let next_time = Utc::now().timestamp() + delay as i64;
-                self.next_allowed_refresh_timestamp.store(next_time, Ordering::Release);
+                self.next_allowed_refresh_timestamp
+                    .store(next_time, Ordering::Release);
                 Err(error)
             }
         };
@@ -552,7 +585,37 @@ impl Cache {
         )
     }
 
+    async fn restore_memory_if_empty(&self, candidate: CacheItem) -> CacheItem {
+        let _update_guard = self.update_lock.lock().await;
+        let (selected_item, installed) = {
+            let mut memory = self.memory.write().await;
+            if let Some(current) = memory.as_ref() {
+                (current.clone(), false)
+            } else {
+                *memory = Some(candidate.clone());
+                (candidate, true)
+            }
+        };
+
+        #[cfg(all(test, not(target_arch = "wasm32")))]
+        if installed
+            && let Some(barrier) = &self.test_barrier
+            && barrier.pause_before_notify.load(Ordering::Acquire)
+        {
+            barrier.installed.notify_one();
+            barrier.release_notify.notified().await;
+        }
+
+        if installed {
+            let listeners = self.listeners.read().await.clone();
+            self.notify_listeners(&selected_item.config, &listeners);
+        }
+
+        selected_item
+    }
+
     async fn replace_memory(&self, item: CacheItem) {
+        let _update_guard = self.update_lock.lock().await;
         let changed = {
             let mut memory = self.memory.write().await;
             let changed = memory
@@ -839,7 +902,8 @@ impl Cache {
     /// refresh fails. They receive `Result<Namespace, crate::Error>`.
     ///
     ///
-    /// Callbacks run synchronously after internal locks are released. Panics are caught
+    /// Callbacks run synchronously after memory and listener-list locks are released
+    /// (load/refresh coordination locks may remain held). Panics are caught
     /// and logged, and do not prevent subsequent listeners from running.
     ///
     /// # Arguments
@@ -1030,6 +1094,33 @@ fn save_to_local_storage(key: &str, value: &str) -> Option<()> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_arch = "wasm32"))]
+    struct TaskGuard<T> {
+        handle: Option<tokio::task::JoinHandle<T>>,
+        barrier: Arc<TestRestoreBarrier>,
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl<T> Drop for TaskGuard<T> {
+        fn drop(&mut self) {
+            self.barrier.release.notify_waiters();
+            if let Some(handle) = self.handle.take() {
+                handle.abort();
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    struct ReleaseGuard(Option<std::sync::mpsc::Sender<()>>);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl Drop for ReleaseGuard {
+        fn drop(&mut self) {
+            if let Some(tx) = self.0.take() {
+                let _ = tx.send(());
+            }
+        }
+    }
     use super::*;
     use crate::setup;
     #[cfg(not(target_arch = "wasm32"))]
@@ -1537,13 +1628,474 @@ mod tests {
         assert_eq!(cache.consecutive_failures.load(Ordering::Acquire), 1);
         assert!(cache.is_backing_off());
 
-        cache.next_allowed_refresh_timestamp.store(0, Ordering::Release);
+        cache
+            .next_allowed_refresh_timestamp
+            .store(0, Ordering::Release);
         assert!(!cache.is_backing_off());
 
         let res2 = cache.refresh().await;
         assert!(res2.is_ok());
         assert_eq!(cache.consecutive_failures.load(Ordering::Acquire), 0);
-        assert_eq!(cache.next_allowed_refresh_timestamp.load(Ordering::Acquire), 0);
+        assert_eq!(
+            cache.next_allowed_refresh_timestamp.load(Ordering::Acquire),
+            0
+        );
         assert!(!cache.is_backing_off());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn persistent_restore_does_not_overwrite_completed_refresh() {
+        let server = fixed_server(200, r#"{"value":"new"}"#);
+        let temp_dir = TempDir::new("restore_ordering");
+        let mut config = test_config(&server, temp_dir.path());
+        config.cache_ttl = Some(60);
+        let mut cache = Cache::new(config, "application", test_http_client());
+
+        tokio::fs::create_dir_all(cache.file_path.parent().unwrap())
+            .await
+            .unwrap();
+        let old_item = CacheItem {
+            timestamp: Utc::now().timestamp(),
+            config: serde_json::json!({"value": "old"}),
+        };
+        tokio::fs::write(&cache.file_path, serde_json::to_vec(&old_item).unwrap())
+            .await
+            .unwrap();
+
+        let barrier = Arc::new(TestRestoreBarrier::default());
+        cache.set_test_barrier(barrier.clone());
+
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+        cache
+            .add_listener(Arc::new(move |result| {
+                if let Some(val) = result.ok().and_then(|ns| match ns {
+                    crate::namespace::Namespace::Properties(props) => props.get_string("value"),
+                    _ => None,
+                }) {
+                    events_clone.lock().unwrap().push(val);
+                }
+            }))
+            .await;
+
+        let cache_clone = cache.clone();
+        let barrier_for_guard = barrier.clone();
+        let load_task = tokio::spawn(async move { cache_clone.get_value().await });
+
+        let mut guard = TaskGuard {
+            handle: Some(load_task),
+            barrier: barrier_for_guard,
+        };
+
+        tokio::time::timeout(Duration::from_secs(2), barrier.loaded.notified())
+            .await
+            .expect("storage read should reach barrier");
+
+        tokio::time::timeout(Duration::from_secs(2), cache.refresh())
+            .await
+            .expect("refresh should not time out")
+            .expect("refresh should succeed");
+
+        assert_eq!(
+            cache
+                .memory
+                .read()
+                .await
+                .as_ref()
+                .map(|i| i.config["value"].as_str().unwrap()),
+            Some("new")
+        );
+
+        barrier.release.notify_one();
+
+        let load_handle = guard.handle.take().unwrap();
+        let returned_value = tokio::time::timeout(Duration::from_secs(2), load_handle)
+            .await
+            .expect("load should finish")
+            .expect("task panicked")
+            .expect("get_value failed");
+
+        assert_eq!(returned_value["value"], "new");
+        assert_eq!(
+            cache
+                .memory
+                .read()
+                .await
+                .as_ref()
+                .map(|i| i.config["value"].as_str().unwrap()),
+            Some("new")
+        );
+        let second_read = cache.get_value().await.unwrap();
+        assert_eq!(second_read["value"], "new");
+
+        let event_list = events.lock().unwrap().clone();
+        assert_eq!(event_list, vec!["new".to_string()]);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn concurrent_restore_and_replace_serialize_notifications_without_rollback() {
+        let server = fixed_server(200, r#"{"value":"new"}"#);
+        let temp_dir = TempDir::new("restore_replace_ordering");
+        let mut config = test_config(&server, temp_dir.path());
+        config.cache_ttl = Some(60);
+        let mut cache = Cache::new(config, "application", test_http_client());
+
+        let barrier = Arc::new(TestRestoreBarrier::default());
+        barrier.pause_before_notify.store(true, Ordering::Release);
+        cache.set_test_barrier(barrier.clone());
+
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+        cache
+            .add_listener(Arc::new(move |result| {
+                if let Some(val) = result.ok().and_then(|ns| match ns {
+                    crate::namespace::Namespace::Properties(props) => props.get_string("value"),
+                    _ => None,
+                }) {
+                    events_clone.lock().unwrap().push(val);
+                }
+            }))
+            .await;
+
+        let old_item = CacheItem {
+            timestamp: Utc::now().timestamp(),
+            config: serde_json::json!({"value": "old"}),
+        };
+        let new_item = CacheItem {
+            timestamp: Utc::now().timestamp(),
+            config: serde_json::json!({"value": "new"}),
+        };
+
+        // Spawn restore task: installs "old" into memory and pauses before notifying listeners
+        let cache1 = cache.clone();
+        let old_clone = old_item.clone();
+        let restore_task =
+            tokio::spawn(async move { cache1.restore_memory_if_empty(old_clone).await });
+
+        // Await deterministic handshake: candidate is installed, restore pauses before notification
+        tokio::time::timeout(Duration::from_secs(2), barrier.installed.notified())
+            .await
+            .expect("restore should reach post-install barrier before notification");
+
+        // Verify restore installed "old" into memory but has not yet notified listeners
+        assert_eq!(
+            cache
+                .memory
+                .read()
+                .await
+                .as_ref()
+                .map(|i| i.config["value"].as_str().unwrap()),
+            Some("old")
+        );
+        assert!(
+            events.lock().unwrap().is_empty(),
+            "no notification should be emitted while restore is paused before notification"
+        );
+
+        // Drive competing replacement through the boundary while restore is paused
+        let cache2 = cache.clone();
+        let new_clone = new_item.clone();
+        let mut replace_fut = Box::pin(async move { cache2.replace_memory(new_clone).await });
+
+        // Explicitly poll replace_memory future while restore is paused.
+        // With update_lock held by restore, replace_memory must block on update_lock and return Pending.
+        // Without update_lock, replace_memory would run immediately, returning Ready(()) and overwriting memory.
+        assert!(
+            futures::poll!(&mut replace_fut).is_pending(),
+            "replace_memory must return Pending while restore holds update_lock"
+        );
+
+        assert_eq!(
+            cache
+                .memory
+                .read()
+                .await
+                .as_ref()
+                .map(|i| i.config["value"].as_str().unwrap()),
+            Some("old"),
+            "replace_memory must not overwrite memory while restore is holding update_lock"
+        );
+        assert!(
+            events.lock().unwrap().is_empty(),
+            "replace_memory must not notify listeners while restore is holding update_lock"
+        );
+
+        // Release restore to proceed with its notification
+        barrier.release_notify.notify_one();
+
+        // Unwrap restore task result to ensure it did not panic
+        let restore_res = tokio::time::timeout(Duration::from_secs(2), restore_task)
+            .await
+            .expect("restore task should finish")
+            .expect("restore task panicked");
+        assert_eq!(restore_res.config["value"], "old");
+
+        tokio::time::timeout(Duration::from_secs(2), replace_fut)
+            .await
+            .expect("replace future should finish");
+
+        // Assert strictly ordered notifications: "old" must precede "new", never ["new", "old"]
+        let event_list = events.lock().unwrap().clone();
+        assert_eq!(
+            event_list,
+            vec!["old".to_string(), "new".to_string()],
+            "Event list must be strictly ordered [\"old\", \"new\"]"
+        );
+        assert_eq!(
+            cache
+                .memory
+                .read()
+                .await
+                .as_ref()
+                .map(|i| i.config["value"].as_str().unwrap()),
+            Some("new")
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn persistent_restore_emits_one_initial_value() {
+        let server = fixed_server(200, r#"{"value":"server"}"#);
+        let temp_dir = TempDir::new("restore_emits_one_initial");
+        let mut config = test_config(&server, temp_dir.path());
+        config.cache_ttl = Some(60);
+        let cache = Cache::new(config, "application", test_http_client());
+
+        tokio::fs::create_dir_all(cache.file_path.parent().unwrap())
+            .await
+            .unwrap();
+        let item = CacheItem {
+            timestamp: Utc::now().timestamp(),
+            config: serde_json::json!({"value": "persisted"}),
+        };
+        tokio::fs::write(&cache.file_path, serde_json::to_vec(&item).unwrap())
+            .await
+            .unwrap();
+
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+        cache
+            .add_listener(Arc::new(move |result| {
+                if let Some(val) = result.ok().and_then(|ns| match ns {
+                    crate::namespace::Namespace::Properties(props) => props.get_string("value"),
+                    _ => None,
+                }) {
+                    events_clone.lock().unwrap().push(val);
+                }
+            }))
+            .await;
+
+        let val1 = cache.get_value().await.unwrap();
+        assert_eq!(val1["value"], "persisted");
+        let val2 = cache.get_value().await.unwrap();
+        assert_eq!(val2["value"], "persisted");
+
+        assert_eq!(server.request_count(), 0);
+        let recorded = events.lock().unwrap().clone();
+        assert_eq!(recorded, vec!["persisted".to_string()]);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn stale_persistent_restore_returns_before_revalidation() {
+        let req_notify = Arc::new(tokio::sync::Notify::new());
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let release_rx = Arc::new(std::sync::Mutex::new(release_rx));
+
+        let req_notify_server = req_notify.clone();
+        let server = TestHttpServer::new(Arc::new(move |_, _| {
+            req_notify_server.notify_one();
+            let _ = release_rx.lock().unwrap().recv();
+            MockResponse::json(200, r#"{"value":"revalidated"}"#)
+        }));
+        let temp_dir = TempDir::new("stale_restore_revalidate");
+        let mut config = test_config(&server, temp_dir.path());
+        config.cache_ttl = Some(1);
+        let cache = Cache::new(config, "application", test_http_client());
+
+        tokio::fs::create_dir_all(cache.file_path.parent().unwrap())
+            .await
+            .unwrap();
+        let stale_item = CacheItem {
+            timestamp: Utc::now().timestamp() - 60,
+            config: serde_json::json!({"value": "stale"}),
+        };
+        tokio::fs::write(&cache.file_path, serde_json::to_vec(&stale_item).unwrap())
+            .await
+            .unwrap();
+
+        let mut guard = ReleaseGuard(Some(release_tx));
+
+        let val = cache.get_value().await.unwrap();
+        assert_eq!(val["value"], "stale");
+
+        tokio::time::timeout(Duration::from_secs(2), req_notify.notified())
+            .await
+            .expect("revalidation should have hit server");
+
+        let val2 = cache.get_value().await.unwrap();
+        assert_eq!(val2["value"], "stale");
+        assert_eq!(server.request_count(), 1);
+
+        drop(guard.0.take());
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if cache
+                    .memory
+                    .read()
+                    .await
+                    .as_ref()
+                    .is_some_and(|mem| mem.config["value"] == "revalidated")
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("revalidation should update memory");
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn concurrent_persistent_loads_emit_one_event() {
+        let server = fixed_server(200, r#"{"value":"server"}"#);
+        let temp_dir = TempDir::new("concurrent_persistent_loads");
+        let mut config = test_config(&server, temp_dir.path());
+        config.cache_ttl = Some(60);
+        let mut cache = Cache::new(config, "application", test_http_client());
+
+        tokio::fs::create_dir_all(cache.file_path.parent().unwrap())
+            .await
+            .unwrap();
+        let item = CacheItem {
+            timestamp: Utc::now().timestamp(),
+            config: serde_json::json!({"value": "persisted"}),
+        };
+        tokio::fs::write(&cache.file_path, serde_json::to_vec(&item).unwrap())
+            .await
+            .unwrap();
+
+        let barrier = Arc::new(TestRestoreBarrier::default());
+        cache.set_test_barrier(barrier.clone());
+
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+        cache
+            .add_listener(Arc::new(move |result| {
+                if let Some(val) = result.ok().and_then(|ns| match ns {
+                    crate::namespace::Namespace::Properties(props) => props.get_string("value"),
+                    _ => None,
+                }) {
+                    events_clone.lock().unwrap().push(val);
+                }
+            }))
+            .await;
+
+        let callers: Vec<_> = (0..5)
+            .map(|_| {
+                let cache_clone = cache.clone();
+                tokio::spawn(async move { cache_clone.get_value().await })
+            })
+            .collect();
+
+        tokio::time::timeout(Duration::from_secs(2), barrier.loaded.notified())
+            .await
+            .expect("first caller should reach barrier");
+
+        barrier.release.notify_waiters();
+
+        for caller in callers {
+            let res = tokio::time::timeout(Duration::from_secs(2), caller)
+                .await
+                .expect("caller should complete")
+                .expect("caller task panicked")
+                .expect("get_value failed");
+            assert_eq!(res["value"], "persisted");
+        }
+
+        assert_eq!(server.request_count(), 0);
+        let recorded = events.lock().unwrap().clone();
+        assert_eq!(recorded, vec!["persisted".to_string()]);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn failed_refresh_does_not_discard_pending_restore() {
+        let server = fixed_server(500, "server error");
+        let temp_dir = TempDir::new("failed_refresh_restore");
+        let mut config = test_config(&server, temp_dir.path());
+        config.cache_ttl = Some(60);
+        let mut cache = Cache::new(config, "application", test_http_client());
+
+        tokio::fs::create_dir_all(cache.file_path.parent().unwrap())
+            .await
+            .unwrap();
+        let item = CacheItem {
+            timestamp: Utc::now().timestamp(),
+            config: serde_json::json!({"value": "persisted"}),
+        };
+        tokio::fs::write(&cache.file_path, serde_json::to_vec(&item).unwrap())
+            .await
+            .unwrap();
+
+        let barrier = Arc::new(TestRestoreBarrier::default());
+        cache.set_test_barrier(barrier.clone());
+
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let errors = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+        let errors_clone = errors.clone();
+        cache
+            .add_listener(Arc::new(move |result| match result {
+                Ok(crate::namespace::Namespace::Properties(props)) => {
+                    if let Some(val) = props.get_string("value") {
+                        events_clone.lock().unwrap().push(val);
+                    }
+                }
+                Err(e) => {
+                    errors_clone.lock().unwrap().push(e.to_string());
+                }
+                _ => {}
+            }))
+            .await;
+
+        let cache_clone = cache.clone();
+        let load_task = tokio::spawn(async move { cache_clone.get_value().await });
+
+        tokio::time::timeout(Duration::from_secs(2), barrier.loaded.notified())
+            .await
+            .expect("read should reach barrier");
+
+        let refresh_res = cache.refresh().await;
+        assert!(refresh_res.is_err());
+        assert!(cache.memory.read().await.is_none());
+
+        barrier.release.notify_one();
+
+        let returned_value = tokio::time::timeout(Duration::from_secs(2), load_task)
+            .await
+            .expect("load should complete")
+            .expect("task panicked")
+            .expect("get_value should succeed with persisted fallback");
+
+        assert_eq!(returned_value["value"], "persisted");
+        assert_eq!(
+            cache
+                .memory
+                .read()
+                .await
+                .as_ref()
+                .map(|i| i.config["value"].as_str().unwrap()),
+            Some("persisted")
+        );
+
+        let recorded_events = events.lock().unwrap().clone();
+        assert_eq!(recorded_events, vec!["persisted".to_string()]);
+        let recorded_errors = errors.lock().unwrap().clone();
+        assert_eq!(recorded_errors.len(), 1);
     }
 }

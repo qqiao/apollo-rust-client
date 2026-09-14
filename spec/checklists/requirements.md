@@ -1,6 +1,6 @@
 # Specification quality checklist
 
-Scope: the four feature specifications and their supporting documents. This checklist evaluates specification quality; it is not approval of product requirements or a claim that all acceptance tests exist/pass.
+Historical content-review scope: the four original feature specifications and their supporting documents. Current implementation/status audit covers all thirteen features; see [verification audit](../verification-2026-09-13.md). This checklist evaluates specification quality; it is not approval of product requirements or a claim that all acceptance tests exist/pass.
 
 ## Content review
 

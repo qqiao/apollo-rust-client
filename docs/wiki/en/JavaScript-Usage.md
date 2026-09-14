@@ -61,10 +61,10 @@ async function main() {
     console.log("Property 'debug_enabled' not found or not a boolean.");
   }
  
-  // IMPORTANT: Release Rust memory for WASM objects when they are no longer needed
+  // IMPORTANT: Release Rust memory for live WASM objects when no longer needed
+  // ClientConfig was consumed by new Client(clientConfig) and must not be freed
   properties.free();
   client.free();
-  clientConfig.free();
 }
 
 main().catch(console.error);
@@ -107,7 +107,6 @@ async function main() {
   // Cleanup
   client.stop();
   client.free();
-  clientConfig.free();
 }
 
 main().catch(console.error);
@@ -142,10 +141,10 @@ async function main() {
   const textContent = await client.namespace("readme.txt");
   console.log("Readme length:", textContent.length);
  
-  // Cleanup - Only Properties class instance needs to be freed
+  // Cleanup - Properties and Client class instances need to be freed
+  // ClientConfig was consumed by new Client(clientConfig) and must not be freed
   props.free();
   client.free();
-  clientConfig.free();
 }
 
 main().catch(console.error);
@@ -161,16 +160,18 @@ import { Client, ClientConfig } from "@qqiao/apollo-rust-client";
 async function main() {
   let client = null;
   let properties = null;
-  let clientConfig = null;
+  let config = null;
 
   try {
-    clientConfig = new ClientConfig(
+    config = new ClientConfig(
       "your_app_id",
       "http://your-apollo-server:8080",
       "default"
     );
 
-    client = new Client(clientConfig);
+    const transferred = config;
+    config = null; // Ownership transferred to Client
+    client = new Client(transferred);
     await client.start();
 
     properties = await client.namespace("application");
@@ -182,13 +183,13 @@ async function main() {
   } catch (error) {
     console.error("Apollo client error:", error);
   } finally {
-    // Always cleanup WASM objects
+    // Always cleanup live WASM objects; config is cleaned up only if never transferred
     if (properties) properties.free();
     if (client) {
       client.stop();
       client.free();
     }
-    if (clientConfig) clientConfig.free();
+    if (config) config.free();
   }
 }
 
@@ -200,10 +201,10 @@ main().catch(console.error);
 **Critical for WASM**: Always call `free()` on Apollo client objects when you're done with them to prevent memory leaks:
 
 ```javascript
-// These objects need to be freed:
-clientConfig.free(); // ClientConfig instances
+// Live objects that must be freed:
 client.free(); // Client instances
 properties.free(); // Properties instances (returned by client.namespace() for properties format)
+// ClientConfig: consumed by new Client(config); call config.free() only if never transferred
 ```
 
 The `free()` method releases the memory allocated by Rust on the WebAssembly heap. Other formats (like JSON, YAML, or Text) are returned as raw JS objects or strings, and do not need to be freed manually.

@@ -22,7 +22,7 @@ The manifest specifies edition 2024 with `rlib`/`cdylib` outputs. It uses Tokio,
 
 A Client owns a namespace-string registry and one reusable HTTP client. A cache holds the raw JSON response and retrieval timestamp, listener list, load/refresh mutexes, refresh generation, last error, and retry state. Registry locks are released before cache operations. Memory/listener-list locks are not held across remote I/O or callbacks; the separate refresh and sometimes load mutexes can remain held during callbacks.
 
-Read flow: memory → persistent storage when memory is absent → awaited shared remote retrieval on a miss. A stale value is returned while a separately spawned revalidation attempts the refresh mutex. Successful retrieval attempts persistence before memory replacement. Generation changes let overlapping refresh waiters reuse a completed result. Cold-load cancellation releases its held locks.
+Read flow: memory → persistent storage when memory is absent → awaited shared remote retrieval on a miss. Persistent restoration populates empty memory only; if an overlapping remote refresh completes before storage restoration finishes, memory retains the newer winner and the candidate is not installed. A stale value is returned while a separately spawned revalidation attempts the refresh mutex. Successful retrieval attempts persistence before memory replacement. Generation changes let overlapping refresh waiters reuse a completed result. Cold-load cancellation releases its held locks.
 
 Persistence stores `{ "timestamp": <Unix seconds>, "config": <raw JSON> }`. The v2 identity hashes length-framed server (trailing slashes removed), app, cluster, namespace, and optional IP/label with presence markers. It omits secrets and timings. Length framing uses architecture-sized integers; the digest is not a cross-architecture interchange format or encryption.
 
@@ -32,7 +32,7 @@ Native storage uses platform-standard project cache directories plus `config-cac
 
 The poller immediately snapshots eligible registered namespaces, refreshes up to four concurrently, waits for the batch, then sleeps the base interval. Native execution uses a Tokio task; WASM uses a local future with an abort handle. Stop/drop cancels that owned poller, not independently spawned stale revalidation tasks.
 
-For base interval b and failure count n, the nominal retry delay is `min(b * 2^min(n,4), max(b,300))` with saturating multiplication and integer ±10% jitter. Only polling tests the stored retry timestamp. Manual refresh and stale-read revalidation bypass it. Success clears failure state. The healthy polling sleep itself has no jitter in the current code despite broader wording in some documentation.
+For base interval b and failure count n, the nominal retry delay is `min(b * 2^min(n,4), max(b,300))` with saturating multiplication and integer ±10% jitter. Only polling tests the stored retry timestamp. Manual refresh and stale-read revalidation bypass it. Success clears failure state. The healthy polling sleep itself has no jitter; package 012 corrected the broader documentation claim. For round duration R and interval I, the next round begins approximately R + I seconds after the previous round start (plus scheduling overhead); observation latency is not bounded by I alone.
 
 ## Style and constraints
 
@@ -54,7 +54,7 @@ Run from the repository root. Prerequisites for fast testing are Rust with the W
 | Purpose | Command | Docker Required? |
 |---|---|---|
 | Required test entry point (full suite) | `scripts/test.sh` | Yes (for integration phase) |
-| Fast checks (unit, fault, doc, WASM unit, Clippy x3) | `scripts/test.sh fast` | **No** |
+| Fast checks (unit, fault, doc, WASM unit, Clippy x3, tooling tests) | `scripts/test.sh fast` | **No** |
 | Real Apollo integration suite | `scripts/test.sh integration` | Yes |
 | Focused integration suite (native, rustls, wasm) | `scripts/test.sh integration --suite <name>` | Yes |
 | Filtered integration tests | `scripts/test.sh integration --filter <pattern>` | Yes |
@@ -66,7 +66,7 @@ Run from the repository root. Prerequisites for fast testing are Rust with the W
 | Full native/WASM build and JS smoke | `scripts/build.sh` | No |
 | API documentation | `cargo doc --no-deps` | No |
 
-Use `scripts/test.sh` for testing instead of a substitute standalone cargo-test invocation. In its default mode, it executes fast checks (Clippy across all three targets, native unit/fault tests, native Rustls unit/fault tests, doctests, and Node WASM unit tests) followed by the real Apollo integration phase. The integration phase provisions a disposable Apollo 2.5.2 stack via Docker Compose, dynamically discovers loopback ports, idempotently seeds declarative fixtures, and executes all three runtime suites (`native`, `rustls`, and `wasm`). If Docker is not available or for fast inner-loop development, `scripts/test.sh fast` runs all lints and unit tests without Docker.
+Use `scripts/test.sh` for testing instead of a substitute standalone cargo-test invocation. In its default mode, it executes fast checks (Clippy across all three targets, native unit/fault tests, native Rustls unit/fault tests, doctests, Node WASM unit tests, and Node tooling lifecycle fault tests) followed by the real Apollo integration phase. The integration phase provisions a disposable Apollo 2.5.2 stack via Docker Compose, dynamically discovers loopback ports, idempotently seeds declarative fixtures, and executes all three runtime suites (`native`, `rustls`, and `wasm`). If Docker is not available or for fast inner-loop development, `scripts/test.sh fast` runs all lints and unit tests without Docker.
 
 Deterministic network fault tests (hung fetches, TCP connection resets, HTTP 429/500 error classifications, malformed payloads) remain covered by in-process unit test fixtures (`MockHttpsServer` and scoped WASM test stubs), while real Apollo compatibility (multi-format serialization, authentication signature verification, grayscale IP/label routing, and release publication/polling) is validated against genuine Apollo services.
 

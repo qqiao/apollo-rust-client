@@ -49,40 +49,143 @@ function validateLoopbackUrl(urlString, name) {
   return parsed.origin;
 }
 
-async function fetchWithTimeout(url, options = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs || REQUEST_TIMEOUT_MS);
+const SENSITIVE_PARAM_NAMES_PATTERN =
+  '(?:token|secret|key|password|auth|credentials?|authorization|api[-_]?key|(?:access|client|app)[-_]?(?:token|secret|key))';
+const SENSITIVE_PARAM_REGEX = new RegExp(`^${SENSITIVE_PARAM_NAMES_PATTERN}$`, 'i');
+const SENSITIVE_FALLBACK_REPLACE_REGEX = new RegExp(
+  `([?&]${SENSITIVE_PARAM_NAMES_PATTERN}=)[^&#]*`,
+  'gi'
+);
+
+export function redactUrl(rawUrl) {
+  if (!rawUrl) {
+    return '';
+  }
+  const urlString = rawUrl instanceof URL ? rawUrl.toString() : (typeof rawUrl === 'string' ? rawUrl : String(rawUrl));
   try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-    return response;
-  } finally {
-    clearTimeout(timeout);
+    const parsed = new URL(urlString);
+    if (parsed.username || parsed.password) {
+      parsed.username = '***';
+      parsed.password = '***';
+    }
+    const entries = Array.from(parsed.searchParams.entries());
+    parsed.search = '';
+    for (const [key, val] of entries) {
+      if (SENSITIVE_PARAM_REGEX.test(key)) {
+        parsed.searchParams.append(key, 'REDACTED');
+      } else {
+        parsed.searchParams.append(key, val);
+      }
+    }
+    return parsed.toString();
+  } catch {
+    // Fallback for relative or malformed URLs
+    return urlString
+      .replace(/(^|[^/]*\/\/)([^:@/\s]+):([^@/\s]+)@/, '$1***:***@')
+      .replace(SENSITIVE_FALLBACK_REPLACE_REGEX, '$1REDACTED');
   }
 }
 
-async function requestJson(url, options = {}) {
-  const headers = {
-    Accept: 'application/json',
-    ...(options.headers || {}),
-  };
-  if (options.body && typeof options.body === 'object') {
-    headers['Content-Type'] = 'application/json';
-    options.body = JSON.stringify(options.body);
+export async function requestJson(url, options = {}) {
+  const { timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
+  const method = (fetchOptions.method || 'GET').toUpperCase();
+
+  const headers = new Headers(fetchOptions.headers || {});
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json');
   }
-  const response = await fetchWithTimeout(url, { ...options, headers });
-  const text = await response.text();
-  let data = null;
-  if (text.length > 0) {
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = text;
+
+  let fetchUrl = url;
+  try {
+    const parsed = new URL(url);
+    if (parsed.username || parsed.password) {
+      if (!headers.has('authorization')) {
+        let username = parsed.username;
+        let password = parsed.password;
+        try {
+          username = decodeURIComponent(parsed.username);
+        } catch {}
+        try {
+          password = decodeURIComponent(parsed.password);
+        } catch {}
+        const creds = Buffer.from(`${username}:${password}`).toString('base64');
+        headers.set('authorization', `Basic ${creds}`);
+      }
+      parsed.username = '';
+      parsed.password = '';
+      fetchUrl = parsed.toString();
+    }
+  } catch {
+    // Ignore URL parse error here; fetch will handle invalid URLs
+  }
+
+  let body = fetchOptions.body;
+  if (body && typeof body === 'object') {
+    headers.set('Content-Type', 'application/json');
+    body = JSON.stringify(body);
+  }
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  const callerSignal = fetchOptions.signal;
+  let combinedSignal;
+  let removeCallerListener = null;
+
+  if (!callerSignal) {
+    combinedSignal = controller.signal;
+  } else if (typeof AbortSignal.any === 'function') {
+    combinedSignal = AbortSignal.any([controller.signal, callerSignal]);
+  } else {
+    combinedSignal = controller.signal;
+    if (callerSignal.aborted) {
+      controller.abort(callerSignal.reason);
+    } else {
+      const onAbort = () => controller.abort(callerSignal.reason);
+      callerSignal.addEventListener('abort', onAbort, { once: true });
+      removeCallerListener = () => callerSignal.removeEventListener('abort', onAbort);
     }
   }
-  return { status: response.status, headers: response.headers, data, ok: response.ok };
+
+  try {
+    const response = await fetch(fetchUrl, {
+      ...fetchOptions,
+      method,
+      headers,
+      body,
+      signal: combinedSignal,
+    });
+    const text = await response.text();
+    let data = null;
+    if (text.length > 0) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = text;
+      }
+    }
+    return { status: response.status, headers: response.headers, data, ok: response.ok };
+  } catch (err) {
+    if (timedOut && !callerSignal?.aborted) {
+      const sanitizedUrl = redactUrl(url);
+      const timeoutErr = new Error(
+        `Fixture request timed out after ${timeoutMs}ms: ${method} ${sanitizedUrl}`
+      );
+      timeoutErr.cause = err;
+      timeoutErr.name = 'TimeoutError';
+      throw timeoutErr;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    if (removeCallerListener) {
+      removeCallerListener();
+    }
+  }
 }
 
 // ---------------- AdminService Reconcile Helpers ----------------

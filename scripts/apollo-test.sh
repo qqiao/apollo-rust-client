@@ -43,142 +43,9 @@ Cleanup Options:
 EOF
 }
 
-run_with_timeout() {
-  local timeout_sec="$1"
-  shift
-
-  set -m
-  "$@" &
-  local child_pid=$!
-  set +m
-  CURRENT_CHILD_PID=$child_pid
-
-  local elapsed=0
-  while kill -0 "$child_pid" 2>/dev/null; do
-    if [ "$elapsed" -ge "$timeout_sec" ]; then
-      echo "ERROR: Command timed out after ${timeout_sec}s: $*" >&2
-      kill -TERM -- "-$child_pid" 2>/dev/null || kill -TERM "$child_pid" 2>/dev/null || true
-      sleep 2
-      kill -KILL -- "-$child_pid" 2>/dev/null || kill -KILL "$child_pid" 2>/dev/null || true
-      wait "$child_pid" 2>/dev/null || true
-      CURRENT_CHILD_PID=""
-      return 124
-    fi
-    sleep 1
-    elapsed=$((elapsed + 1))
-  done
-
-  wait "$child_pid"
-  local status=$?
-  CURRENT_CHILD_PID=""
-  return $status
-}
-
-INTERRUPTED_STATUS=0
-
-cleanup() {
-  local exit_code=$?
-  if [ "${INTERRUPTED_STATUS}" -ne 0 ]; then
-    exit_code="${INTERRUPTED_STATUS}"
-  fi
-  if [ "${CLEANED_UP:-0}" -eq 1 ]; then
-    return
-  fi
-  CLEANED_UP=1
-
-  # 1. Terminate tracked child process and its process group if alive
-  if [ -n "${CURRENT_CHILD_PID:-}" ] && kill -0 "$CURRENT_CHILD_PID" 2>/dev/null; then
-    echo "[apollo-test] Terminating supervised child process group ${CURRENT_CHILD_PID}..." >&2
-    kill -TERM -- "-$CURRENT_CHILD_PID" 2>/dev/null || kill -TERM "$CURRENT_CHILD_PID" 2>/dev/null || true
-    sleep 1
-    kill -KILL -- "-$CURRENT_CHILD_PID" 2>/dev/null || kill -KILL "$CURRENT_CHILD_PID" 2>/dev/null || true
-    wait "$CURRENT_CHILD_PID" 2>/dev/null || true
-    CURRENT_CHILD_PID=""
-  fi
-
-  # 2. Scoped Docker Compose cleanup if project was initialized
-  if [ -n "${PROJECT_NAME:-}" ] && [ -n "${RUN_DIR:-}" ]; then
-    if [ -f "${RUN_DIR}/ownership.json" ]; then
-      # If run failed or was interrupted, capture diagnostic logs first (bounded)
-      if [ "$exit_code" -ne 0 ]; then
-        echo "[apollo-test] Capturing diagnostic logs before teardown..." >&2
-        mkdir -p "${RUN_DIR}/logs"
-        run_with_timeout 15 docker compose -f "${COMPOSE_FILE}" -p "${PROJECT_NAME}" ps -a > "${RUN_DIR}/logs/compose-ps.txt" 2>&1 || true
-        run_with_timeout 30 docker compose -f "${COMPOSE_FILE}" -p "${PROJECT_NAME}" logs > "${RUN_DIR}/logs/compose-services.log" 2>&1 || true
-      fi
-
-      echo "[apollo-test] Tearing down Compose project ${PROJECT_NAME}..." >&2
-      run_with_timeout 30 docker compose -f "${COMPOSE_FILE}" -p "${PROJECT_NAME}" down --volumes --remove-orphans >/dev/null 2>&1 || true
-    fi
-  fi
-
-  if [ "$exit_code" -ne 0 ]; then
-    echo "[apollo-test] Run aborted/failed with status ${exit_code}." >&2
-    if [ -n "${RUN_DIR:-}" ] && [ -d "${RUN_DIR}" ]; then
-      echo "[apollo-test] Diagnostics preserved at: ${RUN_DIR}" >&2
-    fi
-  else
-    echo "[apollo-test] Run completed successfully."
-    if [ -n "${RUN_DIR:-}" ] && [ -d "${RUN_DIR}" ]; then
-      echo "[apollo-test] Artifacts preserved at: ${RUN_DIR}"
-    fi
-  fi
-
-  return $exit_code
-}
-
-handle_signal() {
-  local sig="$1"
-  echo "[apollo-test] Received signal ${sig}, aborting..." >&2
-  if [ "$sig" = "SIGINT" ]; then
-    INTERRUPTED_STATUS=130
-    cleanup
-    exit 130
-  else
-    INTERRUPTED_STATUS=143
-    cleanup
-    exit 143
-  fi
-}
-
-trap 'handle_signal SIGINT' INT
-trap 'handle_signal SIGTERM' TERM
-trap cleanup EXIT
-
-run_recovery_cleanup() {
-  local target_dir="$1"
-  if [ ! -d "$target_dir" ]; then
-    echo "[apollo-test] Run directory does not exist or was already removed: ${target_dir}. Fallback cleanup is safe."
-    exit 0
-  fi
-  local ownership_file="${target_dir}/ownership.json"
-  if [ ! -f "$ownership_file" ]; then
-    echo "ERROR: Safety check failed: '${target_dir}' does not contain 'ownership.json'. Refusing cleanup." >&2
-    exit 1
-  fi
-
-  local proj
-  proj=$(node -e "const fs=require('fs'); try { const d=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); console.log(d.project || ''); } catch { process.exit(1); }" "$ownership_file" 2>/dev/null || true)
-
-  if [ -z "$proj" ]; then
-    echo "ERROR: Safety check failed: Failed to extract 'project' from '${ownership_file}'." >&2
-    exit 1
-  fi
-
-  case "$proj" in
-    apollo-test-*)
-      ;;
-    *)
-      echo "ERROR: Safety check failed: Project '${proj}' does not start with 'apollo-test-'. Refusing cleanup." >&2
-      exit 1
-      ;;
-  esac
-
-  echo "[apollo-test] Verified ownership for project '${proj}'. Tearing down Docker Compose resources..."
-  docker compose -f "${COMPOSE_FILE}" -p "$proj" down --volumes --remove-orphans
-  echo "[apollo-test] Recovery cleanup complete for project ${proj} (${target_dir})."
-  exit 0
-}
+# Source lifecycle supervision & teardown helper
+source "${SCRIPT_DIR}/apollo-test-lifecycle.sh"
+install_lifecycle_traps
 
 run_fast_checks() {
   echo "[apollo-test] Running fast checks (Clippy, unit tests, doc tests, wasm unit tests)..."
@@ -196,9 +63,12 @@ run_fast_checks() {
   cargo clippy --no-default-features --features rustls --all-targets -- -D warnings
   cargo clippy --target wasm32-unknown-unknown --all-targets -- -D warnings
   RUST_LOG=apollo_rust_client=trace cargo test --all-targets -- --nocapture
-  cargo test --no-default-features --features rustls --lib -- --nocapture
+  cargo test --no-default-features --features rustls --all-targets -- --nocapture
   cargo test --doc
   RUST_BACKTRACE=1 wasm-pack test --node --lib -- --nocapture
+  node --test tests/tooling/*.test.mjs
+  node scripts/check-doc-links.mjs
+  node scripts/check-doc-examples.mjs
   echo "[apollo-test] Fast checks completed successfully."
 }
 
@@ -287,7 +157,24 @@ if [ "$MODE" = "cleanup" ]; then
     echo "[apollo-test] No run directory specified or recorded. Fallback cleanup is safe."
     exit 0
   fi
-  run_recovery_cleanup "$RECOVERY_RUN_DIR"
+  recovery_exit_handler() {
+    local rc=$?
+    if [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then
+      exit "$INTERRUPTED_STATUS"
+    fi
+    exit "$rc"
+  }
+  trap recovery_exit_handler EXIT
+  recovery_status=0
+  if run_recovery_cleanup "$RECOVERY_RUN_DIR"; then
+    recovery_status=0
+  else
+    recovery_status=$?
+  fi
+  if [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then
+    exit "$INTERRUPTED_STATUS"
+  fi
+  exit "$recovery_status"
 fi
 
 if [ -n "$RECOVERY_RUN_DIR" ]; then

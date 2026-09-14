@@ -58,7 +58,7 @@ Configuration construction is `new ClientConfig(appId, configServer, cluster)`; 
 
 Client exports `namespace`, `add_listener`, `preload`, `refresh`, `start`, `stop`. The first four are promise-based; the last two are synchronous. Preload accepts an array and rejects any non-string entry before reads. Properties getters are synchronous. Direct Properties reads return owned wrappers; listeners receive plain serialized Properties data. JSON/YAML values and Text are ordinary JS-managed values.
 
-Callbacks receive `(data, error)`: the inapplicable argument is `undefined`. Caught exceptions are logged. Live Client/Properties wrappers have `.free()`; transfer to Client consumes the configuration wrapper, so callers must not reuse it or treat it as still owned. An unconsumed configuration wrapper remains the caller's to release. Generated-code ownership behavior has not been re-executed in this documentation task; see traceability.
+Callbacks receive `(data, error)`: the inapplicable argument is `undefined`. Caught exceptions are logged. Live Client/Properties wrappers have `.free()`; transfer to Client consumes the configuration wrapper, so callers must not reuse it or treat it as still owned. An unconsumed configuration wrapper remains the caller's to release. Generated-code ownership behavior is verified by `scripts/wasm_api_smoke.js` which extracts and executes canonical ownership docs against the generated package (AC-001–004); see traceability.
 
 ## Error contract and limitations
 
@@ -73,3 +73,13 @@ Callbacks receive `(data, error)`: the inapplicable argument is `undefined`. Cau
 | WASM value conversion failure | Logged null fallback in current helpers; see research decision D-002 |
 
 The request deadline bounds asynchronous network waiting, including body reading. It does not cover mutex waits, synchronous parsing monopolizing the executor, persistence, or callbacks as an overall operation deadline. The native custom transport may return its own error before that deadline. Error details/logs are not a declared redaction or payload-size policy.
+
+## Remediation deltas (2026-09-13; implemented and verified)
+
+- [007](../007-public-cache-errors/spec.md) added `pub use cache::Error as CacheError` at the crate root with compiler-verified rustdoc; the `cache` module remains private. Coalesced refresh followers (`CacheError::CoalescedRefresh(String)`) and listener notifications (`Error::Refresh(String)`) retain their existing snapshot strings rather than guaranteeing original typed error variants.
+- [006](../006-cache-restore-ordering/spec.md) made persistent installation conditional on empty memory (`restore_memory_if_empty`), preserving newer in-memory winners across concurrent refreshes. Storage schema, identity, remote refresh replacement, and freshness policy are unchanged.
+- [008](../008-wasm-ownership-docs/spec.md) aligned JavaScript WASM ownership documentation across all READMEs and wiki languages with the by-value `Client::new(config)` contract, and added executable ownership verification to `scripts/wasm_api_smoke.js` covering consumed, untransferred, application-error, and constructor-validation failure flows.
+- [011](../011-executable-public-docs/spec.md) and [012](../012-accurate-polling-docs/spec.md) correct/verify documentation of existing boundaries; they do not invent root ClientConfig, exported Cache, healthy jitter, or stronger lifecycle guarantees.
+- [009](../009-observable-test-cleanup/spec.md) and [010](../010-fixture-body-deadlines/spec.md) amend test-tooling outcome/deadline contracts only. Their exact status table and HTTP behavior are in those specs.
+
+All deltas for packages 006–012 and 013 are implemented and verified by automated tests in scripts/test.sh fast and integration suites; see traceability.md.

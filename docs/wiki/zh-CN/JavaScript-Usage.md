@@ -47,9 +47,9 @@ async function main() {
   }
 
   // 重要提示：当不再需要 WASM 对象时，请释放 Rust 内存
+  // ClientConfig 已由 new Client(clientConfig) 消费，不可再释放
   namespace.free();
   client.free();
-  clientConfig.free();
 }
 
 main().catch(console.error);

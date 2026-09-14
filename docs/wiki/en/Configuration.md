@@ -165,7 +165,7 @@ let config = ClientConfig::builder("my-app", "http://apollo-server:8080")
 
 #### `refresh_interval` and `request_timeout`
 
-- `refresh_interval` controls periodic polling and defaults to 30 seconds. It must be greater than zero.
+- `refresh_interval` controls periodic polling (the sleep duration after each completed round of eligible namespaces) and defaults to 30 seconds. It must be greater than zero.
 - `request_timeout` bounds the complete request and response-body read and defaults to 10 seconds. It also wraps custom native HTTP clients and must be greater than zero.
 - These values are independent: cache expiry controls read-path revalidation, while polling controls proactive background updates.
 
@@ -320,18 +320,18 @@ config.label = Some("custom-label".to_string());
 
 Native Rust applications have access to all configuration options:
 
+<!-- apollo-example: native-config -->
 ```rust
 use apollo_rust_client::client_config::ClientConfig;
 
-let config = ClientConfig {
-    app_id: "native-app".to_string(),
-    config_server: "http://apollo-server:8080".to_string(),
-    cluster: "default".to_string(),
-    secret: Some("secret-key".to_string()),
-    cache_dir: Some("/opt/apollo/cache".to_string()), // File caching available
-    label: Some("native,server".to_string()),
-    ip: Some("10.0.1.100".to_string()),
-};
+let config = ClientConfig::builder("native-app", "http://apollo-server:8080")
+    .cluster("default")
+    .secret("secret-key")
+    .cache_dir("/opt/apollo/cache")
+    .label("native,server")
+    .ip("10.0.1.100")
+    .build()?;
+let _ = config;
 ```
 
 ### WebAssembly Configuration
@@ -423,21 +423,18 @@ let config = ClientConfig {
 The cache directory structure for native applications:
 
 ```
-/opt/apollo/cache/
-├── my-app_default_application.cache.json
-├── my-app_default_config.json.cache.json
-├── my-app_production_application_192.168.1.100.cache.json
-└── my-app_production_config.json_canary_beta.cache.json
+/opt/apollo/cache/apollo-rust-client/config-cache/
+├── v2-a1b2c3d4e5f607182930415263748596a7b8c9d0.cache.json
+└── v2-f0e1d2c3b4a596877869504132231405a6b7c8d9.cache.json
 ```
 
 ### Cache File Naming
 
 Cache files are named using the pattern:
-`{app_id}_{cluster}_{namespace}_{ip}_{label}.cache.json`
+`v2-{sha1_digest}.cache.json`
 
-- IP and label are included when specified
-- Multiple labels are joined with underscores
-- Special characters are sanitized
+- The SHA-1 digest is computed across the normalized identity tuple: config server URL, app ID, cluster, namespace, client IP, and label.
+- Isolated digest filenames prevent cross-environment cache collisions and handle special characters deterministically.
 
 ### Cache Permissions
 
@@ -473,40 +470,33 @@ sudo chmod 755 /opt/apollo/cache
 
 ### Multi-Environment Setup
 
+<!-- apollo-example: environment-config -->
 ```rust
 use apollo_rust_client::client_config::ClientConfig;
 
-fn create_config(environment: &str) -> ClientConfig {
-    match environment {
-        "development" => ClientConfig {
-            app_id: "myapp-dev".to_string(),
-            config_server: "http://localhost:8080".to_string(),
-            cluster: "default".to_string(),
-            secret: None,
-            cache_dir: Some("/tmp/apollo-dev".to_string()),
-            label: Some("dev".to_string()),
-            ip: None,
-        },
-        "staging" => ClientConfig {
-            app_id: "myapp-staging".to_string(),
-            config_server: "https://apollo-staging.company.com".to_string(),
-            cluster: "staging".to_string(),
-            secret: Some(std::env::var("STAGING_SECRET").unwrap()),
-            cache_dir: Some("/opt/apollo/staging".to_string()),
-            label: Some("staging".to_string()),
-            ip: None,
-        },
-        "production" => ClientConfig {
-            app_id: "myapp".to_string(),
-            config_server: "https://apollo.company.com".to_string(),
-            cluster: "production".to_string(),
-            secret: Some(std::env::var("PRODUCTION_SECRET").unwrap()),
-            cache_dir: Some("/opt/apollo/production".to_string()),
-            label: Some("production".to_string()),
-            ip: Some(std::env::var("INSTANCE_IP").unwrap()),
-        },
-        _ => panic!("Unknown environment: {}", environment),
-    }
+fn create_config(environment: &str) -> Result<ClientConfig, Box<dyn std::error::Error>> {
+    let config = match environment {
+        "development" => ClientConfig::builder("myapp-dev", "http://localhost:8080")
+            .cluster("default")
+            .cache_dir("/tmp/apollo-dev")
+            .label("dev")
+            .build()?,
+        "staging" => ClientConfig::builder("myapp-staging", "https://apollo-staging.company.com")
+            .cluster("staging")
+            .secret(std::env::var("STAGING_SECRET")?)
+            .cache_dir("/opt/apollo/staging")
+            .label("staging")
+            .build()?,
+        "production" => ClientConfig::builder("myapp", "https://apollo.company.com")
+            .cluster("production")
+            .secret(std::env::var("PRODUCTION_SECRET")?)
+            .cache_dir("/opt/apollo/production")
+            .label("production")
+            .ip(std::env::var("INSTANCE_IP")?)
+            .build()?,
+        unknown => return Err(format!("Unknown environment: {unknown}").into()),
+    };
+    Ok(config)
 }
 ```
 

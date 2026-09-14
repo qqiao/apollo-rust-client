@@ -29,9 +29,12 @@ run_fast_checks() {
   cargo clippy --no-default-features --features rustls --all-targets -- -D warnings && \
   cargo clippy --target wasm32-unknown-unknown --all-targets -- -D warnings && \
   RUST_LOG=apollo_rust_client=trace cargo test --all-targets -- --nocapture && \
-  cargo test --no-default-features --features rustls --lib -- --nocapture && \
+  cargo test --no-default-features --features rustls --all-targets -- --nocapture && \
   cargo test --doc && \
   RUST_BACKTRACE=1 wasm-pack test --node --lib -- --nocapture && \
+  node --test tests/tooling/*.test.mjs && \
+  node scripts/check-doc-links.mjs && \
+  node scripts/check-doc-examples.mjs && \
   echo "[test.sh] Fast checks completed successfully."
 }
 

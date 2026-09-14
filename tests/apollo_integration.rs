@@ -762,7 +762,13 @@ async fn real_apollo_preload_and_persistence() {
 
     // Preload duplicate namespaces and multiple formats simultaneously
     client1
-        .preload(&["application", "application", "application.json", "config", "application"])
+        .preload(&[
+            "application",
+            "application",
+            "application.json",
+            "config",
+            "application",
+        ])
         .await
         .expect("preload with duplicate namespaces must succeed without error");
 
@@ -798,8 +804,15 @@ async fn real_apollo_preload_and_persistence() {
 
     // 2. Native same-identity completed-persistence smoke
     // Confirm client1 wrote cache files into guard1's cache storage directory
-    let cache_storage_dir = guard1.path().join("apollo-rust-client").join("config-cache");
-    assert!(cache_storage_dir.exists(), "cache storage directory must exist: {:?}", cache_storage_dir);
+    let cache_storage_dir = guard1
+        .path()
+        .join("apollo-rust-client")
+        .join("config-cache");
+    assert!(
+        cache_storage_dir.exists(),
+        "cache storage directory must exist: {:?}",
+        cache_storage_dir
+    );
     let cache_files: Vec<_> = std::fs::read_dir(&cache_storage_dir)
         .expect("read cache storage dir")
         .filter_map(Result::ok)

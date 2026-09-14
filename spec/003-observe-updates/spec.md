@@ -2,7 +2,8 @@
 
 **Feature ID**: `003-observe-updates`
 **Created**: 2026-09-06
-**Status**: Draft — retrospectively reconstructed, pending maintainer acceptance
+**Implementation status**: Implemented; verified by source inspection and the available native/Rustls/WASM suites. Some acceptance clauses remain source-only or partially tested; see [current audit](../verification-2026-09-13.md) and [traceability](../supporting/traceability.md).
+**Specification acceptance**: Retrospectively reconstructed; maintainer acceptance of requirements/priorities remains pending.
 **Input**: Reconstruct the requirements for applications that need automatic refresh and notifications of configuration changes.
 
 ## Purpose and Scope
@@ -109,3 +110,7 @@ As an application developer, I want deterministic control of periodic refresh so
 ## Assumptions and Dependencies
 
 Depends on features 001 and 002 for retrieval, typed results, retention, and shared refresh. Callbacks should complete promptly. The interval is a delay after a completed round, not a guaranteed publication-to-delivery SLO. Exact scheduling/concurrency mechanics belong in the separate technical design.
+
+## Implemented documentation alignment (2026-09-13)
+
+[012-accurate-polling-docs](../012-accurate-polling-docs/spec.md) corrected current public claims to match AC-008 and the existing algorithm: sleep after a completed round, with jitter scoped to namespace failure backoff. It adds no scheduler behavior or freshness SLO. [006](../006-cache-restore-ordering/spec.md) additionally prevents notifications for discarded restoration candidates; it does not introduce globally ordered events or callback reentrancy.

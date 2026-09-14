@@ -1,4 +1,4 @@
-[中文简体](../zh-CN/Design-ClientConfig.md) | [中文繁體](../zh-TW/Design-ClientConfig.md)
+[中文简体](../zh-CN/Design-ClientConfig.md)
 [Back to Home](Home.md)
 
 # ClientConfig Details

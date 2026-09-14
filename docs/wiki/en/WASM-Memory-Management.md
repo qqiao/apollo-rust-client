@@ -5,15 +5,35 @@
 
 When using the Apollo Rust client in WebAssembly environments, proper memory management is crucial to prevent memory leaks.
 
-## Critical: Always Call `free()`
+## Critical: Ownership and Calling `free()`
 
-WebAssembly objects created by the Apollo client must be explicitly freed when no longer needed:
+WebAssembly objects allocated on the Rust heap must be explicitly freed when no longer needed to prevent memory leaks:
+
+- **Client**: Must be freed via `client.free()` when the client is no longer needed.
+- **Properties**: Returned by `client.namespace()` when accessing properties format; must be freed via `properties.free()`.
+- **ClientConfig**:
+  - If passed to `new Client(config)`, ownership of `ClientConfig` is transferred to `Client` and consumed by Rust. **Do NOT call `config.free()` after passing it to `new Client(config)`** — attempting to do so will throw an error.
+  - If a `ClientConfig` is created but never transferred to a `Client`, it must be freed via `config.free()`.
+
+Other returned namespace formats like JSON, YAML, or Text are standard JavaScript objects or strings managed automatically by JavaScript garbage collection and do not need to be freed manually.
+
+The following snippet illustrates the canonical pattern as a function body fragment (assumes `Client` and `ClientConfig` are already in scope, e.g. imported from `@qqiao/apollo-rust-client`):
+
+<!-- apollo-example: wasm-ownership -->
+```javascript
+// Function body fragment (requires Client and ClientConfig in scope):
+const client = new Client(new ClientConfig("app_id", "http://server:8080", "default"));
+try {
+  // Use client. Config is consumed by Client construction and must not be freed.
+} finally {
+  client.free();
+}
+```
 
 ```javascript
-// These objects MUST be freed:
-clientConfig.free(); // ClientConfig instances
-client.free(); // Client instances
-properties.free(); // Properties instances (returned by client.namespace() for properties format)
+// An untransferred ClientConfig must be freed if not passed to Client:
+const config = new ClientConfig("app_id", "http://server:8080", "default");
+config.free();
 ```
 
 ## Memory Management Pattern
@@ -22,14 +42,16 @@ properties.free(); // Properties instances (returned by client.namespace() for p
 import { Client, ClientConfig } from "@qqiao/apollo-rust-client";
 
 async function useApolloClient() {
-  let clientConfig = null;
+  let config = null;
   let client = null;
   let properties = null;
 
   try {
     // Create objects
-    clientConfig = new ClientConfig("app_id", "http://server:8080", "default");
-    client = new Client(clientConfig);
+    config = new ClientConfig("app_id", "http://server:8080", "default");
+    const transferred = config;
+    config = null; // Ownership transferred to Client
+    client = new Client(transferred);
     properties = await client.namespace("application");
 
     // Use the client
@@ -38,26 +60,28 @@ async function useApolloClient() {
   } catch (error) {
     console.error("Error:", error);
   } finally {
-    // ALWAYS cleanup Properties, Client, and ClientConfig
+    // ALWAYS cleanup live Properties and Client; cleanup config only if never transferred
     if (properties) properties.free();
     if (client) client.free();
-    if (clientConfig) clientConfig.free();
+    if (config) config.free();
   }
 }
 ```
 
 ## Event Listener Cleanup
 
-Event listeners are automatically cleaned up when the cache is freed, but you should still follow proper cleanup patterns:
+Event listeners retained by the client-managed cache and task lifecycle are released once active background revalidation tasks complete and the client is freed, but you should still follow proper cleanup patterns:
 
 ```javascript
 async function useWithEventListeners() {
-  let clientConfig = null;
+  let config = null;
   let client = null;
 
   try {
-    clientConfig = new ClientConfig("app_id", "http://server:8080", "default");
-    client = new Client(clientConfig);
+    config = new ClientConfig("app_id", "http://server:8080", "default");
+    const transferred = config;
+    config = null; // Ownership transferred to Client
+    client = new Client(transferred);
 
     // Register event listener at client level
     await client.add_listener("application", (data, error) => {
@@ -72,9 +96,9 @@ async function useWithEventListeners() {
 
     // Your application logic here
   } finally {
-    // Cleanup client and config
+    // Cleanup client; cleanup config only if never transferred
     if (client) client.free();
-    if (clientConfig) clientConfig.free();
+    if (config) config.free();
   }
 }
 ```
@@ -86,8 +110,8 @@ For long-lived applications, consider wrapping the client in a class:
 ```javascript
 class ApolloConfigManager {
   constructor(appId, serverUrl, cluster) {
-    this.clientConfig = new ClientConfig(appId, serverUrl, cluster);
-    this.client = new Client(this.clientConfig);
+    const config = new ClientConfig(appId, serverUrl, cluster);
+    this.client = new Client(config);
     this.propertiesNamespaces = new Map();
   }
 
@@ -111,9 +135,11 @@ class ApolloConfigManager {
     }
     this.propertiesNamespaces.clear();
 
-    // Free client and config
-    if (this.client) this.client.free();
-    if (this.clientConfig) this.clientConfig.free();
+    // Free client
+    if (this.client) {
+      this.client.free();
+      this.client = null;
+    }
   }
 }
 
@@ -133,9 +159,9 @@ manager.cleanup();
 
 ## Memory Leak Prevention
 
-1. **Never ignore cleanup**: Always call `free()` even if an error occurs
+1. **Never ignore cleanup**: Always call `free()` on live `Client` and `Properties` even if an error occurs
 2. **Use try-finally blocks**: Ensure cleanup happens regardless of success/failure
-3. **Track object lifetimes**: Keep references to objects that need cleanup
+3. **Track object lifetimes**: Keep references to objects that need cleanup, and clear them once transferred
 4. **Avoid circular references**: Don't store WASM objects in closures that might outlive them
 
 ## Browser Integration
@@ -153,10 +179,11 @@ window.addEventListener("beforeunload", () => {
 
 // Or for single-page applications
 window.addEventListener("beforeunload", () => {
-  // Cleanup all Apollo resources
-  if (cache) cache.free();
-  if (client) client.free();
-  if (clientConfig) clientConfig.free();
+  // Cleanup live Apollo client resources
+  if (client) {
+    client.free();
+    client = null;
+  }
 });
 ```
 
@@ -165,8 +192,17 @@ window.addEventListener("beforeunload", () => {
 ❌ **Don't do this:**
 
 ```javascript
-// Memory leak: Properties object never freed
+// Error: Trying to free config after passing it to Client
+const config = new ClientConfig("app_id", "http://server:8080", "default");
 const client = new Client(config);
+config.free(); // THROWS: config was already consumed by Client!
+```
+
+❌ **Don't do this:**
+
+```javascript
+// Memory leak: Properties object never freed
+const client = new Client(new ClientConfig("app_id", "http://server:8080", "default"));
 const props = await client.namespace("app");
 // Objects leaked when function exits (client and props must be freed)
 ```
@@ -175,7 +211,7 @@ const props = await client.namespace("app");
 
 ```javascript
 // Proper cleanup
-const client = new Client(config);
+const client = new Client(new ClientConfig("app_id", "http://server:8080", "default"));
 try {
   const props = await client.namespace("app");
   // Use props synchronously...
@@ -186,4 +222,4 @@ try {
 }
 ```
 
-Remember: The `free()` method releases memory allocated by Rust on the WebAssembly heap. Without it, WASM classes (Client, ClientConfig, and Properties) will accumulate and eventually cause performance issues or crashes. Other returned namespace formats like JSON, YAML, or Text are standard JS objects or strings managed automatically by JS garbage collection and do not need to be freed manually.
+Remember: The `free()` method releases memory allocated by Rust on the WebAssembly heap. Without it, WASM classes (`Client`, untransferred `ClientConfig`, and `Properties`) will accumulate and eventually cause performance issues or crashes. Other returned namespace formats like JSON, YAML, or Text are standard JS objects or strings managed automatically by JS garbage collection and do not need to be freed manually.

@@ -16,5 +16,7 @@
 - `ip`: 您应用程序的 IP 地址。用于在灰度发布中标识当前实例。
 - `allow_insecure_https`: 是否允许不安全的 HTTPS 连接（自签名证书）。用于公司内部网络或开发环境。
 - `cache_ttl`: 内存和持久缓存 TTL（默认 600 秒；`0` 表示始终后台重新验证）。
-- `refresh_interval`: 后台轮询间隔（默认 30 秒，必须大于零）。
+- `refresh_interval`: 后台轮询间隔（默认 30 秒，必须大于零；为每轮符合条件的命名空间刷新完成后的休眠时间）。
 - `request_timeout`: 完整请求和响应体超时（默认 10 秒，必须大于零）。
+
+详细代码示例请参考 [English Configuration Guide](../en/Configuration.md)。

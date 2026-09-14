@@ -52,7 +52,7 @@ None of these rows authorizes an implementation change. They delimit what these 
 | Its sequence diagram holds the memory writer through remote I/O. | Current code has distinct load/refresh coordination and avoids holding the memory write lock through that I/O. |
 | Listener documentation says all internal locks are released. | Only memory/listener-list locks are released; see D-004. |
 | Older JS table omits preload/refresh and describes signed integers as numbers. | Exports include those methods and signed Properties integers use bigint. |
-| [Memory guide](../../docs/wiki/en/WASM-Memory-Management.md) suggests freeing ClientConfig after passing it to Client. | Constructor accepts configuration by value; consuming ownership must be distinguished from a live unconsumed wrapper. Generated ownership smoke coverage remains incomplete. |
+| [Memory guide](../../docs/wiki/en/WASM-Memory-Management.md) suggests freeing ClientConfig after passing it to Client. | Discrepancy corrected in package 008: documentation across all languages reflects by-value consumption of `ClientConfig` by `new Client(config)`; `scripts/wasm_api_smoke.js` now executes canonical ownership doc examples and verifies untransferred vs consumed wrappers, error preservation, and constructor validation failure. |
 | Changelog says polling uses per-client jitter; some test prose implies Rustls runtime tests. | Code applies jitter to namespace failure delays, not healthy polling sleep. The script lints Rustls but runs native tests with default features. |
 
 The initial retrospective regeneration wrote only `spec/`. During final verification, concurrent documentation-only edits appeared in `src/namespace/mod.rs` and three English wiki files (`Design-Overview`, `Features`, `Rust-Usage`). They correct the unknown-suffix Properties description and do not change executable behavior. Those edits were inspected and preserved. The table records discrepancies at the baseline revision; the unknown-suffix discrepancy is already corrected in the current working tree.
@@ -62,3 +62,18 @@ The initial retrospective regeneration wrote only `spec/`. During final verifica
 A reviewer with fresh context inspected the four primary specifications against the requested format and source. Six findings were accepted and corrected: server-owned authorization was separated from client behavior; retained-data preconditions were added to JS failure/deadline scenarios; a coalesced error-notification gap was recorded as D-011; circular conversion language was replaced by explicit error cases; retry language was corrected for capped/jittered delays; and an unchanged-response freshness-renewal scenario was added.
 
 The user chose to finish with this independent review and declined an additional external cross-model review. No external review run is claimed. A follow-up check of the corrected artifact is recorded in the checklist.
+
+## Review follow-up planning (2026-09-13)
+
+The user requested detailed specifications, plans, and tasks for the seven numbered codebase-review findings. [The remediation index](../review-remediation/README.md) is the scoped execution handoff; no application/test implementation was changed during planning.
+
+R1 (persisted restoration overwriting a completed refresh), R2 (unnameable public cache error), R3 (consumed-config cleanup), R4 (suppressed teardown failure), R5 (fixture body deadline), R6 (current public docs), and R7 (poll timing claims) map to 006–012 respectively. Existing D-001–D-011 remain deferred unless only false documentation of their current behavior is being corrected. Planning a doc correction does not settle callback reentrancy, cancellation, confidentiality, resource bounds, or active-writer policy.
+
+Accuracy clarification from source recheck: `DeserializeError` **does exist** inside `namespace::json::Error` and `namespace::yaml::Error`; it is not a direct variant of `namespace::Error`. R6 must correct the hierarchy/path and distinguish `to_object` return errors, not delete the valid nested variants. Historical migration examples containing `.await` are not automatically current API defects.
+
+The selected new policies are explicit in their specs: public alias is `CacheError`; successful-stage teardown failure becomes nonzero with original failure/signal precedence; fixture timeout remains 5000 ms through the body; polling documentation is corrected without adding healthy jitter. These are prospective implementation details for the requested handoff, not claims of completed fixes or new external verification.
+
+
+## Current implementation disposition (2026-09-13)
+
+The planning passages above are historical. Packages 006–013 are implemented; the latest parser follow-up is verified in the [current audit](../verification-2026-09-13.md). Both native feature configurations execute unit and public-consumer tests. The D-001–D-011 decisions remain open; completion of the narrow remediation does not resolve them.
