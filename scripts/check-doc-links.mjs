@@ -130,9 +130,23 @@ export function buildLinkParseTables(line, stats = null) {
       }
       const idx = rawRuns.length;
       rawRuns.push({ start, end: bp, len: bp - start });
-      rawRunAt[start] = idx;
+      for (let pos = start; pos < bp; pos++) {
+        rawRunAt[pos] = idx;
+      }
       bp = line.indexOf('`', bp);
     }
+  }
+
+  const runsByLen = new Map();
+  for (let r = 0; r < rawRuns.length; r++) {
+    if (stats) stats.work++;
+    const k = rawRuns[r].len;
+    let list = runsByLen.get(k);
+    if (!list) {
+      list = [];
+      runsByLen.set(k, list);
+    }
+    list.push(r);
   }
 
   const nextEqualRun = new Int32Array(rawRuns.length).fill(-1);
@@ -249,6 +263,7 @@ export function buildLinkParseTables(line, stats = null) {
     rawRuns,
     rawRunAt,
     nextEqualRun,
+    runsByLen,
   };
 }
 
@@ -443,6 +458,7 @@ export function extractLinks(filePath, content, options = {}) {
     // Single-pass forward scanner for inline links: [text](destination "optional title")
     let i = 0;
     let openBracketStack = [];
+    const ptrByLen = new Map();
 
     while (i < len) {
       if (stats) stats.work++;
@@ -453,16 +469,35 @@ export function extractLinks(filePath, content, options = {}) {
       }
 
       // 2. Code span opener candidate in actual parsing context:
-      // Since it is unescaped outside spans, an unescaped backtick string starting at i is tested as an opener.
+      // An unescaped backtick string (including a run suffix exposed by an escaped initial backtick)
+      // is tested as an opener of length remLen = run.end - i.
       if (line[i] === '`') {
         const runIdx = tables.rawRunAt ? tables.rawRunAt[i] : -1;
         if (runIdx !== -1) {
           const run = tables.rawRuns[runIdx];
-          const closerIdx = tables.nextEqualRun[runIdx];
-          if (closerIdx !== -1) {
+          const remLen = run.end - i;
+          let closer = null;
+
+          if (remLen === run.len && tables.nextEqualRun && tables.nextEqualRun[runIdx] !== -1) {
+            closer = tables.rawRuns[tables.nextEqualRun[runIdx]];
+          } else if (tables.runsByLen) {
+            const list = tables.runsByLen.get(remLen);
+            if (list) {
+              let ptr = ptrByLen.get(remLen) || 0;
+              while (ptr < list.length && list[ptr] <= runIdx) {
+                if (stats) stats.work++;
+                ptr++;
+              }
+              ptrByLen.set(remLen, ptr);
+              if (ptr < list.length) {
+                closer = tables.rawRuns[list[ptr]];
+              }
+            }
+          }
+
+          if (closer !== null) {
             // Inside code spans, backslashes are literal per CommonMark §6.1.
             // Jump past the closing backtick run.
-            const closer = tables.rawRuns[closerIdx];
             i = closer.end;
             continue;
           } else {

@@ -607,3 +607,30 @@ test('extractLinks handles escaped backticks and code spans in link labels', () 
   assert.equal(linksBracket.length, 1);
   assert.equal(linksBracket[0].destination, 'target.md');
 });
+
+test('extractLinks handles run suffixes exposed by escaped initial backticks for single and multiple remaining backticks', () => {
+  // 1 remaining backtick exposed by escaped initial backtick (Leader probe)
+  const inputSingle = '\\``[fake](missing.md)` [real](ok.md)';
+  const linksSingle = extractLinks('probe.md', inputSingle);
+  assert.deepEqual(linksSingle.map(l => l.destination), ['ok.md']);
+
+  // 2 remaining backticks exposed by escaped initial backtick
+  const inputDouble = '\\```[fake](missing.md)`` [real](ok.md)';
+  const linksDouble = extractLinks('probe.md', inputDouble);
+  assert.deepEqual(linksDouble.map(l => l.destination), ['ok.md']);
+
+  // 3 remaining backticks exposed by escaped initial backtick
+  const inputTriple = '\\````[fake](missing.md)``` [real](ok.md)';
+  const linksTriple = extractLinks('probe.md', inputTriple);
+  assert.deepEqual(linksTriple.map(l => l.destination), ['ok.md']);
+
+  // Remaining backticks with no matching closer (literal backticks)
+  const inputUnmatched = '\\```[real](ok.md)````';
+  const linksUnmatched = extractLinks('probe.md', inputUnmatched);
+  assert.deepEqual(linksUnmatched.map(l => l.destination), ['ok.md']);
+
+  // Double escape followed by single escape and remaining backtick
+  const inputMultiEscape = '\\\\\\``[fake](missing.md)` [real](ok.md)';
+  const linksMultiEscape = extractLinks('probe.md', inputMultiEscape);
+  assert.deepEqual(linksMultiEscape.map(l => l.destination), ['ok.md']);
+});
