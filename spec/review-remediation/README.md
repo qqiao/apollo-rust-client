@@ -20,7 +20,7 @@ Each row has a separate specification, plan, and task list. This was the origina
 | R6, P2 | 011 — Make current public examples and references reliable | [spec](../011-executable-public-docs/spec.md) | [plan](../011-executable-public-docs/plan.md) | [tasks](../011-executable-public-docs/tasks.md) | 007 public alias; 008 ownership text; 010 runner edits |
 | R7, P2 | 012 — Describe actual polling timing and jitter | [spec](../012-accurate-polling-docs/spec.md) | [plan](../012-accurate-polling-docs/plan.md) | [tasks](../012-accurate-polling-docs/tasks.md) | Land after 011 to avoid overlapping guide edits |
 | V1–V3, P1 | 013 — Review follow-up | [spec](../013-review-followup/spec.md) | [plan](../013-review-followup/plan.md) | [tasks](../013-review-followup/tasks.md) | Follow-up for 009, 011, and status reconciliation |
-| Copilot F1–F8 | 014 — Copilot remediation | [spec](../014-copilot-remediation/spec.md) | [plan](../014-copilot-remediation/plan.md) | [tasks](../014-copilot-remediation/tasks.md) | Follow-up for 009, 010, 011, and PR #133 Copilot review |
+| Copilot F1–F18 | 014 — Copilot remediation | [spec](../014-copilot-remediation/spec.md) | [plan](../014-copilot-remediation/plan.md) | [tasks](../014-copilot-remediation/tasks.md) | Follow-up for 009, 010, 011, and PR #133 Copilot review rounds (baseline F1–F8 and follow-ups F9–F18) |
 
 006 and 007 can be implemented independently, but both touch `src/lib.rs`/cache documentation indirectly. 009 and 010 share test scripts; 008/011/012 share documentation. Default to serial execution. This map describes dependencies, not authorization to launch other agents or tasks.
 
@@ -54,4 +54,4 @@ See [current verification and status audit](../verification-2026-09-13.md) for t
 
 ## Program completion
 
-After all seven packages are implemented, follow [execution.md](execution.md#final-integration-checkpoint). Do not infer completion from the green baseline or automatically mark the earlier feature-005 historical checklist as proof of these new fault cases.
+Packages 006–014 are now implemented and verified (historical instruction: after all seven baseline packages were implemented, follow [execution.md](execution.md#final-integration-checkpoint)). Do not infer completion from the green baseline or automatically mark the earlier feature-005 historical checklist as proof of these new fault cases.

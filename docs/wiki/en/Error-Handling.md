@@ -28,7 +28,7 @@ Exported publicly as `apollo_rust_client::CacheError`:
 - **`InvalidBaseUrl`**: Base URL cannot be used as an Apollo server endpoint
 - **`InvalidSigningKey`**: Missing or invalid HMAC signing secret
 - **`Serde`**: JSON serialization or parsing error
-- **`Io`**: Cache file system error (native targets only)
+- **`Io`**: Cache file system error
 
 ### Namespace Errors
 

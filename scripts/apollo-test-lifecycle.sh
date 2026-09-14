@@ -165,9 +165,18 @@ cleanup() {
       # If run failed or was interrupted, capture diagnostic logs first (bounded)
       if [ "$original_status" -ne 0 ] || [ "${INTERRUPTED_STATUS:-0}" -ne 0 ]; then
         echo "[apollo-test] Capturing diagnostic logs before teardown..." >&2
-        mkdir -p "${RUN_DIR}/logs" 2>/dev/null || true
-        run_with_timeout 15 docker compose -f "${COMPOSE_FILE}" -p "${PROJECT_NAME}" ps -a > "${RUN_DIR}/logs/compose-ps.txt" 2>&1 || true
-        run_with_timeout 30 docker compose -f "${COMPOSE_FILE}" -p "${PROJECT_NAME}" logs > "${RUN_DIR}/logs/compose-services.log" 2>&1 || true
+        if ! mkdir -p "${RUN_DIR}/logs" 2>/dev/null; then
+          echo "[apollo-test] WARNING: Failed to create diagnostic log directory '${RUN_DIR}/logs'." >&2
+          DIAGNOSTIC_FAILURE=1
+        fi
+        if ! run_with_timeout 15 docker compose -f "${COMPOSE_FILE}" -p "${PROJECT_NAME}" ps -a > "${RUN_DIR}/logs/compose-ps.txt" 2>&1; then
+          echo "[apollo-test] WARNING: Failed to capture compose ps diagnostic log." >&2
+          DIAGNOSTIC_FAILURE=1
+        fi
+        if ! run_with_timeout 30 docker compose -f "${COMPOSE_FILE}" -p "${PROJECT_NAME}" logs > "${RUN_DIR}/logs/compose-services.log" 2>&1; then
+          echo "[apollo-test] WARNING: Failed to capture compose services diagnostic log." >&2
+          DIAGNOSTIC_FAILURE=1
+        fi
       fi
 
       echo "[apollo-test] Tearing down Compose project ${PROJECT_NAME}..." >&2

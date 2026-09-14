@@ -383,6 +383,43 @@ test('status table: success + unwritable teardown log -> 1, teardown still runs'
   }
 });
 
+test('diagnostic capture: unwritable compose-ps.txt or compose-services.log sets DIAGNOSTIC_FAILURE, emits warning, and still proceeds to teardown', () => {
+  const tempDir = makeTempDir();
+  try {
+    const { binDir, logPath } = createStubDocker(tempDir);
+    const runDir = path.join(tempDir, 'run');
+    const logsDir = path.join(runDir, 'logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    fs.writeFileSync(path.join(runDir, 'ownership.json'), JSON.stringify({ project: 'apollo-test-p1' }));
+
+    // Make compose-ps.txt and compose-services.log directories so redirection fails
+    fs.mkdirSync(path.join(logsDir, 'compose-ps.txt'));
+    fs.mkdirSync(path.join(logsDir, 'compose-services.log'));
+
+    const harness = `
+      set -euo pipefail
+      PATH="${binDir}:$PATH"
+      source "${LIFECYCLE_SCRIPT}"
+      COMPOSE_FILE="${tempDir}/compose.yaml"
+      touch "$COMPOSE_FILE"
+      PROJECT_NAME="apollo-test-p1"
+      RUN_DIR="${runDir}"
+      install_lifecycle_traps
+      exit 7
+    `;
+    const res = runBashHarness(harness, { PATH: `${binDir}:${process.env.PATH}` });
+    assert.equal(res.status, 7, 'Stage status 7 must be preserved');
+    assert.match(res.stderr, /WARNING: Failed to capture compose ps diagnostic log/);
+    assert.match(res.stderr, /WARNING: Failed to capture compose services diagnostic log/);
+    assert.ok(fs.existsSync(logPath), 'Docker down must still be executed even when diagnostic capture fails');
+    const logCalls = fs.readFileSync(logPath, 'utf8').trim().split('\n');
+    assert.ok(logCalls.some((c) => c.includes('down')), 'Teardown down must still execute');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+
 test('status table: SIGINT -> 130 and SIGTERM -> 143', async () => {
   for (const [sig, expectedStatus] of [['SIGINT', 130], ['SIGTERM', 143]]) {
     const tempDir = makeTempDir();

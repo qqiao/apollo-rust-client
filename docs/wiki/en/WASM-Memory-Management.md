@@ -70,7 +70,7 @@ async function useApolloClient() {
 
 ## Event Listener Cleanup
 
-Event listeners are automatically cleaned up when the client is freed, but you should still follow proper cleanup patterns:
+Event listeners retained by the client-managed cache and task lifecycle are released once active background revalidation tasks complete and the client is freed, but you should still follow proper cleanup patterns:
 
 ```javascript
 async function useWithEventListeners() {

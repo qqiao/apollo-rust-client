@@ -176,5 +176,5 @@ The `Client` can return the following errors:
 ### WASM
 
 - **Critical**: Must call `.free()` on live `Client` and returned `Properties` class instances when done. `ClientConfig` is consumed when passed to `new Client(config)` and must not be freed after transfer.
-- Event listeners are automatically cleaned up when the client object is freed.
+- Event listeners retained by the client-managed cache/task lifecycle are released once active background revalidation tasks complete and the client object is freed.
 - Other formats (like JSON, YAML, or Text) are returned as raw JS objects or strings, and do not need to be freed manually.

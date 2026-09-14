@@ -12,30 +12,45 @@
 
 - **Root Cause (F1):** Line 95 of `scripts/apollo-fixtures.mjs` directly templates `${url}` into the `TimeoutError` message. If the test or caller passes a URL with HTTP basic credentials (`http://admin:pass@host/api`) or sensitive query parameters (`?access_token=xyz&secret=123`), these secrets are emitted in the diagnostic output, violating AC-005 and FR-006 of specification 010.
 - **Technical Design:**
-  1. Add a dedicated `redactUrl(rawUrl)` helper function:
+  1. Add a dedicated `redactUrl(rawUrl)` helper function covering camelCase, underscore, hyphen, and `authorization` forms (`appSecret`, `apiKey`, `api-key`, `accessKey`, `access_token`, `client_secret`, `authorization` per F1 and F9):
 
 ```javascript
+const SENSITIVE_PARAM_NAMES_PATTERN =
+  '(?:token|secret|key|password|auth|credentials?|authorization|api[-_]?key|(?:access|client|app)[-_]?(?:token|secret|key))';
+const SENSITIVE_PARAM_REGEX = new RegExp(`^${SENSITIVE_PARAM_NAMES_PATTERN}$`, 'i');
+const SENSITIVE_FALLBACK_REPLACE_REGEX = new RegExp(
+  `([?&]${SENSITIVE_PARAM_NAMES_PATTERN}=)[^&#]*`,
+  'gi'
+);
+
 export function redactUrl(rawUrl) {
+  if (!rawUrl) {
+    return '';
+  }
+  const urlString = rawUrl instanceof URL ? rawUrl.toString() : (typeof rawUrl === 'string' ? rawUrl : String(rawUrl));
   try {
-    const parsed = new URL(rawUrl);
+    const parsed = new URL(urlString);
     // Strip userinfo
     if (parsed.username || parsed.password) {
       parsed.username = '***';
       parsed.password = '***';
     }
-    // Redact sensitive query parameters
-    const SENSITIVE_PARAM_PATTERN = /^(token|secret|key|password|auth|credential|access_token|client_secret)$/i;
-    for (const [key, value] of parsed.searchParams.entries()) {
-      if (SENSITIVE_PARAM_PATTERN.test(key)) {
-        parsed.searchParams.set(key, 'REDACTED');
+    // Redact sensitive query parameters while preserving non-sensitive parameters and duplicate keys
+    const entries = Array.from(parsed.searchParams.entries());
+    parsed.search = '';
+    for (const [key, val] of entries) {
+      if (SENSITIVE_PARAM_REGEX.test(key)) {
+        parsed.searchParams.append(key, 'REDACTED');
+      } else {
+        parsed.searchParams.append(key, val);
       }
     }
     return parsed.toString();
   } catch {
-    // Fallback for relative or malformed URLs: basic regex redaction
-    return rawUrl
-      .replace(/\/\/[^:]+:[^@]+@/, '//***:***@')
-      .replace(/([?&](?:token|secret|key|password|auth|credential)=)[^&]*/gi, '$1REDACTED');
+    // Fallback for relative or malformed URLs: regex-based userinfo and query redaction
+    return urlString
+      .replace(/(^|[^/]*\/\/)([^:@/\s]+):([^@/\s]+)@/, '$1***:***@')
+      .replace(SENSITIVE_FALLBACK_REPLACE_REGEX, '$1REDACTED');
   }
 }
 ```

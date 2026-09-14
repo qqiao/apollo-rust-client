@@ -2,7 +2,7 @@
 
 These feature specifications describe what application developers and operators need from the existing Apollo client, with observable requirements and acceptance scenarios. They were reconstructed on 2026-09-06 from revision `4473cffe7a8a45c86978053da23ef36553b0ea3d`. The manifest says 0.7.0; this checkout also contains work listed as Unreleased. The scope is the checkout, not a claim about a published package.
 
-**Implementation status:** Features 001–014 are implemented. See the [current verification and status audit](verification-2026-09-13.md) for runtime evidence and remaining acceptance-coverage limits. **Specification acceptance:** retrospective requirements and inferred priorities still await maintainer acceptance; implemented code is not product approval.
+**Implementation status:** Features 001–013 and remediation package 014 are implemented. See the [current verification and status audit](verification-2026-09-13.md) for runtime evidence and remaining acceptance-coverage limits. **Specification acceptance:** retrospective requirements and inferred priorities still await maintainer acceptance; implemented code is not product approval.
 
 ## Feature specifications
 
@@ -22,7 +22,7 @@ Each `spec.md` uses prioritized stories, Given/When/Then scenarios, functional r
 
 ## Review remediation (2026-09-13)
 
-The seven baseline remediation packages (006–012) and the review follow-up package ([013 — Review follow-up](013-review-followup/spec.md)) are implemented and verified by the available local checks; acceptance-coverage and remote CI limits are recorded in the status audit. Follow-up findings V1–V3 from the historical verification review are resolved in [013 — Review follow-up](013-review-followup/spec.md) (review preserved at [commit 1ca6871](https://github.com/qqiao/apollo-rust-client/blob/1ca68717e268a5298b814c97cd0703cd950554fa/spec/review-remediation/re-review.md)). Read the [remediation handoff](review-remediation/README.md) for the package map, dependencies, executor prompt, scope exclusions, and verification rules. These narrow amendments do not promote all retrospective requirements or deferred policies to approved scope.
+The seven baseline remediation packages (006–012), the review follow-up package ([013 — Review follow-up](013-review-followup/spec.md)), and the Copilot remediation package ([014 — Copilot remediation](014-copilot-remediation/spec.md)) are implemented and verified by the available local checks; acceptance-coverage and remote CI limits are recorded in the status audit. Follow-up findings V1–V3 from the historical verification review are resolved in [013 — Review follow-up](013-review-followup/spec.md) (review preserved at [commit 1ca6871](https://github.com/qqiao/apollo-rust-client/blob/1ca68717e268a5298b814c97cd0703cd950554fa/spec/review-remediation/re-review.md)). Read the [remediation handoff](review-remediation/README.md) for the package map, dependencies, executor prompt, scope exclusions, and verification rules. These narrow amendments do not promote all retrospective requirements or deferred policies to approved scope.
 
 | Package | Intended correction |
 |---|---|
