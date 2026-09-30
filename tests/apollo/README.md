@@ -4,6 +4,9 @@ This directory contains the integration testing environment for `apollo-rust-cli
 
 ## Prerequisites and System Requirements
 
+For fresh/reset Linux x86_64 workspaces, use the [development setup guide](../../docs/development.md)
+and `scripts/setup-dev.sh` to prepare Rust, Node, and wasm-pack. Docker remains host-managed.
+
 ### Required Tools
 - **Rust toolchain**: Stable Rust with `wasm32-unknown-unknown` target (`rustup target add wasm32-unknown-unknown`).
 - **wasm-pack**: For building WebAssembly Node/browser packages (`cargo install wasm-pack`).

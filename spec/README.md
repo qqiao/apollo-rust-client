@@ -53,3 +53,8 @@ The older `specs/` directory in git history contained early software design desc
 Identifiers are local to a feature: reference `001-read-configuration/FR-001`, `002-retain-configuration/AC-001`, etc. Keep identifiers stable when updating a feature. P1/P2 is reconstructed importance/dependency, not historical prioritization or a future release commitment.
 
 For a future change, revise the affected requirements/scenarios first, resolve relevant decision-register items, and review the intended behavior. Then derive the technical plan and implementation tasks, add or update meaningful acceptance tests, implement, and update evidence/user documentation. No fictitious implementation backlog or completed-plan history is generated for code that already exists.
+
+## Development environment
+
+[015 — Recoverable development environment](015-development-environment/spec.md) extends
+005/FR-014 with checkout-local setup and contributor/agent handoff instructions.
