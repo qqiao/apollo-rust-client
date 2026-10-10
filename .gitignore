@@ -19,3 +19,6 @@ target/
 # Added by cargo
 
 /target
+
+# Checkout-local development tools and activation records
+/.dev/

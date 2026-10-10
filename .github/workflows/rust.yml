@@ -10,6 +10,20 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  development-setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bootstrap a fresh checkout twice
+        run: |
+          scripts/setup-dev.sh
+          scripts/setup-dev.sh
+          source .dev/env.sh
+          node --test tests/tooling/setup-dev.test.mjs
+          cargo clippy --locked --all-targets -- -D warnings
+          cat .dev/versions.txt
+
   quality:
     runs-on: ubuntu-latest
     steps:

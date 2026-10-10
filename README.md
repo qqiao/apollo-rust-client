@@ -442,6 +442,10 @@ For full details on tool prerequisites, container image provenance, fixture arch
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
+For a fresh or reset development workspace, follow the [development setup guide](docs/development.md).
+It provides checkout-local Linux x86_64 setup, tool versions, native prerequisites,
+and the distinction between fast checks and Docker-backed integration tests.
+
 ## License
 
 This project is licensed under the Apache License Version 2.0 - see the [LICENSE](LICENSE) file for details.
