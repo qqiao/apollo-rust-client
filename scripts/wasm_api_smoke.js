@@ -1,5 +1,6 @@
 const path = require("path");
 const fs = require("fs");
+const assert = require("node:assert/strict");
 
 // 1. Resolve package directory
 const pkgDir = process.argv[2]
@@ -27,6 +28,42 @@ for (const constructor of ["Client", "ClientConfig"]) {
   if (typeof bindings[constructor] !== "function") {
     throw new Error(`WASM binding is missing ${constructor}`);
   }
+}
+
+// Configuration accessors preserve the public API when Copy fields use copying
+// getters and owned strings use cloning getters (004/FR-001, 008/FR-006).
+const accessorConfig = new bindings.ClientConfig("app_id", "http://server:8080", "default");
+try {
+  const cases = {
+    app_id: ["app_id", "updated-app"],
+    cluster: ["default", "production"],
+    config_server: ["http://server:8080", "https://example.com"],
+    cache_dir: [undefined, "cache/配置", "", undefined, null],
+    secret: [undefined, "secret-value", "", undefined, null],
+    label: [undefined, "canary,β", "", undefined, null],
+    ip: [undefined, "127.0.0.1", "", undefined, null],
+    allow_insecure_https: [undefined, true, false, undefined, null],
+    cache_ttl: [undefined, 0n, 600n, (1n << 64n) - 1n, undefined, null],
+    refresh_interval: [undefined, 0n, 30n, (1n << 64n) - 1n, undefined, null],
+    request_timeout: [undefined, 0n, 10n, (1n << 64n) - 1n, undefined, null],
+  };
+  for (const [field, values] of Object.entries(cases)) {
+    const descriptor = Object.getOwnPropertyDescriptor(bindings.ClientConfig.prototype, field);
+    assert.equal(typeof descriptor?.get, "function", `${field} getter`);
+    assert.equal(typeof descriptor?.set, "function", `${field} setter`);
+    for (const value of values) {
+      accessorConfig[field] = value;
+      const expected = value === null ? undefined : value;
+      assert.equal(accessorConfig[field], expected, `${field} round trip`);
+      assert.equal(accessorConfig[field], expected, `${field} repeated read`);
+    }
+  }
+  accessorConfig.app_id = "original-配置";
+  const retainedString = accessorConfig.app_id;
+  accessorConfig.app_id = "replacement";
+  assert.equal(retainedString, "original-配置", "string reads remain independently owned values");
+} finally {
+  accessorConfig.free();
 }
 
 // 3. Extract and execute canonical ownership snippet from doc
@@ -133,4 +170,4 @@ if (!validationError) {
   throw new Error("Expected Client constructor to fail with invalid URL");
 }
 
-console.log("[wasm_api_smoke] All WASM method export and ownership checks passed successfully.");
+console.log("[wasm_api_smoke] All WASM method export, configuration accessor, and ownership checks passed successfully.");
