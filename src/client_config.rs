@@ -195,18 +195,21 @@ pub enum Error {
 /// };
 /// ```
 #[derive(Clone, Debug)]
-#[wasm_bindgen(getter_with_clone)]
+// Clone only owned string fields; Copy fields use wasm-bindgen's default getters.
+#[wasm_bindgen]
 pub struct ClientConfig {
     /// The unique identifier for your application in Apollo.
     ///
     /// This is used to identify which application's configuration to retrieve
     /// from the Apollo Configuration Center.
+    #[wasm_bindgen(getter_with_clone)]
     pub app_id: String,
 
     /// The cluster name to connect to.
     ///
     /// Clusters allow you to organize different environments or deployment
     /// groups. Common values include "default", "production", "staging", etc.
+    #[wasm_bindgen(getter_with_clone)]
     pub cluster: String,
 
     /// The base directory used to store native local cache files.
@@ -214,6 +217,7 @@ pub struct ClientConfig {
     /// On native Rust targets, this specifies where configuration files should
     /// be cached locally. If `None`, a platform-standard application cache directory is used.
     /// On WebAssembly targets this value is ignored because filesystem access is unavailable.
+    #[wasm_bindgen(getter_with_clone)]
     pub cache_dir: Option<String>,
 
     /// The Apollo configuration server URL.
@@ -222,6 +226,7 @@ pub struct ClientConfig {
     /// including the protocol (http/https) and port if necessary.
     /// Example: "http://apollo-server:8080"
     #[allow(clippy::doc_markdown)]
+    #[wasm_bindgen(getter_with_clone)]
     pub config_server: String,
 
     /// Optional secret key for authentication with the Apollo server.
@@ -229,6 +234,7 @@ pub struct ClientConfig {
     /// If your Apollo namespace requires authentication, provide the secret key here.
     /// This is used to generate HMAC-SHA1 signatures for secure access to protected
     /// configuration namespaces.
+    #[wasm_bindgen(getter_with_clone)]
     pub secret: Option<String>,
 
     /// Labels for grayscale release targeting.
@@ -236,6 +242,7 @@ pub struct ClientConfig {
     /// Comma-separated list of labels that identify this client instance.
     /// Apollo can use these labels to determine which configuration version
     /// to serve during grayscale releases. Example: "canary,beta"
+    #[wasm_bindgen(getter_with_clone)]
     pub label: Option<String>,
 
     /// IP address for grayscale release targeting.
@@ -243,6 +250,7 @@ pub struct ClientConfig {
     /// The IP address of this client instance. Apollo can use this IP address
     /// to determine which configuration version to serve during grayscale releases
     /// based on IP-based targeting rules.
+    #[wasm_bindgen(getter_with_clone)]
     pub ip: Option<String>,
 
     /// Whether to allow insecure HTTPS connections (self-signed certificates).
